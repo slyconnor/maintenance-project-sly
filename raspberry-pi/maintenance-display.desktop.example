@@ -1,0 +1,5 @@
+[Desktop Entry]
+Type=Application
+Name=Maintenance Display
+Exec=chromium-browser --kiosk --noerrdialogs --disable-session-crashed-bubble http://127.0.0.1:8787/pi.html
+X-GNOME-Autostart-enabled=true

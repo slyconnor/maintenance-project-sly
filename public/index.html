@@ -1,0 +1,113 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Maintenance Manager</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div class="app-shell">
+    <aside class="sidebar">
+      <div class="brand"><div class="brand-mark">⚙</div><div><strong>Maintenance</strong><span>Manager</span></div></div>
+      <nav id="mainNav" class="nav-list" aria-label="Main navigation">
+        <button class="nav-item active" data-view="dashboard">⌂ <span>Dashboard</span></button>
+        <button class="nav-item" data-view="open">☑ <span>Open Jobs</span><b id="openBadge" class="badge">0</b></button>
+        <button class="nav-item" data-view="jobs">☷ <span>All Jobs</span></button>
+        <button class="nav-item" data-view="machines">▣ <span>Machines</span></button>
+        <button class="nav-item" data-view="parts">◇ <span>Parts</span></button>
+        <button class="nav-item" data-view="reports">▥ <span>Reports</span></button>
+        <button class="nav-item" data-view="team">♟ <span>Team</span></button>
+      </nav>
+      <div class="side-summary">
+        <div class="eyebrow" id="sideMonthLabel">Current month</div>
+        <div class="summary-row"><span>Parts spend</span><strong id="sideSpend">£0</strong></div>
+        <div class="summary-row"><span>Maintenance hours</span><strong id="sideHours">0</strong></div>
+      </div>
+    </aside>
+
+    <main class="main">
+      <header class="topbar">
+        <div class="year-month-controls">
+          <select id="yearSelect" aria-label="Year"></select>
+          <div id="monthTabs" class="month-tabs" aria-label="Months"></div>
+        </div>
+        <div class="top-actions profile-actions">
+          <label class="profile-picker">Viewing profile
+            <select id="profileSelect" aria-label="Viewing profile"></select>
+          </label>
+          <a class="btn secondary admin-login" href="admin.html" title="Admin management area; protect this path with a stricter Cloudflare Access policy when deployed">🔒 Admin Login</a>
+          <a class="btn secondary display-link" href="pi.html" title="Read-only current-month wall display">▣ Display Mode</a>
+          <button class="btn secondary" id="reportsBtn">Reports</button>
+          <button class="btn primary" id="newJobBtn">＋ New Job</button>
+        </div>
+      </header>
+
+      <section id="dashboardView" class="view active">
+        <div class="page-heading"><div><h1 id="monthTitle">Month</h1><p id="dashboardSubtitle">Overview of maintenance activity for this month.</p></div></div>
+        <div class="kpi-grid">
+          <article class="kpi"><span class="kpi-icon">🧰</span><div><strong id="kpiJobs">0</strong><span>Jobs this month</span></div></article>
+          <article class="kpi"><span class="kpi-icon orange">📋</span><div><strong id="kpiOpen">0</strong><span>Open jobs</span></div></article>
+          <article class="kpi"><span class="kpi-icon green">◷</span><div><strong id="kpiHours">0</strong><span>Maintenance hours</span></div></article>
+          <article class="kpi"><span class="kpi-icon purple">£</span><div><strong id="kpiSpend">£0</strong><span>Parts spend</span></div></article>
+        </div>
+
+        <div class="chart-grid">
+          <article class="panel chart-panel"><h2>Maintenance time by machine category</h2><div class="chart-content"><div id="hoursPie" class="pie" aria-label="Maintenance hours pie chart"></div><div id="hoursLegend" class="legend"></div></div></article>
+          <article class="panel chart-panel"><h2>Parts spend by machine category</h2><div class="chart-content"><div id="spendPie" class="pie" aria-label="Parts spend pie chart"></div><div id="spendLegend" class="legend"></div></div></article>
+        </div>
+
+        <article class="panel pinned-panel">
+          <div class="panel-title"><h2>📌 Pinned / Important Jobs</h2><button class="link-btn" data-nav="jobs">View all jobs</button></div>
+          <div class="table-wrap"><table><thead><tr><th>Job No.</th><th>Title</th><th>Machine / Location</th><th>Priority</th><th>Status</th><th>Raised</th><th>Target</th><th>Hours</th><th>Parts Cost</th><th>Assigned To</th></tr></thead><tbody id="pinnedJobsBody"></tbody></table></div>
+        </article>
+
+        <article class="panel">
+          <div class="panel-title"><h2 id="jobsTableTitle">Jobs</h2><div class="filter-row"><select id="statusFilter"><option value="all">All statuses</option><option>Open</option><option>In Progress</option><option>Waiting Parts</option><option>Completed</option></select><select id="priorityFilter"><option value="all">All priorities</option><option>High</option><option>Medium</option><option>Low</option></select><input id="jobSearch" type="search" placeholder="Search jobs…" /></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Job No.</th><th>Title</th><th>Machine / Location</th><th>Priority</th><th>Status</th><th>Raised</th><th>Target</th><th>Completed</th><th>Hours</th><th>Parts Cost</th><th>Assigned To</th><th>Pin</th></tr></thead><tbody id="monthJobsBody"></tbody></table></div>
+        </article>
+      </section>
+
+      <section id="openView" class="view"><div class="page-heading"><div><h1>Open Jobs</h1><p id="openSubtitle">All outstanding work, including jobs carried over from earlier months.</p></div></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Job No.</th><th>Title</th><th>Machine</th><th>Priority</th><th>Status</th><th>Raised</th><th>Target</th><th>Hours</th><th>Assigned To</th></tr></thead><tbody id="openJobsBody"></tbody></table></div></article></section>
+
+      <section id="jobsView" class="view"><div class="page-heading"><div><h1 id="allJobsTitle">All Jobs</h1><p id="jobsSubtitle">Full maintenance job register.</p></div><button class="btn primary" data-new-job>＋ New Job</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Job No.</th><th>Title</th><th>Machine / Location</th><th>Priority</th><th>Status</th><th>Raised</th><th>Target</th><th>Completed</th><th>Hours</th><th>Parts</th><th>Assigned</th><th>Pin</th></tr></thead><tbody id="allJobsBody"></tbody></table></div></article></section>
+
+      <section id="machinesView" class="view"><div class="page-heading"><div><h1>Machines</h1><p id="machinesSubtitle">Select a machine to see its maintenance history and lifetime recorded cost.</p></div><button class="btn secondary" id="addMachineBtn">＋ Add Machine</button></div><div class="machine-layout"><article class="panel"><div id="machineList" class="machine-list"></div></article><article class="panel machine-detail" id="machineDetail"></article></div></section>
+
+      <section id="partsView" class="view"><div class="page-heading"><div><h1>Parts</h1><p id="partsSubtitle">Parts usage, dates, suppliers and costs recorded through maintenance jobs.</p></div></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Date Used</th><th>Part Name</th><th>Part No.</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Supplier</th><th>Job</th><th>Machine</th></tr></thead><tbody id="partsBody"></tbody></table></div></article></section>
+
+      <section id="reportsView" class="view"><div class="page-heading"><div><h1>Monthly Reports</h1><p id="reportsSubtitle">Generate a report for the selected month using the month tabs above.</p></div></div><div class="report-actions"><article class="panel report-card"><h2 id="reportMonth">Monthly report</h2><p id="reportSummary"></p><div class="button-stack"><button id="downloadExcelBtn" class="btn primary">Download Excel report</button><button id="printReportBtn" class="btn secondary">Print / Save as PDF</button></div></article></div><article id="reportPreview" class="panel report-preview"></article></section>
+
+      <section id="teamView" class="view"><div class="page-heading"><div><h1>Team Profiles</h1><p>Choose a profile to see only that engineer’s jobs. Admin can add or deactivate profiles from Admin Login.</p></div></div><div id="teamGrid" class="team-grid"></div></section>
+    </main>
+  </div>
+
+  <dialog id="jobDialog" class="modal">
+    <form id="jobForm" method="dialog">
+      <div class="modal-head"><div><h2 id="jobDialogTitle">Add maintenance job</h2><p id="jobDialogSubtitle">Job number is created automatically but can be changed before saving.</p></div><button type="button" class="icon-btn" data-close-dialog>×</button></div>
+      <div class="form-grid">
+        <label>Job number<input name="jobNo" required placeholder="JOB-2026-0001" /><small class="field-help">Generated automatically. You can change it; duplicates are blocked.</small></label>
+        <label>Title<input name="title" required /></label>
+        <label class="span-2">Description<textarea name="description" rows="3"></textarea></label>
+        <label>Section<select name="section" id="jobSectionSelect" required></select><small class="field-help">Choose a saved section or add a new one.</small></label>
+        <label>Machine / Equipment<select name="machine" id="jobMachineSelect" required></select><small class="field-help">Only machines in the selected section are shown.</small></label>
+        <label>Priority<select name="priority"><option>Medium</option><option>High</option><option>Low</option></select></label>
+        <label>Status<select name="status"><option>Open</option><option>In Progress</option><option>Waiting Parts</option><option>Completed</option></select></label>
+        <label>Assigned to<select name="assigned" id="jobAssignedSelect" required></select></label>
+        <label>Date raised<input name="raised" type="date" required /></label>
+        <label>Target date<input name="target" type="date" /></label>
+        <label>Completion date<input name="completed" type="date" /></label>
+        <label class="span-2">Notes<textarea name="notes" rows="3"></textarea></label>
+        <label class="check-row span-2"><input name="pinned" type="checkbox" /> Pin this job</label>
+      </div>
+      <fieldset class="parts-fieldset time-fieldset"><legend>Maintenance time</legend><p class="fieldset-help">Log time by date so monthly totals stay correct when a job spans more than one month.</p><div id="timeEditor" class="time-editor"></div><button id="addTimeRowBtn" type="button" class="btn secondary compact">＋ Add time entry</button></fieldset>
+      <fieldset class="parts-fieldset"><legend>Parts used (optional)</legend><p class="fieldset-help">Select saved parts and suppliers to keep names consistent. Prices are deliberately entered manually each time so the exact historical price is preserved.</p><div id="partsEditor" class="parts-editor"></div><button id="addPartRowBtn" type="button" class="btn secondary compact">＋ Add part</button></fieldset>
+      <div class="modal-actions"><button type="button" class="btn secondary" data-close-dialog>Cancel</button><button id="jobSubmitBtn" class="btn primary" type="submit">Save Job</button></div>
+    </form>
+  </dialog>
+
+  <dialog id="machineDialog" class="modal small-modal"><form id="machineForm" method="dialog"><div class="modal-head"><h2>Add machine</h2><button type="button" class="icon-btn" data-close-machine>×</button></div><div class="form-grid"><label>Asset / Machine ID<input name="assetId" required placeholder="RM-124" /><small class="field-help">Unique identifier separate from the machine name.</small></label><label>Section<select name="section" id="machineSectionSelect" required></select><small class="field-help">Select a saved section or add a new one.</small></label><label>Machine name<input name="name" required /></label><label>Machine type / category<input name="category" required placeholder="Rivet Machines" /></label><label>Location<input name="location" /></label><label>Purchase cost (£)<input name="purchaseCost" type="number" min="0" step="0.01" /></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-close-machine>Cancel</button><button class="btn primary">Save Machine</button></div></form></dialog>
+
+  <script src="app.js"></script>
+</body>
+</html>

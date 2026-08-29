@@ -1,0 +1,16 @@
+[Unit]
+Description=Maintenance Display Cloudflare Access Proxy
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=pi
+WorkingDirectory=/opt/maintenance-display
+EnvironmentFile=/etc/maintenance-display.env
+ExecStart=/usr/bin/python3 /opt/maintenance-display/pi_proxy.py
+Restart=always
+RestartSec=5
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,59 @@
+MAINTENANCE MANAGER V5.1 — AGREED APPLICATION RULES
+===================================================
+
+ACCESS
+* Cloudflare Access protects the site.
+* Engineers may use email one-time PIN.
+* Cloudflare login may be offered on the same main login page.
+* Cloudflare login does not automatically make someone an admin.
+* Admin requires Cloudflare login + approved ADMIN_EMAILS + the separate Admin Access policy.
+* Engineer login opens All Jobs, not their personal profile.
+* Profile selector is a filter, not authentication.
+
+JOBS
+* Any authenticated engineer can add or edit any job.
+* Completed jobs remain editable.
+* Job numbers are automatic in JOB-YYYY-#### form but can be changed if unique.
+* Jobs include title, description, section, machine/equipment, priority, status,
+  date raised, target date, completion date, assigned engineer, notes and pin state.
+* Maintenance time is recorded as dated entries so hours are credited to the correct month.
+* Pinned open jobs remain easy to see across month boundaries.
+
+SECTIONS / MACHINES
+* Section names are selected from a saved list to reduce spelling duplicates.
+* Users can add a new section when needed.
+* Machine choices depend on the selected section.
+* Every machine has a separate Asset ID and machine name.
+* Machine page has Overview and full Job History.
+* Machine maintenance costs and hours are calculated from linked jobs.
+
+PARTS
+* Part names are selected from a saved catalog; new parts can be added.
+* Supplier names are selected from a saved list; new suppliers can be added.
+* Part price is NEVER a saved/default catalog price.
+* Price is entered manually for each job use because prices change.
+* Each part use stores date, part, part number, quantity, unit price, supplier and job.
+* Historical prices remain attached to their original transaction/date.
+
+PROFILES
+* Admin creates profiles using Name + Email.
+* Ordinary profile selector shows the name only.
+* Active profiles become engineer assignment choices.
+* Deactivating a profile keeps its job history.
+
+MONTHS / REPORTS
+* Current month is the landing dashboard.
+* Months are selected using tabs.
+* Open carried work remains visible in later months without duplicating the job.
+* Monthly hours and parts costs are allocated using their dated entries.
+* Monthly report supports printable/PDF-style output and Excel-compatible export.
+
+RASPBERRY PI
+* Dedicated /pi.html view.
+* Shows all current-month jobs/current carried work.
+* Read-only.
+* Intended to authenticate using its own Cloudflare Service Token through the local proxy.
+
+STORAGE
+* Production data is shared in Cloudflare D1.
+* No localStorage/sessionStorage is used as the application database.

@@ -1,0 +1,16 @@
+{
+  "name": "maintenance-manager-cloudflare-v5-1",
+  "private": true,
+  "version": "5.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "wrangler dev",
+    "deploy": "wrangler deploy",
+    "check": "node --check src/index.js && node --check public/app.js && node --check public/admin.js && node --check public/pi.js",
+    "db:info": "wrangler d1 info maintenance-project-sly-db",
+    "db:migrate": "wrangler d1 migrations apply maintenance-project-sly-db --remote"
+  },
+  "devDependencies": {
+    "wrangler": "^4.68.0"
+  }
+}

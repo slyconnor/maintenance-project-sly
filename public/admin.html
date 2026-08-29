@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Maintenance Manager · Admin</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body class="admin-body">
+  <main class="admin-shell">
+    <header class="admin-top">
+      <div>
+        <h1>Admin · Team Profiles</h1>
+        <p>Add engineer names and access emails. The main site only shows the engineer name; the email is kept for Cloudflare access integration.</p>
+      </div>
+      <a class="btn secondary admin-back" href="/index.html?view=dashboard">← Back to Maintenance Manager</a>
+    </header>
+
+    <section class="admin-banner" aria-live="polite">
+      <strong id="accessTitle">Checking Cloudflare Admin access…</strong>
+      <p id="accessStatus">Loading the shared profile database and Cloudflare Access integration status.</p>
+    </section>
+
+    <div class="admin-grid">
+      <section class="admin-card">
+        <h2>Add profile</h2>
+        <form id="profileForm" class="admin-form">
+          <label>Engineer name
+            <input name="name" required maxlength="80" placeholder="e.g. Sarah Jones" />
+          </label>
+          <label>Email address
+            <input name="email" type="email" required maxlength="160" placeholder="engineer@company.com" autocomplete="email" />
+          </label>
+          <button class="btn primary" type="submit">＋ Add Profile</button>
+        </form>
+        <p class="admin-note">The profile stores Name + Email. The normal site displays the name only. When Cloudflare API syncing is configured, adding/reactivating a profile also adds its email to the Maintenance Users Access allow-list; deactivating removes it from that allow-list.</p>
+        <button id="syncAccessBtn" class="btn secondary" type="button">Sync Access emails now</button>
+      </section>
+
+      <section class="admin-card">
+        <h2>Existing profiles</h2>
+        <div id="profileList" class="profile-admin-list"></div>
+        <p id="profileCount" class="admin-status"></p>
+      </section>
+    </div>
+  </main>
+  <script src="admin.js"></script>
+</body>
+</html>

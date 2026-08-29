@@ -1,0 +1,26 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "maintenance",
+  "main": "./src/index.js",
+  "compatibility_date": "2026-08-29",
+  "workers_dev": false,
+  "keep_vars": true,
+  "assets": {
+    "directory": "./public",
+    "binding": "ASSETS",
+    "run_worker_first": [
+      "/api",
+      "/api/*",
+      "/",
+      "/index.html"
+    ]
+  },
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "maintenance-project-sly-db",
+      "database_id": "daa25a9f-dea5-4dcd-836d-600e5104eed3",
+      "migrations_dir": "./migrations"
+    }
+  ]
+}
