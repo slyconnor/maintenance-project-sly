@@ -56,7 +56,15 @@ function applySharedState(payload) {
   suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
   if (Number.isFinite(Number(payload?.revision))) sharedRevision = Number(payload.revision);
-  if (payload?.identity) signedInIdentity = payload.identity;
+  if (payload?.identity) {
+    signedInIdentity = payload.identity;
+    const adminLink = document.querySelector(".admin-login");
+    if (adminLink) {
+      // Once Cloudflare has verified an approved admin, there is no reason to
+      // keep showing a login button on the normal dashboard.
+      adminLink.hidden = Boolean(signedInIdentity.adminEmail || signedInIdentity.admin);
+    }
+  }
   if (!selectedMachineId || !machines.some(m=>m.id===selectedMachineId)) selectedMachineId = machines[0]?.id || null;
   if (selectedProfileId !== "all" && !profiles.some(p=>p.id===selectedProfileId && p.active!==false)) selectedProfileId = "all";
 }
@@ -637,8 +645,8 @@ async function initializeApp(){
     const payload=await refreshSharedState({render:false});
     const identity=payload.identity||{};
     const params=new URLSearchParams(location.search);
-    if(identity.cloudflareLogin && identity.admin && params.get("view")!=="dashboard") {
-      location.replace("/admin.html");
+    if((identity.adminEmail || identity.admin) && params.get("view")!=="dashboard") {
+      location.replace("/admin");
       return;
     }
     renderAll();

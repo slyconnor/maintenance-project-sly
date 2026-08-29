@@ -84,7 +84,7 @@ async function initialize(){
     );
     render();
   }catch(error){
-    document.body.innerHTML=`<main style="max-width:760px;margin:60px auto;font-family:system-ui;padding:24px"><h1>Admin access unavailable</h1><p>${esc(error.message)}</p><p>Open this page using the Cloudflare login method and check the Admin Access policy.</p><p><a href="/index.html?view=dashboard">Back to dashboard</a></p></main>`;
+    document.body.innerHTML=`<main style="max-width:760px;margin:60px auto;font-family:system-ui;padding:24px"><h1>Admin access unavailable</h1><p>${esc(error.message)}</p><p>Cloudflare Access must protect /admin and /api/admin/*, and this email must be listed in the Worker variable ADMIN_EMAILS.</p><p><a href="/index.html?view=dashboard">Back to dashboard</a></p></main>`;
   }
 }
 

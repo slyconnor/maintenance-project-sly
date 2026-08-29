@@ -23,7 +23,7 @@ MAINTENANCE MANAGER V5.1 — SOURCE CODE NOTE
     {
       "binding": "DB",
       "database_name": "maintenance-project-sly-db",
-      "database_id": "daa25a9f-dea5-4dcd-836d-600e5104eed3",
+      "database_id": "PASTE_D1_DATABASE_UUID_HERE",
       "migrations_dir": "./migrations"
     }
   ]

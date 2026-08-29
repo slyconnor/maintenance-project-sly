@@ -50,7 +50,7 @@ STEP 3 — EDIT wrangler.jsonc ONCE
 ---------------------------------
 Replace:
 
-  daa25a9f-dea5-4dcd-836d-600e5104eed3
+  PASTE_D1_DATABASE_UUID_HERE
 
 with the UUID copied in Step 1.
 

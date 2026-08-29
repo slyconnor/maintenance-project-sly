@@ -1,13 +1,13 @@
-/* Maintenance Manager V5.1 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.2 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.1.0";
+const APP_VERSION = "5.2.0";
 
 const DEFAULT_STATE = {
-  version: 5.1,
+  version: 5.2,
   profiles: [],
   sections: ["Smokeshield"],
   machines: [],
@@ -89,9 +89,10 @@ async function getIdentity(request, env) {
   if (accessCookie) {
     for (const identityUrl of [...new Set(identityUrls)]) {
       try {
-        const response = await fetch(identityUrl, {
-          headers: { cookie: `CF_Authorization=${accessCookie}`, accept: "application/json" }
-        });
+        const headers = new Headers(request.headers);
+        headers.set("cookie", `CF_Authorization=${accessCookie}`);
+        headers.set("accept", "application/json");
+        const response = await fetch(new Request(identityUrl, { method: "GET", headers }));
         if (response.ok) {
           identity = await response.json();
           break;
@@ -123,10 +124,17 @@ function isCloudflareLogin(identity) {
   return identity.idpType === "cloudflare";
 }
 
-function isAdmin(identity, env) {
-  if (!identity.email || !isCloudflareLogin(identity)) return false;
+function isAdminEmail(identity, env) {
+  if (!identity.email) return false;
   const admins = adminEmails(env);
   return admins.length > 0 && admins.includes(identity.email);
+}
+
+// For the normal dashboard this tells us whether the user both used the
+// Cloudflare IdP and is an approved admin. The Admin Access application itself
+// separately enforces Login Method = Cloudflare for /admin and /api/admin/*.
+function isCloudflareAdmin(identity, env) {
+  return isCloudflareLogin(identity) && isAdminEmail(identity, env);
 }
 
 async function requireUser(request, env, { human = false, admin = false } = {}) {
@@ -136,8 +144,20 @@ async function requireUser(request, env, { human = false, admin = false } = {}) 
 
   const identity = await getIdentity(request, env);
   if (admin) {
-    if (!isAdmin(identity, env)) {
-      return { ok: false, response: json({ error: "Admin access requires the Cloudflare login method and an approved admin email." }, 403) };
+    // Cloudflare Access is the authentication boundary for /admin and /api/admin/*.
+    // The Access policy must Require Login Methods -> Cloudflare. Here we only
+    // enforce the app-level admin allow-list so we do not depend on a path-scoped
+    // CF_Authorization cookie being available to the Worker.
+    if (!isAdminEmail(identity, env)) {
+      const configured = adminEmails(env).length > 0;
+      return {
+        ok: false,
+        response: json({
+          error: configured
+            ? "This signed-in email is not in ADMIN_EMAILS."
+            : "ADMIN_EMAILS is not configured on the Worker."
+        }, 403)
+      };
     }
     return { ok: true, identity };
   }
@@ -156,7 +176,7 @@ async function requireUser(request, env, { human = false, admin = false } = {}) 
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.1,
+    version: 5.2,
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
     machines: Array.isArray(s.machines) ? s.machines : [],
@@ -370,7 +390,8 @@ async function handleApi(request, env) {
           loginMethod: auth.identity.idpType || (auth.identity.serviceToken ? "service-token" : "unknown"),
           serviceToken: auth.identity.serviceToken,
           cloudflareLogin: isCloudflareLogin(auth.identity),
-          admin: isAdmin(auth.identity, env)
+          admin: isCloudflareAdmin(auth.identity, env),
+          adminEmail: isAdminEmail(auth.identity, env)
         }
       }, database.ready ? 200 : 503);
     }
@@ -383,7 +404,8 @@ async function handleApi(request, env) {
         loginMethod: auth.identity.idpType || (auth.identity.serviceToken ? "service-token" : "unknown"),
         serviceToken: auth.identity.serviceToken,
         cloudflareLogin: isCloudflareLogin(auth.identity),
-        admin: isAdmin(auth.identity, env)
+        admin: isCloudflareAdmin(auth.identity, env),
+          adminEmail: isAdminEmail(auth.identity, env)
       });
     }
 
@@ -398,7 +420,8 @@ async function handleApi(request, env) {
           loginMethod: auth.identity.idpType || (auth.identity.serviceToken ? "service-token" : "unknown"),
           serviceToken: auth.identity.serviceToken,
           cloudflareLogin: isCloudflareLogin(auth.identity),
-          admin: isAdmin(auth.identity, env)
+          admin: isCloudflareAdmin(auth.identity, env),
+          adminEmail: isAdminEmail(auth.identity, env)
         }
       });
     }
@@ -589,8 +612,8 @@ export default {
     if ((url.pathname === "/" || url.pathname === "/index.html") && url.searchParams.get("view") !== "dashboard") {
       try {
         const identity = await getIdentity(request, env);
-        if (isAdmin(identity, env)) {
-          const target = new URL("/admin.html", url);
+        if (isAdminEmail(identity, env)) {
+          const target = new URL("/admin", url);
           return Response.redirect(target.toString(), 302);
         }
       } catch (_) {}

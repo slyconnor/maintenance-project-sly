@@ -33,7 +33,7 @@ ONE VALUE STILL NEEDS TO BE FILLED IN
 -------------------------------------
 Open wrangler.jsonc and replace:
 
-  daa25a9f-dea5-4dcd-836d-600e5104eed3
+  PASTE_D1_DATABASE_UUID_HERE
 
 with the UUID / Database ID of your existing D1 database:
 

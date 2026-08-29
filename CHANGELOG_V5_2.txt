@@ -1,0 +1,10 @@
+Maintenance Manager V5.2
+
+Authentication fixes:
+- Admin API now relies on the Cloudflare Access Admin application to enforce Cloudflare login method for /admin and /api/admin/*, then checks ADMIN_EMAILS inside the Worker.
+- Removes unreliable duplicate IDP-method rejection caused by path-scoped Access cookies.
+- Approved admin email is automatically sent from the main dashboard to /admin, where the stricter Cloudflare-only Access application takes over.
+- Admin Login is hidden for approved admin email sessions.
+- Admin error messages now distinguish a missing ADMIN_EMAILS variable from a non-approved email.
+- Admin link uses /admin.
+- D1 database UUID is pre-filled.
