@@ -55,14 +55,17 @@ function showSync(sync){
 
 $("#profileForm").addEventListener("submit",async e=>{
   e.preventDefault();
-  const fd=new FormData(e.currentTarget);
+  // Event.currentTarget is only guaranteed while the synchronous event handler is running.
+  // Keep a stable reference before awaiting the API call so form.reset() still works afterwards.
+  const form=e.currentTarget;
+  const fd=new FormData(form);
   const name=String(fd.get("name")||"").trim();
   const email=String(fd.get("email")||"").trim().toLowerCase();
   if(!name||!validEmail(email))return;
-  const button=e.currentTarget.querySelector('button[type="submit"]');button.disabled=true;button.textContent="Adding…";
+  const button=form.querySelector('button[type="submit"]');button.disabled=true;button.textContent="Adding…";
   try{
     const data=await api("/api/admin/profiles",{method:"POST",body:JSON.stringify({action:"create",name,email})});
-    profiles=data.profiles||profiles;jobs=data.jobs||jobs;e.currentTarget.reset();render();showSync(data.accessSync);
+    profiles=data.profiles||profiles;jobs=data.jobs||jobs;form.reset();render();showSync(data.accessSync);
   }catch(error){alert(error.message)}finally{button.disabled=false;button.textContent="＋ Add Profile"}
 });
 

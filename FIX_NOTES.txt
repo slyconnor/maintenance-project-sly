@@ -1,0 +1,14 @@
+Maintenance Manager v5.2.1 fix
+
+1. Fixed Admin > Add Profile alert:
+   "Cannot read properties of null (reading 'reset')"
+   The profile was already being saved successfully; the browser error happened afterwards because event.currentTarget becomes null after an await. The form is now saved to a stable variable before the API call.
+
+2. Added Cloudflare Access Log out buttons to:
+   - Main Maintenance Manager header
+   - Admin page header
+
+Cloudflare Access logout endpoint used:
+/cdn-cgi/access/logout
+
+3. Worker/package patch version changed to 5.2.1 so the deployed build can be identified.

@@ -1,10 +1,10 @@
-/* Maintenance Manager V5.2 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.2.1 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.2.0";
+const APP_VERSION = "5.2.1";
 
 const DEFAULT_STATE = {
   version: 5.2,
