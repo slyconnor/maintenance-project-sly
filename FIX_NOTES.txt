@@ -1,20 +1,16 @@
-Maintenance Manager v5.2.2 fix
+Maintenance Manager v5.2.3 fix
 
-1. Fixed Admin page when switching from a normal engineer login to the Cloudflare Admin login.
-   - /admin is now the canonical Admin URL.
-   - Admin HTML, CSS, JavaScript and Admin API calls all stay on the exact /admin path
-     (using query parameters), so Cloudflare Access cannot mix the normal-user app session
-     with the stricter Admin app and leave the page unstyled/stuck on "Checking...".
-   - /admin.html and /admin/ redirect to /admin.
-   - If the current account is not an approved admin, the page now shows a proper
-     "Admin login required" screen with Log out / switch account and Back buttons.
+1. Fixed Admin page getting stuck on “Checking Cloudflare Admin access…” after v5.2.2.
+   - Root cause: Cloudflare Static Assets can resolve /admin to public/admin.html before the Worker runs.
+   - Because the Admin JavaScript was requested as /admin?asset=js, the static asset layer could return the HTML page again instead of admin.js.
+   - The browser therefore never ran the Admin JavaScript, leaving the page permanently on the loading message.
+   - wrangler.jsonc now forces the Worker to run first for /admin, /admin/* and /admin.html, so the Worker can correctly serve Admin HTML, JavaScript, CSS and Admin API requests on the protected /admin path.
 
-2. Added permanent Delete for engineer profiles.
-   - Delete is available only when the profile has no assigned jobs.
-   - Profiles with job history must be deactivated instead, preserving historical jobs.
-   - Deleting a profile also re-syncs Cloudflare Access, removing that engineer email
-     from the active Maintenance Users allow-list.
+2. Keeps the v5.2.2 profile controls.
+   - Deactivate keeps job history.
+   - Delete permanently removes a profile only when it has no assigned jobs.
+   - Cloudflare Access email syncing remains enabled for add/reactivate/deactivate/delete.
 
-3. Preserved the v5.2.1 Add Profile form-reset fix and Cloudflare logout buttons.
+3. No database migration is required. Existing profiles and jobs are preserved.
 
-Version: 5.2.2
+Version: 5.2.3
