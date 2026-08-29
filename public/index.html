@@ -16,6 +16,7 @@
         <button class="nav-item" data-view="jobs">☷ <span>All Jobs</span></button>
         <button class="nav-item" data-view="machines">▣ <span>Machines</span></button>
         <button class="nav-item" data-view="parts">◇ <span>Parts</span></button>
+        <button class="nav-item" data-view="data">⚙ <span>Manage Data</span></button>
         <button class="nav-item" data-view="reports">▥ <span>Reports</span></button>
         <button class="nav-item" data-view="team">♟ <span>Team</span></button>
       </nav>
@@ -36,7 +37,7 @@
           <label class="profile-picker">Viewing profile
             <select id="profileSelect" aria-label="Viewing profile"></select>
           </label>
-          <a class="btn secondary admin-login" href="/admin" title="Admin management area; protect this path with a stricter Cloudflare Access policy when deployed">🔒 Admin Login</a>
+          <a class="btn secondary admin-login" href="admin.html" title="Admin management area; protect this path with a stricter Cloudflare Access policy when deployed">🔒 Admin Login</a>
           <a class="btn secondary display-link" href="pi.html" title="Read-only current-month wall display">▣ Display Mode</a>
           <button class="btn secondary" id="reportsBtn">Reports</button>
           <button class="btn primary" id="newJobBtn">＋ New Job</button>
@@ -76,6 +77,17 @@
 
       <section id="partsView" class="view"><div class="page-heading"><div><h1>Parts</h1><p id="partsSubtitle">Parts usage, dates, suppliers and costs recorded through maintenance jobs.</p></div></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Date Used</th><th>Part Name</th><th>Part No.</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Supplier</th><th>Job</th><th>Machine</th></tr></thead><tbody id="partsBody"></tbody></table></div></article></section>
 
+
+      <section id="dataView" class="view">
+        <div class="page-heading"><div><h1>Manage Maintenance Data</h1><p>All signed-in maintenance users can maintain these shared lists. Items with job history are archived instead of permanently deleted.</p></div></div>
+        <div class="manage-grid">
+          <article class="panel manage-panel"><div class="panel-title"><div><h2>Machines</h2><p class="muted">Edit asset details, archive old equipment, or delete unused entries.</p></div><button class="btn secondary compact" id="manageAddMachineBtn">＋ Add</button></div><div id="manageMachinesList" class="manage-list"></div></article>
+          <article class="panel manage-panel"><div class="panel-title"><div><h2>Sections</h2><p class="muted">Keep section names consistent across jobs and machines.</p></div><button class="btn secondary compact" id="manageAddSectionBtn">＋ Add</button></div><div id="manageSectionsList" class="manage-list"></div></article>
+          <article class="panel manage-panel"><div class="panel-title"><div><h2>Parts</h2><p class="muted">Part names/numbers are saved; prices remain manual on each job.</p></div><button class="btn secondary compact" id="manageAddPartBtn">＋ Add</button></div><div id="managePartsList" class="manage-list"></div></article>
+          <article class="panel manage-panel"><div class="panel-title"><div><h2>Suppliers</h2><p class="muted">Archive suppliers you no longer use while preserving old purchase history.</p></div><button class="btn secondary compact" id="manageAddSupplierBtn">＋ Add</button></div><div id="manageSuppliersList" class="manage-list"></div></article>
+        </div>
+      </section>
+
       <section id="reportsView" class="view"><div class="page-heading"><div><h1>Monthly Reports</h1><p id="reportsSubtitle">Generate a report for the selected month using the month tabs above.</p></div></div><div class="report-actions"><article class="panel report-card"><h2 id="reportMonth">Monthly report</h2><p id="reportSummary"></p><div class="button-stack"><button id="downloadExcelBtn" class="btn primary">Download Excel report</button><button id="printReportBtn" class="btn secondary">Print / Save as PDF</button></div></article></div><article id="reportPreview" class="panel report-preview"></article></section>
 
       <section id="teamView" class="view"><div class="page-heading"><div><h1>Team Profiles</h1><p>Choose a profile to see only that engineer’s jobs. Admin can add or deactivate profiles from Admin Login.</p></div></div><div id="teamGrid" class="team-grid"></div></section>
@@ -106,7 +118,7 @@
     </form>
   </dialog>
 
-  <dialog id="machineDialog" class="modal small-modal"><form id="machineForm" method="dialog"><div class="modal-head"><h2>Add machine</h2><button type="button" class="icon-btn" data-close-machine>×</button></div><div class="form-grid"><label>Asset / Machine ID<input name="assetId" required placeholder="RM-124" /><small class="field-help">Unique identifier separate from the machine name.</small></label><label>Section<select name="section" id="machineSectionSelect" required></select><small class="field-help">Select a saved section or add a new one.</small></label><label>Machine name<input name="name" required /></label><label>Machine type / category<input name="category" required placeholder="Rivet Machines" /></label><label>Location<input name="location" /></label><label>Purchase cost (£)<input name="purchaseCost" type="number" min="0" step="0.01" /></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-close-machine>Cancel</button><button class="btn primary">Save Machine</button></div></form></dialog>
+  <dialog id="machineDialog" class="modal"><form id="machineForm" method="dialog"><div class="modal-head"><div><h2 id="machineDialogTitle">Add machine</h2><p id="machineDialogSubtitle">Machine details are shared with the whole maintenance team.</p></div><button type="button" class="icon-btn" data-close-machine>×</button></div><input type="hidden" name="machineId" /><div class="form-grid"><label>Asset / Machine ID<input name="assetId" required placeholder="RM-124" /><small class="field-help">Unique identifier separate from the machine name.</small></label><label>Section<select name="section" id="machineSectionSelect" required></select><small class="field-help">Select a saved section or add a new one.</small></label><label>Machine name<input name="name" required /></label><label>Machine type / category<input name="category" required placeholder="Rivet Machines" /></label><label>Location<input name="location" /></label><label>Purchase cost (£)<input name="purchaseCost" type="number" min="0" step="0.01" /></label><label>Make<input name="make" /></label><label>Model<input name="model" /></label><label>Serial number<input name="serialNumber" /></label><label>Purchase date<input name="purchaseDate" type="date" /></label><label>Install date<input name="installDate" type="date" /></label><label class="span-2">Machine notes<textarea name="notes" rows="3" placeholder="Useful machine information, service notes, manuals location, etc."></textarea></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-close-machine>Cancel</button><button id="machineSaveBtn" class="btn primary">Save Machine</button></div></form></dialog>
 
   <script src="app.js"></script>
 </body>

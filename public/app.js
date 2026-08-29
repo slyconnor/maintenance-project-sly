@@ -4,8 +4,10 @@ const FULL_MONTHS = ["January","February","March","April","May","June","July","A
 let jobs = [];
 let machines = [];
 let sections = [];
+let archivedSections = [];
 let partCatalog = [];
 let suppliers = [];
+let archivedSuppliers = [];
 let profiles = [];
 let sharedRevision = 0;
 let signedInIdentity = null;
@@ -36,6 +38,12 @@ const inSelectedMonth = d => Boolean(d && d.startsWith(selectedPrefix()));
 const partsThisMonth = j => (j.parts||[]).filter(p=>inSelectedMonth(p.date));
 const spendThisMonth = j => partsThisMonth(j).reduce((a,p)=>a+partTotal(p),0);
 const activeProfiles = () => profiles.filter(p=>p.active!==false);
+const isSectionArchived = name => archivedSections.includes(name);
+const isSupplierArchived = name => archivedSuppliers.includes(name);
+const isMachineArchived = machine => String(machine?.status || "Active").toLowerCase() === "archived";
+const activeSections = () => sections.filter(s=>!isSectionArchived(s));
+const activeSuppliers = () => suppliers.filter(s=>!isSupplierArchived(s));
+const activeParts = () => partCatalog.filter(p=>p.active!==false);
 const selectedProfile = () => profiles.find(p=>p.id===selectedProfileId) || null;
 const selectedProfileName = () => selectedProfile()?.name || null;
 const visibleJobs = () => selectedProfileId === "all" ? jobs : jobs.filter(j=>j.assigned===selectedProfileName());
@@ -52,19 +60,13 @@ function applySharedState(payload) {
   jobs = Array.isArray(state.jobs) ? state.jobs : [];
   machines = Array.isArray(state.machines) ? state.machines : [];
   sections = Array.isArray(state.sections) ? state.sections : [];
+  archivedSections = Array.isArray(state.archivedSections) ? state.archivedSections : [];
   partCatalog = Array.isArray(state.partCatalog) ? state.partCatalog : [];
   suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
+  archivedSuppliers = Array.isArray(state.archivedSuppliers) ? state.archivedSuppliers : [];
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
   if (Number.isFinite(Number(payload?.revision))) sharedRevision = Number(payload.revision);
-  if (payload?.identity) {
-    signedInIdentity = payload.identity;
-    const adminLink = document.querySelector(".admin-login");
-    if (adminLink) {
-      // Once Cloudflare has verified an approved admin, there is no reason to
-      // keep showing a login button on the normal dashboard.
-      adminLink.hidden = Boolean(signedInIdentity.adminEmail || signedInIdentity.admin);
-    }
-  }
+  if (payload?.identity) signedInIdentity = payload.identity;
   if (!selectedMachineId || !machines.some(m=>m.id===selectedMachineId)) selectedMachineId = machines[0]?.id || null;
   if (selectedProfileId !== "all" && !profiles.some(p=>p.id===selectedProfileId && p.active!==false)) selectedProfileId = "all";
 }
@@ -231,11 +233,12 @@ function renderMachines() {
   const stats = machineStats(m);
   const history = visibleJobs().filter(j=>j.machine===m.name).sort((a,b)=>b.raised.localeCompare(a.raised));
   const recent = history.slice(0,5);
-  const overviewContent = `<div class="machine-meta"><div class="meta-box"><small>Asset ID</small><strong>${esc(m.assetId)}</strong></div><div class="meta-box"><small>Section</small><strong>${esc(m.section)}</strong></div><div class="meta-box"><small>Location</small><strong>${esc(m.location||"—")}</strong></div><div class="meta-box"><small>Purchase cost</small><strong>${m.purchaseCost?money(m.purchaseCost):"Unknown"}</strong></div></div><div class="metric-strip"><div class="mini-metric"><span>Maintenance jobs</span><strong>${stats.jobs}</strong></div><div class="mini-metric"><span>Open jobs</span><strong>${stats.open}</strong></div><div class="mini-metric"><span>Maintenance hours</span><strong>${stats.hours.toFixed(1)}</strong></div><div class="mini-metric"><span>Parts spend</span><strong>${money(stats.spend)}</strong></div></div><div class="machine-overview-note">${selectedProfileId === "all" ? "These figures use the machine’s full recorded maintenance history." : `These figures currently show only ${esc(profileContext())}’s assigned work.`}</div><h3 class="subheading">Recent jobs</h3>${machineHistoryTable(recent, "No jobs recorded for this machine.")}`;
+  const overviewContent = `<div class="machine-meta"><div class="meta-box"><small>Asset ID</small><strong>${esc(m.assetId)}</strong></div><div class="meta-box"><small>Section</small><strong>${esc(m.section)}</strong></div><div class="meta-box"><small>Location</small><strong>${esc(m.location||"—")}</strong></div><div class="meta-box"><small>Purchase cost</small><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Unknown"}</strong></div><div class="meta-box"><small>Make / Model</small><strong>${esc([m.make,m.model].filter(Boolean).join(" · ")||"—")}</strong></div><div class="meta-box"><small>Serial number</small><strong>${esc(m.serialNumber||"—")}</strong></div><div class="meta-box"><small>Purchase date</small><strong>${fmtDate(m.purchaseDate)}</strong></div><div class="meta-box"><small>Install date</small><strong>${fmtDate(m.installDate)}</strong></div></div>${m.notes?`<div class="machine-notes"><strong>Machine notes</strong><p>${esc(m.notes)}</p></div>`:""}<div class="metric-strip"><div class="mini-metric"><span>Maintenance jobs</span><strong>${stats.jobs}</strong></div><div class="mini-metric"><span>Open jobs</span><strong>${stats.open}</strong></div><div class="mini-metric"><span>Maintenance hours</span><strong>${stats.hours.toFixed(1)}</strong></div><div class="mini-metric"><span>Parts spend</span><strong>${money(stats.spend)}</strong></div></div><div class="machine-overview-note">${selectedProfileId === "all" ? "These figures use the machine’s full recorded maintenance history." : `These figures currently show only ${esc(profileContext())}’s assigned work.`}</div><h3 class="subheading">Recent jobs</h3>${machineHistoryTable(recent, "No jobs recorded for this machine.")}`;
   const historyContent = `<div class="history-heading"><div><h3>Job history</h3><p>${history.length} recorded job${history.length===1?"":"s"} for ${esc(profileContext())}.</p></div></div>${machineHistoryTable(history, "No job history for this machine and profile.")}`;
-  $("#machineDetail").innerHTML = `<div class="machine-head"><div><h2>${esc(m.name)}</h2><p><strong>${esc(m.assetId)}</strong> · ${esc(m.section)} · ${esc(m.category)} · ${esc(m.status||"Active")}</p></div><strong>${m.purchaseCost?money(m.purchaseCost):"Cost unknown"}</strong></div><div class="machine-tabs"><button type="button" class="${machineDetailTab==="overview"?"active":""}" data-machine-tab="overview">Overview</button><button type="button" class="${machineDetailTab==="history"?"active":""}" data-machine-tab="history">Job History (${history.length})</button></div>${machineDetailTab==="history"?historyContent:overviewContent}`;
+  $("#machineDetail").innerHTML = `<div class="machine-head"><div><h2>${esc(m.name)}</h2><p><strong>${esc(m.assetId)}</strong> · ${esc(m.section)} · ${esc(m.category)} · ${esc(m.status||"Active")}</p></div><div class="machine-head-actions"><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Cost unknown"}</strong><button type="button" class="btn secondary compact" data-edit-machine="${esc(m.id)}">Edit Machine</button></div></div><div class="machine-tabs"><button type="button" class="${machineDetailTab==="overview"?"active":""}" data-machine-tab="overview">Overview</button><button type="button" class="${machineDetailTab==="history"?"active":""}" data-machine-tab="history">Job History (${history.length})</button></div>${machineDetailTab==="history"?historyContent:overviewContent}`;
   $$('[data-machine]').forEach(b=>b.addEventListener('click',()=>{selectedMachineId=b.dataset.machine;machineDetailTab="overview";renderMachines();}));
   $$('[data-machine-tab]').forEach(b=>b.addEventListener('click',()=>{machineDetailTab=b.dataset.machineTab;renderMachines();}));
+  $$('[data-edit-machine]').forEach(b=>b.addEventListener('click',()=>openMachineDialog('',b.dataset.editMachine)));
   bindJobEditors();
 }
 
@@ -276,8 +279,61 @@ function renderTeam() {
   $$('[data-view-profile]').forEach(b=>b.addEventListener('click',()=>{selectedProfileId=b.dataset.viewProfile;renderAll();switchView("dashboard");}));
 }
 
+
+function machineUsageCount(machine) { return jobs.filter(j=>j.machine===machine.name).length; }
+function sectionUsageCount(name) { return machines.filter(m=>m.section===name).length + jobs.filter(j=>j.section===name).length; }
+function supplierUsageCount(name) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.supplier===name).length,0); }
+function partUsageCount(part) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.name===part.name).length,0); }
+function manageActions(entity, key, archived, used, edit=true) {
+  const keyAttr = entity === "machine" || entity === "part" ? `data-id="${esc(key)}"` : `data-key="${esc(key)}"`;
+  return `<div class="manage-actions">${edit?`<button type="button" class="btn secondary compact" data-master-action="edit" data-entity="${entity}" ${keyAttr}>Edit</button>`:""}<button type="button" class="btn secondary compact" data-master-action="${archived?"reactivate":"archive"}" data-entity="${entity}" ${keyAttr}>${archived?"Reactivate":"Archive"}</button><button type="button" class="btn danger compact" data-master-action="delete" data-entity="${entity}" ${keyAttr} ${used?`disabled title="Used in maintenance history — archive instead"`:""}>Delete</button></div>`;
+}
+function renderManageData() {
+  const machineRows=[...machines].sort((a,b)=>String(a.assetId).localeCompare(String(b.assetId))).map(m=>{const used=machineUsageCount(m);const archived=isMachineArchived(m);return `<div class="manage-row"><div><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${esc(m.section)} · ${esc(m.location||"No location")} · ${used} job${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("machine",m.id,archived,used,true)}</div></div>`;}).join("");
+  $("#manageMachinesList").innerHTML=machineRows||`<p class="empty-note">No machines yet.</p>`;
+  $("#manageSectionsList").innerHTML=[...sections].sort().map(name=>{const used=sectionUsageCount(name);const archived=isSectionArchived(name);return `<div class="manage-row"><div><strong>${esc(name)}</strong><span>${used} linked machine/job reference${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("section",name,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No sections yet.</p>`;
+  $("#managePartsList").innerHTML=[...partCatalog].sort((a,b)=>a.name.localeCompare(b.name)).map(part=>{const used=partUsageCount(part);const archived=part.active===false;return `<div class="manage-row"><div><strong>${esc(part.name)}</strong><span>${esc(part.partNo||"No part number")} · ${used} historical use${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("part",part.id,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No saved parts yet.</p>`;
+  $("#manageSuppliersList").innerHTML=[...suppliers].sort().map(name=>{const used=supplierUsageCount(name);const archived=isSupplierArchived(name);return `<div class="manage-row"><div><strong>${esc(name)}</strong><span>${used} historical purchase record${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("supplier",name,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No suppliers yet.</p>`;
+}
+
+async function masterMutation(body, successMessage="") {
+  try {
+    const payload=await saveMutation("/api/master-data",body,{render:false});
+    if(payload.state) applySharedState(payload);
+    renderAll();
+    if(successMessage) alert(successMessage);
+    return payload;
+  } catch(error){ showSaveError(error); return null; }
+}
+
+async function handleMasterAction(button) {
+  const entity=button.dataset.entity, action=button.dataset.masterAction, id=button.dataset.id, key=button.dataset.key;
+  if(action==="edit") {
+    if(entity==="machine") { openMachineDialog("",id); return; }
+    if(entity==="section") {
+      const name=prompt("Rename section:",key); if(!name?.trim()||name.trim()===key)return;
+      await masterMutation({entity,action:"update",key,name:name.trim()}); return;
+    }
+    if(entity==="supplier") {
+      const name=prompt("Rename supplier:",key); if(!name?.trim()||name.trim()===key)return;
+      await masterMutation({entity,action:"update",key,name:name.trim()}); return;
+    }
+    if(entity==="part") {
+      const part=partCatalog.find(p=>p.id===id); if(!part)return;
+      const name=prompt("Part name:",part.name); if(!name?.trim())return;
+      const partNo=prompt("Part number (optional):",part.partNo||""); if(partNo===null)return;
+      await masterMutation({entity,action:"update",id,name:name.trim(),partNo:partNo.trim()}); return;
+    }
+  }
+  if(action==="delete" && !confirm("Permanently delete this unused item? This cannot be undone.")) return;
+  if(action==="archive" && !confirm("Archive this item? It will disappear from new-job pick lists but remain in historical jobs.")) return;
+  await masterMutation({entity,action,id,key});
+}
+
 function sectionOptions(selected="") {
-  return `<option value="">Select section…</option>${sections.map(s=>`<option value="${esc(s)}" ${s===selected?"selected":""}>${esc(s)}</option>`).join("")}<option value="__add_section__">＋ Add new section…</option>`;
+  const list = activeSections();
+  if (selected && sections.includes(selected) && !list.includes(selected)) list.unshift(selected);
+  return `<option value="">Select section…</option>${list.map(s=>`<option value="${esc(s)}" ${s===selected?"selected":""}>${esc(s)}${isSectionArchived(s)?" (archived)":""}</option>`).join("")}<option value="__add_section__">＋ Add new section…</option>`;
 }
 function renderSectionSelects() {
   const jobCurrent = $("#jobSectionSelect")?.value || "";
@@ -288,8 +344,8 @@ function renderSectionSelects() {
 function renderMachineSelect(section, selected="") {
   const select = $("#jobMachineSelect");
   if (!select) return;
-  const list = machines.filter(m=>m.section===section);
-  select.innerHTML = section ? `<option value="">Select machine…</option>${list.map(m=>`<option value="${esc(m.name)}" ${m.name===selected?"selected":""}>${esc(m.assetId)} · ${esc(m.name)}</option>`).join("")}<option value="__add_machine__">＋ Add new machine in ${esc(section)}…</option>` : `<option value="">Select a section first…</option>`;
+  const list = machines.filter(m=>m.section===section && (!isMachineArchived(m) || m.name===selected));
+  select.innerHTML = section ? `<option value="">Select machine…</option>${list.map(m=>`<option value="${esc(m.name)}" ${m.name===selected?"selected":""}>${esc(m.assetId)} · ${esc(m.name)}${isMachineArchived(m)?" (archived)":""}</option>`).join("")}<option value="__add_machine__">＋ Add new machine in ${esc(section)}…</option>` : `<option value="">Select a section first…</option>`;
   select.disabled = !section;
 }
 function renderAssignedSelect(selected="") {
@@ -332,11 +388,16 @@ async function quickAddMachine(section) {
 }
 
 function partOptions(selected="") {
-  const sorted = [...partCatalog].sort((a,b)=>a.name.localeCompare(b.name));
-  return `<option value="">Select part…</option>${sorted.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}${p.partNo?` — ${esc(p.partNo)}`:""}</option>`).join("")}<option value="__add_part__">＋ Add new part…</option>`;
+  const list = activeParts();
+  const selectedPart = partCatalog.find(p=>p.id===selected);
+  if (selectedPart && !list.some(p=>p.id===selectedPart.id)) list.unshift(selectedPart);
+  const sorted = [...list].sort((a,b)=>a.name.localeCompare(b.name));
+  return `<option value="">Select part…</option>${sorted.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}${p.partNo?` — ${esc(p.partNo)}`:""}${p.active===false?" (archived)":""}</option>`).join("")}<option value="__add_part__">＋ Add new part…</option>`;
 }
 function supplierOptions(selected="") {
-  return `<option value="">Select supplier…</option>${suppliers.map(s=>`<option value="${esc(s)}" ${s===selected?"selected":""}>${esc(s)}</option>`).join("")}<option value="__add_supplier__">＋ Add new supplier…</option>`;
+  const list = activeSuppliers();
+  if (selected && suppliers.includes(selected) && !list.includes(selected)) list.unshift(selected);
+  return `<option value="">Select supplier…</option>${list.map(s=>`<option value="${esc(s)}" ${s===selected?"selected":""}>${esc(s)}${isSupplierArchived(s)?" (archived)":""}</option>`).join("")}<option value="__add_supplier__">＋ Add new supplier…</option>`;
 }
 
 function addPartRow(data={}) {
@@ -422,6 +483,7 @@ function renderAll() {
   renderAllJobs();
   renderMachines();
   renderParts();
+  renderManageData();
   renderReports();
   renderTeam();
   renderPickLists();
@@ -608,15 +670,40 @@ $("#jobForm").addEventListener("submit",async e=>{
   finally { submit.disabled=false; submit.textContent=editingJobNo?"Save Changes":"Save Job"; }
 });
 
-// Add machine form
+// Add / edit machine form. All authenticated maintenance users can maintain machine details.
 const machineDialog = $("#machineDialog");
-function openMachineDialog(preselect="") {
-  $("#machineForm").reset();
+function openMachineDialog(preselect="", machineId="") {
+  const form=$("#machineForm");
+  form.reset();
+  form.elements.machineId.value=machineId||"";
+  const existing=machineId?machines.find(m=>m.id===machineId):null;
   renderSectionSelects();
-  if (preselect) $("#machineSectionSelect").value = preselect;
+  if(existing){
+    $("#machineDialogTitle").textContent=`Edit ${existing.assetId} · ${existing.name}`;
+    $("#machineDialogSubtitle").textContent="Changes are shared immediately. Renaming the machine also updates linked job history.";
+    form.elements.assetId.value=existing.assetId||"";
+    form.elements.name.value=existing.name||"";
+    form.elements.section.value=existing.section||"";
+    form.elements.category.value=existing.category||existing.section||"";
+    form.elements.location.value=existing.location||"";
+    form.elements.purchaseCost.value=existing.purchaseCost??"";
+    form.elements.make.value=existing.make||"";
+    form.elements.model.value=existing.model||"";
+    form.elements.serialNumber.value=existing.serialNumber||"";
+    form.elements.purchaseDate.value=existing.purchaseDate||"";
+    form.elements.installDate.value=existing.installDate||"";
+    form.elements.notes.value=existing.notes||"";
+    $("#machineSaveBtn").textContent="Save Changes";
+  } else {
+    $("#machineDialogTitle").textContent="Add machine";
+    $("#machineDialogSubtitle").textContent="Machine details are shared with the whole maintenance team.";
+    if (preselect) $("#machineSectionSelect").value = preselect;
+    $("#machineSaveBtn").textContent="Save Machine";
+  }
   machineDialog.showModal();
 }
 $("#addMachineBtn").addEventListener("click",()=>openMachineDialog());
+$("#manageAddMachineBtn").addEventListener("click",()=>openMachineDialog());
 $$('[data-close-machine]').forEach(b=>b.addEventListener('click',()=>machineDialog.close()));
 $("#machineSectionSelect").addEventListener("change",async e=>{
   if (e.target.value === "__add_section__") await addSectionInteractive(e.target);
@@ -625,16 +712,44 @@ $("#machineForm").addEventListener("submit",async e=>{
   e.preventDefault();
   const o = Object.fromEntries(new FormData(e.currentTarget).entries());
   if (!o.section || o.section.startsWith('__')) { alert("Select a section."); return; }
+  const id=String(o.machineId||"");
   const assetId=String(o.assetId||"").trim(),name=String(o.name||"").trim();
-  if (machines.some(m=>String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That asset ID already exists."); return; }
-  if (machines.some(m=>m.name.toLowerCase()===name.toLowerCase())) { alert("A machine with that name already exists."); return; }
-  const machine = {assetId,name,section:o.section,category:o.category,location:o.location,purchaseCost:o.purchaseCost?Number(o.purchaseCost):null,status:"Active"};
+  if (machines.some(m=>m.id!==id && String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That asset ID already exists."); return; }
+  if (machines.some(m=>m.id!==id && m.name.toLowerCase()===name.toLowerCase())) { alert("A machine with that name already exists."); return; }
+  const machine = {assetId,name,section:o.section,category:o.category,location:o.location,purchaseCost:o.purchaseCost===""?null:Number(o.purchaseCost),make:o.make,model:o.model,serialNumber:o.serialNumber,purchaseDate:o.purchaseDate,installDate:o.installDate,notes:o.notes};
+  const submit=$("#machineSaveBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
-    const payload=await saveMutation("/api/machines",{machine});
-    selectedMachineId=payload.machineId||machines.find(m=>m.assetId===assetId)?.id||selectedMachineId;
-    renderMachines();
+    if(id){
+      const result=await masterMutation({entity:"machine",action:"update",id,machine});
+      if(!result)return;
+      selectedMachineId=id;
+    } else {
+      const payload=await saveMutation("/api/machines",{machine},{render:false});
+      if(payload.state)applySharedState(payload);
+      selectedMachineId=payload.machineId||machines.find(m=>m.assetId===assetId)?.id||selectedMachineId;
+      renderAll();
+    }
     machineDialog.close();
   } catch(error){showSaveError(error);}
+  finally { submit.disabled=false; submit.textContent=id?"Save Changes":"Save Machine"; }
+});
+
+$("#manageAddSectionBtn").addEventListener("click",async()=>{
+  const name=prompt("New section name:"); if(!name?.trim())return;
+  try{await saveMutation("/api/catalog",{type:"section",value:name.trim()});}catch(error){showSaveError(error);}
+});
+$("#manageAddSupplierBtn").addEventListener("click",async()=>{
+  const name=prompt("New supplier name:"); if(!name?.trim())return;
+  try{await saveMutation("/api/catalog",{type:"supplier",value:name.trim()});}catch(error){showSaveError(error);}
+});
+$("#manageAddPartBtn").addEventListener("click",async()=>{
+  const name=prompt("New part name:"); if(!name?.trim())return;
+  const partNo=prompt("Part number (optional):")||"";
+  try{await saveMutation("/api/catalog",{type:"part",name:name.trim(),partNo:partNo.trim()});}catch(error){showSaveError(error);}
+});
+$("#dataView").addEventListener("click",e=>{
+  const button=e.target.closest('[data-master-action]');
+  if(button) handleMasterAction(button);
 });
 
 $("#downloadExcelBtn").addEventListener("click",downloadExcelReport);
@@ -645,8 +760,8 @@ async function initializeApp(){
     const payload=await refreshSharedState({render:false});
     const identity=payload.identity||{};
     const params=new URLSearchParams(location.search);
-    if((identity.adminEmail || identity.admin) && params.get("view")!=="dashboard") {
-      location.replace("/admin");
+    if(identity.cloudflareLogin && identity.admin && params.get("view")!=="dashboard") {
+      location.replace("/admin.html");
       return;
     }
     renderAll();

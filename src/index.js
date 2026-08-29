@@ -10,9 +10,11 @@ const DEFAULT_STATE = {
   version: 5.2,
   profiles: [],
   sections: ["Smokeshield"],
+  archivedSections: [],
   machines: [],
-  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "" }],
+  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true }],
   suppliers: [],
+  archivedSuppliers: [],
   jobs: []
 };
 
@@ -89,10 +91,9 @@ async function getIdentity(request, env) {
   if (accessCookie) {
     for (const identityUrl of [...new Set(identityUrls)]) {
       try {
-        const headers = new Headers(request.headers);
-        headers.set("cookie", `CF_Authorization=${accessCookie}`);
-        headers.set("accept", "application/json");
-        const response = await fetch(new Request(identityUrl, { method: "GET", headers }));
+        const response = await fetch(identityUrl, {
+          headers: { cookie: `CF_Authorization=${accessCookie}`, accept: "application/json" }
+        });
         if (response.ok) {
           identity = await response.json();
           break;
@@ -124,17 +125,10 @@ function isCloudflareLogin(identity) {
   return identity.idpType === "cloudflare";
 }
 
-function isAdminEmail(identity, env) {
-  if (!identity.email) return false;
+function isAdmin(identity, env) {
+  if (!identity.email || !isCloudflareLogin(identity)) return false;
   const admins = adminEmails(env);
   return admins.length > 0 && admins.includes(identity.email);
-}
-
-// For the normal dashboard this tells us whether the user both used the
-// Cloudflare IdP and is an approved admin. The Admin Access application itself
-// separately enforces Login Method = Cloudflare for /admin and /api/admin/*.
-function isCloudflareAdmin(identity, env) {
-  return isCloudflareLogin(identity) && isAdminEmail(identity, env);
 }
 
 async function requireUser(request, env, { human = false, admin = false } = {}) {
@@ -144,20 +138,8 @@ async function requireUser(request, env, { human = false, admin = false } = {}) 
 
   const identity = await getIdentity(request, env);
   if (admin) {
-    // Cloudflare Access is the authentication boundary for /admin and /api/admin/*.
-    // The Access policy must Require Login Methods -> Cloudflare. Here we only
-    // enforce the app-level admin allow-list so we do not depend on a path-scoped
-    // CF_Authorization cookie being available to the Worker.
-    if (!isAdminEmail(identity, env)) {
-      const configured = adminEmails(env).length > 0;
-      return {
-        ok: false,
-        response: json({
-          error: configured
-            ? "This signed-in email is not in ADMIN_EMAILS."
-            : "ADMIN_EMAILS is not configured on the Worker."
-        }, 403)
-      };
+    if (!isAdmin(identity, env)) {
+      return { ok: false, response: json({ error: "Admin access requires the Cloudflare login method and an approved admin email." }, 403) };
     }
     return { ok: true, identity };
   }
@@ -179,9 +161,11 @@ function normalizeState(input) {
     version: 5.2,
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
+    archivedSections: Array.isArray(s.archivedSections) ? s.archivedSections : [],
     machines: Array.isArray(s.machines) ? s.machines : [],
-    partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog : [{ id: "p-anvil", name: "Anvil", partNo: "" }],
+    partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog.map((p) => ({ ...p, active: p.active !== false })) : [{ id: "p-anvil", name: "Anvil", partNo: "", active: true }],
     suppliers: Array.isArray(s.suppliers) ? s.suppliers : [],
+    archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
     jobs: Array.isArray(s.jobs) ? s.jobs : []
   };
 }
@@ -390,8 +374,7 @@ async function handleApi(request, env) {
           loginMethod: auth.identity.idpType || (auth.identity.serviceToken ? "service-token" : "unknown"),
           serviceToken: auth.identity.serviceToken,
           cloudflareLogin: isCloudflareLogin(auth.identity),
-          admin: isCloudflareAdmin(auth.identity, env),
-          adminEmail: isAdminEmail(auth.identity, env)
+          admin: isAdmin(auth.identity, env)
         }
       }, database.ready ? 200 : 503);
     }
@@ -404,8 +387,7 @@ async function handleApi(request, env) {
         loginMethod: auth.identity.idpType || (auth.identity.serviceToken ? "service-token" : "unknown"),
         serviceToken: auth.identity.serviceToken,
         cloudflareLogin: isCloudflareLogin(auth.identity),
-        admin: isCloudflareAdmin(auth.identity, env),
-          adminEmail: isAdminEmail(auth.identity, env)
+        admin: isAdmin(auth.identity, env)
       });
     }
 
@@ -420,8 +402,7 @@ async function handleApi(request, env) {
           loginMethod: auth.identity.idpType || (auth.identity.serviceToken ? "service-token" : "unknown"),
           serviceToken: auth.identity.serviceToken,
           cloudflareLogin: isCloudflareLogin(auth.identity),
-          admin: isCloudflareAdmin(auth.identity, env),
-          adminEmail: isAdminEmail(auth.identity, env)
+          admin: isAdmin(auth.identity, env)
         }
       });
     }
@@ -504,11 +485,13 @@ async function handleApi(request, env) {
         if (type === "section") {
           const value = ensureUniqueString(state.sections, body.value);
           if (!value) throw new Error("Section name is required.");
+          state.archivedSections = (state.archivedSections || []).filter((s) => s !== value);
           return { value };
         }
         if (type === "supplier") {
           const value = ensureUniqueString(state.suppliers, body.value);
           if (!value) throw new Error("Supplier name is required.");
+          state.archivedSuppliers = (state.archivedSuppliers || []).filter((s) => s !== value);
           return { value };
         }
         if (type === "part") {
@@ -516,12 +499,164 @@ async function handleApi(request, env) {
           if (!name) throw new Error("Part name is required.");
           let part = state.partCatalog.find((p) => String(p.name).toLowerCase() === name.toLowerCase());
           if (!part) {
-            part = { id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim() };
+            part = { id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true };
             state.partCatalog.push(part);
+          } else {
+            part.active = true;
           }
           return { part };
         }
         throw new Error("Unknown catalog type.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
+    if (route === "master-data" && method === "POST") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const entity = String(body.entity || "");
+      const action = String(body.action || "");
+      const outcome = await mutateState(env, auth.identity, `master.${entity}.${action}`, async (state) => {
+        state.archivedSections = Array.isArray(state.archivedSections) ? state.archivedSections : [];
+        state.archivedSuppliers = Array.isArray(state.archivedSuppliers) ? state.archivedSuppliers : [];
+
+        if (entity === "machine") {
+          const machine = state.machines.find((m) => m.id === body.id);
+          if (!machine) throw new Error("Machine not found.");
+          if (action === "update") {
+            const oldName = machine.name;
+            const oldSection = machine.section;
+            const next = { ...(body.machine || {}) };
+            const assetId = String(next.assetId || "").trim();
+            const name = String(next.name || "").trim();
+            const section = String(next.section || "").trim();
+            if (!assetId || !name || !section) throw new Error("Asset ID, machine name and section are required.");
+            if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That asset ID already exists.");
+            if (state.machines.some((m) => m.id !== machine.id && String(m.name).toLowerCase() === name.toLowerCase())) throw new Error("A machine with that name already exists.");
+            ensureUniqueString(state.sections, section);
+            Object.assign(machine, {
+              assetId,
+              name,
+              section,
+              category: String(next.category || section).trim() || section,
+              location: String(next.location || "").trim(),
+              make: String(next.make || "").trim(),
+              model: String(next.model || "").trim(),
+              serialNumber: String(next.serialNumber || "").trim(),
+              purchaseDate: String(next.purchaseDate || "").trim(),
+              installDate: String(next.installDate || "").trim(),
+              purchaseCost: next.purchaseCost === "" || next.purchaseCost == null ? null : Math.max(0, Number(next.purchaseCost) || 0),
+              notes: String(next.notes || "").trim()
+            });
+            for (const job of state.jobs) {
+              if (job.machine === oldName) {
+                job.machine = name;
+                if (!job.section || job.section === oldSection) job.section = section;
+              }
+            }
+            return { id: machine.id, name: machine.name };
+          }
+          if (action === "archive") { machine.status = "Archived"; return { id: machine.id, status: machine.status }; }
+          if (action === "reactivate") { machine.status = "Active"; return { id: machine.id, status: machine.status }; }
+          if (action === "delete") {
+            if (state.jobs.some((j) => j.machine === machine.name)) throw new Error("This machine has job history, so it cannot be permanently deleted. Archive it instead.");
+            state.machines = state.machines.filter((m) => m.id !== machine.id);
+            return { id: machine.id, deleted: true };
+          }
+        }
+
+        if (entity === "section") {
+          const oldName = String(body.key || "").trim();
+          if (!state.sections.includes(oldName)) throw new Error("Section not found.");
+          if (action === "update") {
+            const name = String(body.name || "").trim();
+            if (!name) throw new Error("Section name is required.");
+            if (state.sections.some((s) => s !== oldName && s.toLowerCase() === name.toLowerCase())) throw new Error("That section already exists.");
+            state.sections = state.sections.map((s) => s === oldName ? name : s).sort((a,b)=>a.localeCompare(b));
+            state.archivedSections = state.archivedSections.map((s) => s === oldName ? name : s);
+            for (const machine of state.machines) if (machine.section === oldName) machine.section = name;
+            for (const job of state.jobs) if (job.section === oldName) job.section = name;
+            return { oldName, name };
+          }
+          if (action === "archive") {
+            if (!state.archivedSections.includes(oldName)) state.archivedSections.push(oldName);
+            return { name: oldName, archived: true };
+          }
+          if (action === "reactivate") {
+            state.archivedSections = state.archivedSections.filter((s) => s !== oldName);
+            return { name: oldName, archived: false };
+          }
+          if (action === "delete") {
+            if (state.machines.some((m) => m.section === oldName) || state.jobs.some((j) => j.section === oldName)) throw new Error("This section is already used by machines or jobs, so it cannot be permanently deleted. Archive it instead.");
+            state.sections = state.sections.filter((s) => s !== oldName);
+            state.archivedSections = state.archivedSections.filter((s) => s !== oldName);
+            return { name: oldName, deleted: true };
+          }
+        }
+
+        if (entity === "supplier") {
+          const oldName = String(body.key || "").trim();
+          if (!state.suppliers.includes(oldName)) throw new Error("Supplier not found.");
+          if (action === "update") {
+            const name = String(body.name || "").trim();
+            if (!name) throw new Error("Supplier name is required.");
+            if (state.suppliers.some((s) => s !== oldName && s.toLowerCase() === name.toLowerCase())) throw new Error("That supplier already exists.");
+            state.suppliers = state.suppliers.map((s) => s === oldName ? name : s).sort((a,b)=>a.localeCompare(b));
+            state.archivedSuppliers = state.archivedSuppliers.map((s) => s === oldName ? name : s);
+            for (const job of state.jobs) for (const part of (job.parts || [])) if (part.supplier === oldName) part.supplier = name;
+            return { oldName, name };
+          }
+          if (action === "archive") {
+            if (!state.archivedSuppliers.includes(oldName)) state.archivedSuppliers.push(oldName);
+            return { name: oldName, archived: true };
+          }
+          if (action === "reactivate") {
+            state.archivedSuppliers = state.archivedSuppliers.filter((s) => s !== oldName);
+            return { name: oldName, archived: false };
+          }
+          if (action === "delete") {
+            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName));
+            if (used) throw new Error("This supplier appears in historical parts records, so it cannot be permanently deleted. Archive it instead.");
+            state.suppliers = state.suppliers.filter((s) => s !== oldName);
+            state.archivedSuppliers = state.archivedSuppliers.filter((s) => s !== oldName);
+            return { name: oldName, deleted: true };
+          }
+        }
+
+        if (entity === "part") {
+          const part = state.partCatalog.find((p) => p.id === body.id);
+          if (!part) throw new Error("Part not found.");
+          if (action === "update") {
+            const oldName = part.name;
+            const oldPartNo = part.partNo || "";
+            const name = String(body.name || "").trim();
+            const partNo = String(body.partNo || "").trim();
+            if (!name) throw new Error("Part name is required.");
+            if (state.partCatalog.some((p) => p.id !== part.id && String(p.name).toLowerCase() === name.toLowerCase())) throw new Error("That part name already exists.");
+            part.name = name;
+            part.partNo = partNo;
+            for (const job of state.jobs) {
+              for (const used of (job.parts || [])) {
+                if (used.name === oldName) {
+                  used.name = name;
+                  used.partNo = partNo;
+                }
+              }
+            }
+            return { id: part.id, name };
+          }
+          if (action === "archive") { part.active = false; return { id: part.id, active: false }; }
+          if (action === "reactivate") { part.active = true; return { id: part.id, active: true }; }
+          if (action === "delete") {
+            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.name === part.name));
+            if (used) throw new Error("This part appears in historical jobs, so it cannot be permanently deleted. Archive it instead.");
+            state.partCatalog = state.partCatalog.filter((p) => p.id !== part.id);
+            return { id: part.id, deleted: true };
+          }
+        }
+
+        throw new Error("Unknown master-data action.");
       });
       return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
     }
@@ -612,8 +747,8 @@ export default {
     if ((url.pathname === "/" || url.pathname === "/index.html") && url.searchParams.get("view") !== "dashboard") {
       try {
         const identity = await getIdentity(request, env);
-        if (isAdminEmail(identity, env)) {
-          const target = new URL("/admin", url);
+        if (isAdmin(identity, env)) {
+          const target = new URL("/admin.html", url);
           return Response.redirect(target.toString(), 302);
         }
       } catch (_) {}
