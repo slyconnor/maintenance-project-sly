@@ -4,7 +4,7 @@
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.2.1";
+const APP_VERSION = "5.2.2";
 
 const DEFAULT_STATE = {
   version: 5.2,
@@ -139,7 +139,17 @@ async function requireUser(request, env, { human = false, admin = false } = {}) 
   const identity = await getIdentity(request, env);
   if (admin) {
     if (!isAdmin(identity, env)) {
-      return { ok: false, response: json({ error: "Admin access requires the Cloudflare login method and an approved admin email." }, 403) };
+      return {
+        ok: false,
+        response: json({
+          error: "Admin access requires the Cloudflare login method and an approved admin email.",
+          code: "ADMIN_ACCESS_REQUIRED",
+          identity: {
+            email: identity.email || null,
+            loginMethod: identity.idpType || (identity.serviceToken ? "service-token" : "unknown")
+          }
+        }, 403)
+      };
     }
     return { ok: true, identity };
   }
@@ -344,11 +354,11 @@ async function bodyJson(request) {
   catch { return {}; }
 }
 
-async function handleApi(request, env) {
+async function handleApi(request, env, routeOverride = "") {
   const method = request.method.toUpperCase();
   const pathname = new URL(request.url).pathname;
   const parts = pathname.replace(/^\/api\/?/, "").split("/").filter(Boolean);
-  const route = parts.join("/");
+  const route = routeOverride || parts.join("/");
 
   try {
     if (method === "GET" && route === "health") {
@@ -706,6 +716,16 @@ async function handleApi(request, env) {
           p.active = p.active === false;
           return { id: p.id, active: p.active };
         }
+        if (action === "delete") {
+          const p = state.profiles.find((x) => x.id === body.id);
+          if (!p) throw new Error("Profile not found.");
+          const assignedJobs = state.jobs.filter((job) => job.assigned === p.name).length;
+          if (assignedJobs) {
+            throw new Error(`This profile has ${assignedJobs} assigned job${assignedJobs === 1 ? "" : "s"}, so it cannot be permanently deleted. Deactivate it instead.`);
+          }
+          state.profiles = state.profiles.filter((x) => x.id !== p.id);
+          return { id: p.id, deleted: true };
+        }
         throw new Error("Unknown profile action.");
       });
       const accessSync = await syncAccessPolicy(env, outcome.state);
@@ -733,22 +753,58 @@ function withVersion(response) {
   return out;
 }
 
+async function fetchStaticAsset(env, request, pathname) {
+  if (!env.ASSETS) {
+    return new Response("Static asset binding ASSETS is missing.", { status: 500 });
+  }
+  const assetUrl = new URL(request.url);
+  assetUrl.pathname = pathname;
+  assetUrl.search = "";
+  return withVersion(await env.ASSETS.fetch(new Request(assetUrl.toString(), {
+    method: "GET",
+    headers: { accept: request.headers.get("accept") || "*/*" }
+  })));
+}
+
 export default {
   async fetch(request, env) {
     const url = new URL(request.url);
+
+    // Canonical Admin entry point. Keeping the HTML, CSS, JavaScript and Admin API on
+    // the exact /admin path avoids mixed Cloudflare Access sessions when a normal
+    // engineer is already signed in and then switches to the stricter Admin app.
+    if (url.pathname === "/admin.html" || url.pathname === "/admin/") {
+      const target = new URL("/admin", url);
+      return Response.redirect(target.toString(), 302);
+    }
+
+    if (url.pathname === "/admin") {
+      const asset = url.searchParams.get("asset");
+      if (request.method === "GET" && asset === "css") return fetchStaticAsset(env, request, "/styles.css");
+      if (request.method === "GET" && asset === "js") return fetchStaticAsset(env, request, "/admin.js");
+
+      const adminApi = url.searchParams.get("api");
+      if (adminApi === "profiles") return withVersion(await handleApi(request, env, "admin/profiles"));
+      if (adminApi === "sync-access") return withVersion(await handleApi(request, env, "admin/sync-access"));
+
+      if (request.method !== "GET" && request.method !== "HEAD") {
+        return json({ error: "Admin route not found." }, 404);
+      }
+      return fetchStaticAsset(env, request, "/admin.html");
+    }
 
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       return withVersion(await handleApi(request, env));
     }
 
     // If an approved admin deliberately chooses the Cloudflare identity provider on the
-    // main Access login screen, send them straight to Admin. ?view=dashboard is an escape
-    // hatch so an admin can still inspect the normal whole-team dashboard when wanted.
+    // main Access login screen, send them straight to the canonical Admin path.
+    // ?view=dashboard is an escape hatch so an admin can still inspect the normal dashboard.
     if ((url.pathname === "/" || url.pathname === "/index.html") && url.searchParams.get("view") !== "dashboard") {
       try {
         const identity = await getIdentity(request, env);
         if (isAdmin(identity, env)) {
-          const target = new URL("/admin.html", url);
+          const target = new URL("/admin", url);
           return Response.redirect(target.toString(), 302);
         }
       } catch (_) {}

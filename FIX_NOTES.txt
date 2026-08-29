@@ -1,14 +1,20 @@
-Maintenance Manager v5.2.1 fix
+Maintenance Manager v5.2.2 fix
 
-1. Fixed Admin > Add Profile alert:
-   "Cannot read properties of null (reading 'reset')"
-   The profile was already being saved successfully; the browser error happened afterwards because event.currentTarget becomes null after an await. The form is now saved to a stable variable before the API call.
+1. Fixed Admin page when switching from a normal engineer login to the Cloudflare Admin login.
+   - /admin is now the canonical Admin URL.
+   - Admin HTML, CSS, JavaScript and Admin API calls all stay on the exact /admin path
+     (using query parameters), so Cloudflare Access cannot mix the normal-user app session
+     with the stricter Admin app and leave the page unstyled/stuck on "Checking...".
+   - /admin.html and /admin/ redirect to /admin.
+   - If the current account is not an approved admin, the page now shows a proper
+     "Admin login required" screen with Log out / switch account and Back buttons.
 
-2. Added Cloudflare Access Log out buttons to:
-   - Main Maintenance Manager header
-   - Admin page header
+2. Added permanent Delete for engineer profiles.
+   - Delete is available only when the profile has no assigned jobs.
+   - Profiles with job history must be deactivated instead, preserving historical jobs.
+   - Deleting a profile also re-syncs Cloudflare Access, removing that engineer email
+     from the active Maintenance Users allow-list.
 
-Cloudflare Access logout endpoint used:
-/cdn-cgi/access/logout
+3. Preserved the v5.2.1 Add Profile form-reset fix and Cloudflare logout buttons.
 
-3. Worker/package patch version changed to 5.2.1 so the deployed build can be identified.
+Version: 5.2.2

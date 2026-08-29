@@ -761,7 +761,7 @@ async function initializeApp(){
     const identity=payload.identity||{};
     const params=new URLSearchParams(location.search);
     if(identity.cloudflareLogin && identity.admin && params.get("view")!=="dashboard") {
-      location.replace("/admin.html");
+      location.replace("/admin");
       return;
     }
     renderAll();
