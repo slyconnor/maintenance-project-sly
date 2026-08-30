@@ -1,12 +1,12 @@
 import { QRCode, QRErrorCorrectLevel } from "./qr.js";
 
-/* Maintenance Manager V5.5.0 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.5.1 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.5.0";
+const APP_VERSION = "5.5.1";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -249,6 +249,41 @@ function normalizeState(input) {
 }
 
 
+
+async function ensureOperatorRequestRejectSchema(env) {
+  const schema = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'operator_requests'").first();
+  const sql = String(schema?.sql || "").toLowerCase();
+  if (!sql || (sql.includes("'rejected'") && sql.includes("rejected_at") && sql.includes("rejected_by"))) return;
+
+  // v5.5.0 used a CHECK constraint that only allowed pending/accepting/accepted.
+  // SQLite cannot widen that CHECK in place, so rebuild the small request table once.
+  await env.DB.batch([
+    env.DB.prepare("DROP TABLE IF EXISTS operator_requests_v551_new"),
+    env.DB.prepare(`CREATE TABLE operator_requests_v551_new (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      machine_id TEXT NOT NULL,
+      operator_name TEXT NOT NULL,
+      issue TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepting', 'accepted', 'rejected')),
+      created_at TEXT NOT NULL DEFAULT (datetime('now')),
+      claimed_at TEXT,
+      accepted_at TEXT,
+      accepted_by TEXT,
+      assigned_profile_id TEXT,
+      assigned_profile_name TEXT,
+      linked_job_no TEXT,
+      rejected_at TEXT,
+      rejected_by TEXT
+    )`),
+    env.DB.prepare(`INSERT INTO operator_requests_v551_new
+      (id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, rejected_at, rejected_by)
+      SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, NULL, NULL
+      FROM operator_requests`),
+    env.DB.prepare("DROP TABLE operator_requests"),
+    env.DB.prepare("ALTER TABLE operator_requests_v551_new RENAME TO operator_requests")
+  ]);
+}
+
 let schemaReady = false;
 async function ensureSchema(env) {
   if (schemaReady) return;
@@ -286,15 +321,18 @@ async function ensureSchema(env) {
     machine_id TEXT NOT NULL,
     operator_name TEXT NOT NULL,
     issue TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepting', 'accepted')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepting', 'accepted', 'rejected')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     claimed_at TEXT,
     accepted_at TEXT,
     accepted_by TEXT,
     assigned_profile_id TEXT,
     assigned_profile_name TEXT,
-    linked_job_no TEXT
+    linked_job_no TEXT,
+    rejected_at TEXT,
+    rejected_by TEXT
   )`).run();
+  await ensureOperatorRequestRejectSchema(env);
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_operator_requests_status ON operator_requests(status, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_operator_requests_machine ON operator_requests(machine_id, created_at DESC)").run();
   schemaReady = true;
@@ -466,7 +504,7 @@ function cleanIssue(value) {
 
 async function getOperatorRequest(env, id) {
   await ensureSchema(env);
-  return await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no
+  return await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, rejected_at, rejected_by
     FROM operator_requests WHERE id = ?`).bind(Number(id)).first();
 }
 
@@ -485,7 +523,9 @@ function operatorRequestJson(row, state) {
     acceptedBy: row.accepted_by || "",
     assignedProfileId: row.assigned_profile_id || "",
     assignedProfileName: row.assigned_profile_name || "",
-    linkedJobNo: row.linked_job_no || ""
+    linkedJobNo: row.linked_job_no || "",
+    rejectedAt: row.rejected_at || "",
+    rejectedBy: row.rejected_by || ""
   };
 }
 
@@ -493,10 +533,10 @@ async function listOperatorRequests(env, state) {
   await ensureSchema(env);
   // If a Worker invocation died midway through an accept, make the request available again.
   await env.DB.prepare("UPDATE operator_requests SET status = 'pending', claimed_at = NULL WHERE status = 'accepting' AND claimed_at < datetime('now', '-5 minutes')").run();
-  const result = await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no
+  const result = await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, rejected_at, rejected_by
     FROM operator_requests
-    WHERE status IN ('pending', 'accepting') OR (status = 'accepted' AND accepted_at >= datetime('now', '-90 days'))
-    ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'accepting' THEN 1 ELSE 2 END, created_at DESC
+    WHERE status IN ('pending', 'accepting') OR (status = 'accepted' AND accepted_at >= datetime('now', '-90 days')) OR (status = 'rejected' AND rejected_at >= datetime('now', '-90 days'))
+    ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'accepting' THEN 1 WHEN 'accepted' THEN 2 ELSE 3 END, created_at DESC
     LIMIT 250`).all();
   return (result.results || []).map((row) => operatorRequestJson(row, state));
 }
@@ -829,6 +869,7 @@ async function handleApi(request, env, routeOverride = "") {
       if ((claim.meta?.changes || 0) !== 1) {
         const latest = await getOperatorRequest(env, id);
         if (latest?.status === "accepted") return json({ ok: true, alreadyAccepted: true, linkedJobNo: latest.linked_job_no || "", state: current.state, requests: await listOperatorRequests(env, current.state) });
+        if (latest?.status === "rejected") return json({ error: "This request has already been rejected. Refresh the Requests page." }, 409);
         return json({ error: "Another engineer is accepting this request. Refresh the Requests page." }, 409);
       }
 
@@ -876,6 +917,37 @@ async function handleApi(request, env, routeOverride = "") {
         WHERE id = ?`).bind(auth.identity.email || "", assignedProfileId, outcome.result?.assignedProfileName || profile.name, outcome.result?.jobNo || "", id).run();
       const requests = await listOperatorRequests(env, outcome.state);
       return json({ ok: true, revision: outcome.revision, state: outcome.state, requests, linkedJobNo: outcome.result?.jobNo || "", requestNo: requestReference(id) });
+    }
+
+    if (method === "POST" && route === "requests/reject") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const id = Number(body.id);
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "Request ID is required." }, 400);
+
+      const current = await getState(env);
+      const requestRow = await getOperatorRequest(env, id);
+      if (!requestRow) return json({ error: "Operator request not found." }, 404);
+      if (requestRow.status === "rejected") {
+        return json({ ok: true, alreadyRejected: true, requests: await listOperatorRequests(env, current.state) });
+      }
+      if (requestRow.status === "accepted") {
+        return json({ error: `This request has already been accepted as ${requestRow.linked_job_no || "a maintenance job"}.`, linkedJobNo: requestRow.linked_job_no || "" }, 409);
+      }
+      if (requestRow.status === "accepting") {
+        return json({ error: "Another engineer is accepting this request. Refresh the Requests page." }, 409);
+      }
+
+      const result = await env.DB.prepare(`UPDATE operator_requests
+        SET status = 'rejected', rejected_at = datetime('now'), rejected_by = ?, claimed_at = NULL
+        WHERE id = ? AND status = 'pending'`).bind(auth.identity.email || "", id).run();
+      if ((result.meta?.changes || 0) !== 1) {
+        return json({ error: "This request changed while you were viewing it. Refresh the Requests page." }, 409);
+      }
+
+      const requests = await listOperatorRequests(env, current.state);
+      return json({ ok: true, requestNo: requestReference(id), requests });
     }
 
     if (method === "GET" && route === "search") {

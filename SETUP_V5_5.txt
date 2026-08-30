@@ -1,11 +1,12 @@
-Maintenance Manager v5.5.0 setup
+Maintenance Manager v5.5.1 setup
 
 NEW IN THIS VERSION
 - One operator QR code per machine.
 - QR opens a public, no-login issue form for that machine.
 - Operator enters their name and issue only.
-- Signed-in engineers see a Requests page and can accept + assign the request to any active engineer.
+- Signed-in engineers see a Requests page and can accept + assign the request to any active engineer, or reject it when no job is needed.
 - Accepting automatically creates a normal maintenance job and links the request to it.
+- Rejecting creates no job and keeps the request in Recent rejected history for 90 days.
 - Existing R2 attachment support remains at the Admin-configured limit (25 MB by default).
 
 CLOUDFLARE STEP 1 - CREATE PRIVATE R2 FILE STORAGE
@@ -33,7 +34,7 @@ The exact /request path is intentionally used for the page, CSS, JavaScript and 
 
 DEPLOY
 - Upload/replace the changed files in GitHub.
-- Include the new files public/request.html, public/request.js and migrations/0003_operator_requests.sql.
+- Include the request files and updated migrations/0003_operator_requests.sql. Existing v5.5.0 databases upgrade automatically on first use.
 - Cloudflare/Wrangler creates the operator_requests table automatically on first use, so no manual D1 migration is required for the site to run.
 
 TEST
@@ -41,6 +42,6 @@ TEST
 2. Open the shown request link in a private/incognito browser. It should NOT ask for Cloudflare login.
 3. Enter an operator name and issue and submit.
 4. Sign in as an engineer and open Requests.
-5. Choose an engineer and press Accept & create job.
-6. Confirm the new JOB number appears in Accepted requests and opens as a normal maintenance job.
+5. Test one request with Accept & create job and confirm the new JOB opens normally.
+6. Submit another test request and press Reject request; confirm it moves to Recently rejected and no job is created.
 7. Test a job/machine file upload after R2 is bound.

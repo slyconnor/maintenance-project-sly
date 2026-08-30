@@ -462,6 +462,7 @@ function renderRequests() {
   if(!container)return;
   const pending=operatorRequests.filter(r=>r.status==="pending"||r.status==="accepting");
   const accepted=operatorRequests.filter(r=>r.status==="accepted").slice(0,40);
+  const rejected=operatorRequests.filter(r=>r.status==="rejected").slice(0,40);
   if($("#requestBadge")){
     $("#requestBadge").textContent=String(pending.length);
     $("#requestBadge").hidden=pending.length===0;
@@ -470,10 +471,11 @@ function renderRequests() {
   const pendingHtml=pending.length?pending.map(r=>{
     const m=r.machine||{};
     const busy=r.status==="accepting";
-    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button></div></article>`;
+    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><div class="request-action-buttons"><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button><button type="button" class="btn danger" data-reject-request="${esc(r.id)}" ${busy?"disabled":""}>Reject request</button></div></div></article>`;
   }).join(""):`<div class="panel request-empty"><strong>No pending operator requests.</strong><p>New issues submitted from machine QR codes will appear here.</p></div>`;
   const acceptedHtml=accepted.length?`<article class="panel"><div class="panel-title"><div><h2>Recently accepted</h2><p class="muted">Accepted requests remain here for reference for 90 days.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Assigned</th><th>Job</th><th>Accepted</th></tr></thead><tbody>${accepted.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.assignedProfileName||"—")}</td><td>${r.linkedJobNo?`<button type="button" class="job-link" data-edit-job="${esc(r.linkedJobNo)}">${esc(r.linkedJobNo)}</button>`:"—"}</td><td>${esc(requestDate(r.acceptedAt))}</td></tr>`).join("")}</tbody></table></div></article>`:"";
-  container.innerHTML=`<div class="requests-summary"><div class="mini-metric"><span>Waiting</span><strong>${pending.length}</strong></div><div class="mini-metric"><span>Accepted recently</span><strong>${accepted.length}</strong></div></div><div class="operator-request-list">${pendingHtml}</div>${acceptedHtml}`;
+  const rejectedHtml=rejected.length?`<article class="panel"><div class="panel-title"><div><h2>Recently rejected</h2><p class="muted">Rejected requests create no job and remain here for reference for 90 days.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Rejected by</th><th>Rejected</th></tr></thead><tbody>${rejected.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.rejectedBy||"—")}</td><td>${esc(requestDate(r.rejectedAt))}</td></tr>`).join("")}</tbody></table></div></article>`:"";
+  container.innerHTML=`<div class="requests-summary"><div class="mini-metric"><span>Waiting</span><strong>${pending.length}</strong></div><div class="mini-metric"><span>Accepted recently</span><strong>${accepted.length}</strong></div><div class="mini-metric"><span>Rejected recently</span><strong>${rejected.length}</strong></div></div><div class="operator-request-list">${pendingHtml}</div>${acceptedHtml}${rejectedHtml}`;
   bindJobEditors();
 }
 
@@ -850,7 +852,7 @@ function localSearchResults(query) {
   }
   for(const request of operatorRequests){
     if(includes(request.requestNo,request.operatorName,request.issue,request.machine?.assetId,request.machine?.name)){
-      results.push({kind:"request",id:String(request.id),icon:"⚠",title:`${request.requestNo} · ${request.machine?.assetId||"Machine"}`,meta:`${request.operatorName} · ${request.status==="accepted"?"Accepted":"Waiting"}`});
+      results.push({kind:"request",id:String(request.id),icon:"⚠",title:`${request.requestNo} · ${request.machine?.assetId||"Machine"}`,meta:`${request.operatorName} · ${request.status==="accepted"?"Accepted":request.status==="rejected"?"Rejected":"Waiting"}`});
       if(results.filter(x=>x.kind==="request").length>=4)break;
     }
   }
@@ -905,6 +907,23 @@ $("#refreshRequestsBtn")?.addEventListener("click",async e=>{
   try{await refreshOperatorRequests();}finally{button.disabled=false;button.textContent="↻ Refresh";}
 });
 $("#requestsView")?.addEventListener("click",async e=>{
+  const rejectButton=e.target.closest("[data-reject-request]");
+  if(rejectButton){
+    const id=Number(rejectButton.dataset.rejectRequest);
+    const request=operatorRequests.find(r=>Number(r.id)===id);
+    const label=request?.requestNo||`request ${id}`;
+    if(!confirm(`Reject ${label}?\n\nNo maintenance job will be created. The rejected request will remain in the recent history for 90 days.`))return;
+    const row=rejectButton.closest(".operator-request-row");
+    row?.querySelectorAll("button,select").forEach(control=>control.disabled=true);
+    rejectButton.textContent="Rejecting…";
+    try{
+      const payload=await api("/api/requests/reject",{method:"POST",body:JSON.stringify({id})});
+      operatorRequests=Array.isArray(payload.requests)?payload.requests:operatorRequests;
+      renderRequests();
+    }catch(error){showSaveError(error);await refreshOperatorRequests().catch(()=>{});}
+    return;
+  }
+
   const button=e.target.closest("[data-accept-request]");
   if(!button)return;
   const id=Number(button.dataset.acceptRequest);
@@ -912,6 +931,7 @@ $("#requestsView")?.addEventListener("click",async e=>{
   const assignedProfileId=select?.value||"";
   if(!assignedProfileId){alert("Choose an engineer to assign this request to.");return;}
   button.disabled=true;button.textContent="Accepting…";if(select)select.disabled=true;
+  button.closest(".operator-request-row")?.querySelectorAll("[data-reject-request]").forEach(b=>b.disabled=true);
   try{
     const payload=await api("/api/requests/accept",{method:"POST",body:JSON.stringify({id,assignedProfileId})});
     if(payload.state)applySharedState(payload);

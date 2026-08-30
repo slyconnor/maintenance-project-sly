@@ -1,10 +1,10 @@
-Maintenance Manager v5.5.0
+Maintenance Manager v5.5.1
 
-- Added public operator maintenance request form at /request.
-- Changed each machine QR code to open its operator request form.
-- Added engineer Requests inbox with pending badge.
-- Any signed-in engineer can assign a pending request to any active engineer and accept it.
-- Accepting a request creates a normal maintenance job and records the source request.
-- Requests are stored in D1 and recent accepted requests remain visible for 90 days.
-- Added automatic operator_requests schema creation plus migration 0003_operator_requests.sql.
-- Kept R2 attachments private and unchanged; 25 MB remains the default via Admin Settings.
+- Added Reject request beside Accept & create job in the Operator Requests inbox.
+- Any signed-in engineer can reject a pending operator request.
+- Rejecting creates no maintenance job.
+- Rejected requests stay visible in Recently rejected for 90 days, including who rejected them and when.
+- Added concurrency protection so a request cannot be accepted and rejected at the same time.
+- Automatically upgrades the existing v5.5.0 operator_requests table to allow the rejected status.
+- Updated the operator request schema for fresh installs; existing v5.5.0 databases upgrade automatically on first use.
+- No new Cloudflare Access, R2, binding, variable or secret changes are required for this update.
