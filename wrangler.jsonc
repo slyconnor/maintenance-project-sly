@@ -14,6 +14,8 @@
       "/admin",
       "/admin/*",
       "/admin.html",
+      "/request",
+      "/request/*",
       "/",
       "/index.html"
     ]
@@ -24,6 +26,12 @@
       "database_name": "maintenance-project-sly-db",
       "database_id": "daa25a9f-dea5-4dcd-836d-600e5104eed3",
       "migrations_dir": "./migrations"
+    }
+  ],
+  "r2_buckets": [
+    {
+      "binding": "ATTACHMENTS",
+      "bucket_name": "maintenance-attachments"
     }
   ]
 }

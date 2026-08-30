@@ -9,8 +9,18 @@ let partCatalog = [];
 let suppliers = [];
 let archivedSuppliers = [];
 let profiles = [];
+let operatorRequests = [];
 let sharedRevision = 0;
 let signedInIdentity = null;
+let appSettings = {
+  companyName: "",
+  siteName: "Maintenance Manager",
+  currency: "GBP",
+  defaultPriority: "Medium",
+  maxAttachmentMb: 25,
+  allowAllFileTypes: true,
+  allowedExtensions: "jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,csv,txt,rtf,zip,7z"
+};
 
 const now = new Date();
 let selectedYear = now.getFullYear();
@@ -21,12 +31,23 @@ let machineDetailTab = "overview";
 let partRowCounter = 0;
 let timeRowCounter = 0;
 let editingJobNo = null;
+let pendingJobFiles = [];
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
 const esc = v => String(v ?? "").replace(/[&<>'"]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;","'":"&#39;",'"':"&quot;"}[c]));
-const money = n => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",minimumFractionDigits:2}).format(Number(n)||0);
-const shortMoney = n => new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(Number(n)||0);
+const money = n => new Intl.NumberFormat("en-GB",{style:"currency",currency:appSettings.currency||"GBP",minimumFractionDigits:2}).format(Number(n)||0);
+const shortMoney = n => new Intl.NumberFormat("en-GB",{style:"currency",currency:appSettings.currency||"GBP",maximumFractionDigits:0}).format(Number(n)||0);
+const currencySymbol = () => ({GBP:"£",EUR:"€",USD:"$",CAD:"C$",AUD:"A$"}[appSettings.currency] || appSettings.currency || "£");
+const maxAttachmentBytes = () => Math.max(1,Number(appSettings.maxAttachmentMb)||25)*1024*1024;
+const attachmentPolicyText = () => appSettings.allowAllFileTypes ? `Maximum ${Number(appSettings.maxAttachmentMb)||25} MB per file. Any file type is allowed.` : `Maximum ${Number(appSettings.maxAttachmentMb)||25} MB per file. Allowed: ${appSettings.allowedExtensions||"configured extensions"}.`;
+const attachmentAccept = () => appSettings.allowAllFileTypes ? "" : String(appSettings.allowedExtensions||"").split(",").map(x=>x.trim().replace(/^\./,"")).filter(Boolean).map(x=>`.${x}`).join(",");
+const fileAllowedClient = file => {
+  if(appSettings.allowAllFileTypes)return true;
+  const ext=String(file?.name||"").toLowerCase().split(".").pop();
+  const allowed=String(appSettings.allowedExtensions||"").split(",").map(x=>x.trim().toLowerCase().replace(/^\./,"")).filter(Boolean);
+  return Boolean(ext&&allowed.includes(ext));
+};
 const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 const partTotal = p => (Number(p.qty)||0)*(Number(p.unitPrice)||0);
 const jobPartsCost = j => (j.parts||[]).reduce((a,p)=>a+partTotal(p),0);
@@ -65,10 +86,25 @@ function applySharedState(payload) {
   suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
   archivedSuppliers = Array.isArray(state.archivedSuppliers) ? state.archivedSuppliers : [];
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
+  appSettings = { ...appSettings, ...(state.settings && typeof state.settings === "object" ? state.settings : {}) };
   if (Number.isFinite(Number(payload?.revision))) sharedRevision = Number(payload.revision);
   if (payload?.identity) signedInIdentity = payload.identity;
   if (!selectedMachineId || !machines.some(m=>m.id===selectedMachineId)) selectedMachineId = machines[0]?.id || null;
   if (selectedProfileId !== "all" && !profiles.some(p=>p.id===selectedProfileId && p.active!==false)) selectedProfileId = "all";
+}
+
+function applyUiSettings() {
+  const siteName=String(appSettings.siteName||"Maintenance Manager").trim()||"Maintenance Manager";
+  const companyName=String(appSettings.companyName||"").trim();
+  document.title=companyName?`${siteName} · ${companyName}`:siteName;
+  const words=siteName.split(/\s+/);
+  if($("#brandTitle")) $("#brandTitle").textContent=words.shift()||"Maintenance";
+  if($("#brandSubtitle")) $("#brandSubtitle").textContent=(words.join(" ")||companyName||"Manager");
+  const purpleIcon=document.querySelector(".kpi-icon.purple"); if(purpleIcon)purpleIcon.textContent=currencySymbol();
+  if($("#purchaseCostLabel")) $("#purchaseCostLabel").textContent=`Purchase cost (${currencySymbol()})`;
+  if($("#jobAttachmentHelp")) $("#jobAttachmentHelp").textContent=`Attach multiple photos, manuals, documents or any other permitted file type. ${attachmentPolicyText()}`;
+  const accept=attachmentAccept();
+  [$("#jobAttachmentInput"),$("#machineAttachmentInput")].forEach(input=>{if(input){if(accept)input.setAttribute("accept",accept);else input.removeAttribute("accept");}});
 }
 
 async function api(path, options={}) {
@@ -90,6 +126,19 @@ async function refreshSharedState({render=true}={}) {
   return payload;
 }
 
+async function refreshOperatorRequests({render=true}={}) {
+  try {
+    const payload = await api("/api/requests", { method:"GET", headers:{accept:"application/json"} });
+    operatorRequests = Array.isArray(payload.requests) ? payload.requests : [];
+    if (render) renderAll();
+    return payload;
+  } catch (error) {
+    console.warn("Could not load operator requests", error);
+    if (render) renderRequests();
+    return { requests: operatorRequests, error };
+  }
+}
+
 async function saveMutation(path, body, {render=true}={}) {
   const payload = await api(path, { method:"POST", body:JSON.stringify(body) });
   if (payload.state) applySharedState(payload);
@@ -100,6 +149,128 @@ async function saveMutation(path, body, {render=true}={}) {
 function showSaveError(error) {
   console.error(error);
   alert(error?.message || "The shared database could not be updated. Please try again.");
+}
+
+function formatBytes(bytes) {
+  const n=Number(bytes)||0;
+  if(n<1024)return `${n} B`;
+  if(n<1024*1024)return `${(n/1024).toFixed(n<10240?1:0)} KB`;
+  return `${(n/(1024*1024)).toFixed(n<10*1024*1024?1:0)} MB`;
+}
+
+function attachmentDate(value) {
+  if(!value)return "";
+  const d=new Date(String(value).replace(" ","T")+(/Z$|[+-]\d\d:\d\d$/.test(String(value))?"":"Z"));
+  return Number.isNaN(d.getTime())?String(value):d.toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+
+function attachmentFileUrl(id, download=false) {
+  return `/api/attachments/file?id=${encodeURIComponent(id)}${download?"&download=1":""}`;
+}
+
+function attachmentIcon(contentType, fileName) {
+  const type=String(contentType||"").toLowerCase();
+  const ext=String(fileName||"").split(".").pop().toLowerCase();
+  if(type.startsWith("image/"))return "🖼️";
+  if(type==="application/pdf"||ext==="pdf")return "📕";
+  if(["doc","docx","odt","rtf"].includes(ext))return "📘";
+  if(["xls","xlsx","csv","ods"].includes(ext))return "📊";
+  if(["zip","rar","7z","tar","gz"].includes(ext))return "🗜️";
+  if(type.startsWith("video/"))return "🎬";
+  if(type.startsWith("audio/"))return "🎵";
+  return "📎";
+}
+
+function attachmentRowsHtml(items) {
+  if(!items.length)return `<p class="empty-note attachment-empty">No photos or files attached yet.</p>`;
+  return items.map(a=>{
+    const image=String(a.contentType||"").toLowerCase().startsWith("image/") && !["image/svg+xml"].includes(String(a.contentType||"").toLowerCase());
+    const preview=image?`<a class="attachment-thumb" href="${attachmentFileUrl(a.id)}" target="_blank" rel="noopener"><img src="${attachmentFileUrl(a.id)}" alt="${esc(a.fileName)}" loading="lazy" /></a>`:`<div class="attachment-icon">${attachmentIcon(a.contentType,a.fileName)}</div>`;
+    return `<div class="attachment-row">${preview}<div class="attachment-info"><strong>${esc(a.label||a.fileName)}</strong>${a.label?`<span>${esc(a.fileName)}</span>`:""}<span>${formatBytes(a.sizeBytes)}${a.uploadedBy?` · ${esc(a.uploadedBy)}`:""}${a.uploadedAt?` · ${esc(attachmentDate(a.uploadedAt))}`:""}</span></div><div class="attachment-actions"><a class="btn secondary compact" href="${attachmentFileUrl(a.id)}" target="_blank" rel="noopener">Open</a><a class="btn secondary compact" href="${attachmentFileUrl(a.id,true)}">Download</a><button type="button" class="btn secondary compact" data-attachment-edit="${esc(a.id)}" data-label="${esc(a.label||"")}">Description</button><button type="button" class="btn danger compact" data-attachment-delete="${esc(a.id)}" data-name="${esc(a.fileName)}">Delete</button></div></div>`;
+  }).join("");
+}
+
+async function uploadAttachment(entityType, entityId, file, label="") {
+  if(!file)throw new Error("Choose a file to upload.");
+  if(file.size>maxAttachmentBytes())throw new Error(`${file.name} is larger than ${Number(appSettings.maxAttachmentMb)||25} MB.`);
+  if(!fileAllowedClient(file))throw new Error(`${file.name} is not an allowed file type.`);
+  const body=new FormData();
+  body.append("entityType",entityType);
+  body.append("entityId",entityId);
+  body.append("label",label);
+  body.append("file",file,file.name);
+  const response=await fetch("/api/attachments",{method:"POST",credentials:"same-origin",body});
+  let data={};try{data=await response.json();}catch{}
+  if(!response.ok)throw new Error(data?.error||`Upload failed (${response.status})`);
+  return data;
+}
+
+async function loadAttachments(entityType, entityId, listEl, statusEl=null) {
+  if(!listEl)return null;
+  listEl.innerHTML=`<p class="empty-note">Loading files…</p>`;
+  try{
+    const data=await api(`/api/attachments?entityType=${encodeURIComponent(entityType)}&entityId=${encodeURIComponent(entityId)}`,{method:"GET",headers:{accept:"application/json"}});
+    listEl.innerHTML=attachmentRowsHtml(data.attachments||[]);
+    if(statusEl){
+      statusEl.textContent=data.storageConfigured?`${(data.attachments||[]).length} attachment${(data.attachments||[]).length===1?"":"s"}. Any signed-in maintenance user can add or delete files.`:"File storage is not configured yet.";
+      statusEl.classList.toggle("attachment-error",!data.storageConfigured);
+    }
+    listEl.onclick=async e=>{
+      const del=e.target.closest("[data-attachment-delete]");
+      const edit=e.target.closest("[data-attachment-edit]");
+      if(del){
+        if(!confirm(`Delete ${del.dataset.name||"this file"}? This cannot be undone.`))return;
+        del.disabled=true;
+        try{await saveMutation("/api/attachments/delete",{id:del.dataset.attachmentDelete},{render:false});await loadAttachments(entityType,entityId,listEl,statusEl);}catch(error){showSaveError(error);del.disabled=false;}
+      }
+      if(edit){
+        const label=prompt("File description (leave blank to show just the filename):",edit.dataset.label||"");
+        if(label===null)return;
+        try{await saveMutation("/api/attachments/update",{id:edit.dataset.attachmentEdit,label:label.trim()},{render:false});await loadAttachments(entityType,entityId,listEl,statusEl);}catch(error){showSaveError(error);}
+      }
+    };
+    return data;
+  }catch(error){
+    listEl.innerHTML=`<p class="attachment-error">${esc(error.message||error)}</p>`;
+    if(statusEl)statusEl.textContent="";
+    return null;
+  }
+}
+
+function addPendingJobFiles(fileList) {
+  const added=[];
+  for(const file of [...(fileList||[])]){
+    if(file.size>maxAttachmentBytes()){alert(`${file.name} is larger than ${Number(appSettings.maxAttachmentMb)||25} MB and was not added.`);continue;}
+    if(!fileAllowedClient(file)){alert(`${file.name} is not an allowed file type and was not added.`);continue;}
+    pendingJobFiles.push(file);added.push(file);
+  }
+  renderPendingJobFiles();
+  return added;
+}
+
+function renderPendingJobFiles() {
+  const el=$("#jobPendingFiles");
+  if(!el)return;
+  el.innerHTML=pendingJobFiles.length?`<div class="pending-file-title">Selected to upload:</div>${pendingJobFiles.map((f,i)=>`<div class="pending-file"><span>📎 ${esc(f.name)} · ${formatBytes(f.size)}</span><button type="button" data-remove-pending="${i}" aria-label="Remove ${esc(f.name)}">×</button></div>`).join("")}`:"";
+  const upload=$("#jobUploadAttachmentsBtn");
+  if(upload){upload.disabled=!pendingJobFiles.length||!editingJobNo;upload.textContent=editingJobNo?"Upload selected":"Uploads after Save Job";}
+}
+
+async function uploadPendingJobFiles(jobNo) {
+  if(!pendingJobFiles.length)return true;
+  const status=$("#jobAttachmentStatus");
+  const files=[...pendingJobFiles];
+  let uploaded=0;
+  for(const file of files){
+    if(status)status.textContent=`Uploading ${uploaded+1} of ${files.length}: ${file.name}…`;
+    await uploadAttachment("job",jobNo,file);
+    uploaded+=1;
+  }
+  pendingJobFiles=[];
+  renderPendingJobFiles();
+  if(status)status.textContent=`Uploaded ${uploaded} file${uploaded===1?"":"s"}.`;
+  await loadAttachments("job",jobNo,$("#jobAttachmentsList"),status);
+  return true;
 }
 
 function uniquePush(list, value) {
@@ -221,8 +392,93 @@ function machineHistoryTable(history, emptyText) {
   return `<div class="table-wrap"><table><thead><tr><th>Job</th><th>Title</th><th>Engineer</th><th>Status</th><th>Raised</th><th>Completed</th><th>Hours</th><th>Parts Cost</th></tr></thead><tbody>${history.length?history.map(j=>`<tr><td><button type="button" class="job-link" data-edit-job="${esc(j.jobNo)}">${esc(j.jobNo)}</button></td><td>${esc(j.title)}</td><td>${esc(j.assigned||"—")}</td><td>${statusPill(j.status)}</td><td>${fmtDate(j.raised)}</td><td>${fmtDate(j.completed)}</td><td>${jobHours(j).toFixed(1)}</td><td>${money(jobPartsCost(j))}</td></tr>`).join(""):`<tr><td colspan="8">${esc(emptyText)}</td></tr>`}</tbody></table></div>`;
 }
 
+function machineFilesContent(machine) {
+  const accept=attachmentAccept();
+  return `<div class="machine-files"><div class="history-heading"><div><h3>Documents & photos</h3><p>Manuals, wiring diagrams, photos and other permitted files. ${esc(attachmentPolicyText())}</p></div></div><div class="attachment-picker-row"><label class="file-picker btn secondary compact">＋ Choose photos/files<input id="machineAttachmentInput" type="file" multiple ${accept?`accept="${esc(accept)}"`:""} /></label><label class="file-picker btn secondary compact camera-picker">📷 Take photo<input id="machineCameraInput" type="file" accept="image/*" capture="environment" /></label></div><p id="machineAttachmentStatus" class="attachment-status"></p><div id="machineAttachmentsList" class="attachment-list"><p class="empty-note">Loading files…</p></div></div>`;
+}
+
+function machineQrContent(machine) {
+  const qrUrl=`/api/machines/qr?id=${encodeURIComponent(machine.id)}`;
+  const destination=`${location.origin}/request?machine=${encodeURIComponent(machine.id)}`;
+  return `<div class="machine-qr-panel"><div class="history-heading"><div><h3>Operator Maintenance QR</h3><p>Print one QR code and place it on the machine. Operators scan it, enter their name and describe the issue. No maintenance login is required on the request form.</p></div></div><div class="machine-qr-layout"><div class="qr-card"><img src="${qrUrl}" alt="Operator request QR code for ${esc(machine.assetId)} · ${esc(machine.name)}" /><strong>${esc(machine.assetId)} · ${esc(machine.name)}</strong><span>${esc(machine.location||machine.section||"")}</span></div><div class="qr-actions"><p><strong>Operator form:</strong><br><span class="qr-destination">${esc(destination)}</span></p><a class="btn secondary" href="${qrUrl}&download=1">Download QR SVG</a><button type="button" class="btn primary" id="printMachineQrBtn">Print QR Label</button><button type="button" class="btn secondary" id="copyMachineLinkBtn">Copy request link</button><p class="muted">This is the only QR needed on the machine. Submitted issues appear in the Requests page for any engineer to accept and assign.</p></div></div></div>`;
+}
+
+function bindMachineQrControls(machine) {
+  const destination=`${location.origin}/request?machine=${encodeURIComponent(machine.id)}`;
+  $("#copyMachineLinkBtn")?.addEventListener("click",async e=>{
+    try{await navigator.clipboard.writeText(destination);e.currentTarget.textContent="Copied ✓";setTimeout(()=>e.currentTarget.textContent="Copy request link",1500);}catch{prompt("Copy this operator request link:",destination);}
+  });
+  $("#printMachineQrBtn")?.addEventListener("click",()=>{
+    const qrUrl=`${location.origin}/api/machines/qr?id=${encodeURIComponent(machine.id)}`;
+    const w=window.open("","_blank");
+    if(!w){alert("Allow pop-ups to print the QR label.");return;}
+    w.document.write(`<!doctype html><html><head><title>${esc(machine.assetId)} maintenance request QR</title><style>body{font-family:Arial,sans-serif;margin:0;padding:24px;text-align:center}.label{display:inline-block;border:2px solid #111;border-radius:12px;padding:18px;max-width:360px}.label img{width:260px;height:260px;display:block;margin:auto}.label h1{font-size:24px;margin:8px 0 4px}.label p{margin:3px 0;font-size:14px}.action{font-size:16px!important;font-weight:700;margin-top:10px!important}.hint{font-size:11px!important;margin-top:7px!important}@media print{body{padding:0}.label{border:2px solid #111}}</style></head><body><div class="label"><img src="${qrUrl}"/><h1>${esc(machine.assetId)}</h1><p><strong>${esc(machine.name)}</strong></p><p>${esc(machine.location||machine.section||"")}</p><p class="action">Scan to report a maintenance issue</p><p class="hint">Enter your name and describe the problem</p></div><script>window.onload=()=>setTimeout(()=>window.print(),300)<\/script></body></html>`);
+    w.document.close();
+  });
+}
+
+function bindMachineAttachmentControls(machine) {
+  const input=$("#machineAttachmentInput"), camera=$("#machineCameraInput");
+  const handle=async files=>{
+    const list=[...(files||[])];
+    if(!list.length)return;
+    const status=$("#machineAttachmentStatus");
+    try{
+      for(let i=0;i<list.length;i++){
+        if(list[i].size>maxAttachmentBytes())throw new Error(`${list[i].name} is larger than ${Number(appSettings.maxAttachmentMb)||25} MB.`);
+        if(!fileAllowedClient(list[i]))throw new Error(`${list[i].name} is not an allowed file type.`);
+        if(status)status.textContent=`Uploading ${i+1} of ${list.length}: ${list[i].name}…`;
+        await uploadAttachment("machine",machine.id,list[i]);
+      }
+      await loadAttachments("machine",machine.id,$("#machineAttachmentsList"),status);
+    }catch(error){showSaveError(error);if(status)status.textContent="Upload stopped.";}
+  };
+  if(input)input.addEventListener("change",async e=>{const files=e.target.files;await handle(files);e.target.value="";});
+  if(camera)camera.addEventListener("change",async e=>{const files=e.target.files;await handle(files);e.target.value="";});
+  loadAttachments("machine",machine.id,$("#machineAttachmentsList"),$("#machineAttachmentStatus"));
+}
+
+function requestDate(value) {
+  if(!value)return "—";
+  const d=new Date(String(value).replace(" ","T")+( /Z$|[+-]\d\d:\d\d$/.test(String(value))?"":"Z" ));
+  return Number.isNaN(d.getTime())?String(value):d.toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"});
+}
+
+function requestDefaultAssigneeId() {
+  const email=String(signedInIdentity?.email||"").trim().toLowerCase();
+  const own=activeProfiles().find(p=>String(p.email||"").trim().toLowerCase()===email);
+  if(own)return own.id;
+  if(selectedProfileId!=="all"&&activeProfiles().some(p=>p.id===selectedProfileId))return selectedProfileId;
+  return activeProfiles()[0]?.id||"";
+}
+
+function requestAssigneeOptions(selected="") {
+  const wanted=selected||requestDefaultAssigneeId();
+  return activeProfiles().map(p=>`<option value="${esc(p.id)}" ${p.id===wanted?"selected":""}>${esc(p.name)}</option>`).join("");
+}
+
+function renderRequests() {
+  const container=$("#requestsContent");
+  if(!container)return;
+  const pending=operatorRequests.filter(r=>r.status==="pending"||r.status==="accepting");
+  const accepted=operatorRequests.filter(r=>r.status==="accepted").slice(0,40);
+  if($("#requestBadge")){
+    $("#requestBadge").textContent=String(pending.length);
+    $("#requestBadge").hidden=pending.length===0;
+  }
+  const options=requestAssigneeOptions();
+  const pendingHtml=pending.length?pending.map(r=>{
+    const m=r.machine||{};
+    const busy=r.status==="accepting";
+    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button></div></article>`;
+  }).join(""):`<div class="panel request-empty"><strong>No pending operator requests.</strong><p>New issues submitted from machine QR codes will appear here.</p></div>`;
+  const acceptedHtml=accepted.length?`<article class="panel"><div class="panel-title"><div><h2>Recently accepted</h2><p class="muted">Accepted requests remain here for reference for 90 days.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Assigned</th><th>Job</th><th>Accepted</th></tr></thead><tbody>${accepted.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.assignedProfileName||"—")}</td><td>${r.linkedJobNo?`<button type="button" class="job-link" data-edit-job="${esc(r.linkedJobNo)}">${esc(r.linkedJobNo)}</button>`:"—"}</td><td>${esc(requestDate(r.acceptedAt))}</td></tr>`).join("")}</tbody></table></div></article>`:"";
+  container.innerHTML=`<div class="requests-summary"><div class="mini-metric"><span>Waiting</span><strong>${pending.length}</strong></div><div class="mini-metric"><span>Accepted recently</span><strong>${accepted.length}</strong></div></div><div class="operator-request-list">${pendingHtml}</div>${acceptedHtml}`;
+  bindJobEditors();
+}
+
 function renderMachines() {
-  $("#machinesSubtitle").textContent = selectedProfileId === "all" ? "Select a machine to see its maintenance overview and full job history." : `Machine figures are filtered to work assigned to ${profileContext()}.`;
+  $("#machinesSubtitle").textContent = selectedProfileId === "all" ? "Select a machine to see its maintenance overview, files and full job history." : `Machine figures are filtered to work assigned to ${profileContext()}.`;
   $("#machineList").innerHTML = machines.map(m=>{
     const s = machineStats(m);
     return `<button class="machine-item ${m.id===selectedMachineId?"active":""}" data-machine="${esc(m.id)}"><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${esc(m.section)} · ${esc(m.category)} · ${s.jobs} jobs · ${money(s.spend)} parts</span></button>`;
@@ -235,15 +491,23 @@ function renderMachines() {
   const recent = history.slice(0,5);
   const overviewContent = `<div class="machine-meta"><div class="meta-box"><small>Asset ID</small><strong>${esc(m.assetId)}</strong></div><div class="meta-box"><small>Section</small><strong>${esc(m.section)}</strong></div><div class="meta-box"><small>Location</small><strong>${esc(m.location||"—")}</strong></div><div class="meta-box"><small>Purchase cost</small><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Unknown"}</strong></div><div class="meta-box"><small>Make / Model</small><strong>${esc([m.make,m.model].filter(Boolean).join(" · ")||"—")}</strong></div><div class="meta-box"><small>Serial number</small><strong>${esc(m.serialNumber||"—")}</strong></div><div class="meta-box"><small>Purchase date</small><strong>${fmtDate(m.purchaseDate)}</strong></div><div class="meta-box"><small>Install date</small><strong>${fmtDate(m.installDate)}</strong></div></div>${m.notes?`<div class="machine-notes"><strong>Machine notes</strong><p>${esc(m.notes)}</p></div>`:""}<div class="metric-strip"><div class="mini-metric"><span>Maintenance jobs</span><strong>${stats.jobs}</strong></div><div class="mini-metric"><span>Open jobs</span><strong>${stats.open}</strong></div><div class="mini-metric"><span>Maintenance hours</span><strong>${stats.hours.toFixed(1)}</strong></div><div class="mini-metric"><span>Parts spend</span><strong>${money(stats.spend)}</strong></div></div><div class="machine-overview-note">${selectedProfileId === "all" ? "These figures use the machine’s full recorded maintenance history." : `These figures currently show only ${esc(profileContext())}’s assigned work.`}</div><h3 class="subheading">Recent jobs</h3>${machineHistoryTable(recent, "No jobs recorded for this machine.")}`;
   const historyContent = `<div class="history-heading"><div><h3>Job history</h3><p>${history.length} recorded job${history.length===1?"":"s"} for ${esc(profileContext())}.</p></div></div>${machineHistoryTable(history, "No job history for this machine and profile.")}`;
-  $("#machineDetail").innerHTML = `<div class="machine-head"><div><h2>${esc(m.name)}</h2><p><strong>${esc(m.assetId)}</strong> · ${esc(m.section)} · ${esc(m.category)} · ${esc(m.status||"Active")}</p></div><div class="machine-head-actions"><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Cost unknown"}</strong><button type="button" class="btn secondary compact" data-edit-machine="${esc(m.id)}">Edit Machine</button></div></div><div class="machine-tabs"><button type="button" class="${machineDetailTab==="overview"?"active":""}" data-machine-tab="overview">Overview</button><button type="button" class="${machineDetailTab==="history"?"active":""}" data-machine-tab="history">Job History (${history.length})</button></div>${machineDetailTab==="history"?historyContent:overviewContent}`;
+  const filesContent = machineFilesContent(m);
+  const qrContent = machineQrContent(m);
+  const tabContent = machineDetailTab==="history"?historyContent:machineDetailTab==="files"?filesContent:machineDetailTab==="qr"?qrContent:overviewContent;
+  $("#machineDetail").innerHTML = `<div class="machine-head"><div><h2>${esc(m.name)}</h2><p><strong>${esc(m.assetId)}</strong> · ${esc(m.section)} · ${esc(m.category)} · ${esc(m.status||"Active")}</p></div><div class="machine-head-actions"><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Cost unknown"}</strong><button type="button" class="btn secondary compact" data-edit-machine="${esc(m.id)}">Edit Machine</button></div></div><div class="machine-tabs"><button type="button" class="${machineDetailTab==="overview"?"active":""}" data-machine-tab="overview">Overview</button><button type="button" class="${machineDetailTab==="files"?"active":""}" data-machine-tab="files">Files</button><button type="button" class="${machineDetailTab==="qr"?"active":""}" data-machine-tab="qr">QR Code</button><button type="button" class="${machineDetailTab==="history"?"active":""}" data-machine-tab="history">Job History (${history.length})</button></div>${tabContent}`;
   $$('[data-machine]').forEach(b=>b.addEventListener('click',()=>{selectedMachineId=b.dataset.machine;machineDetailTab="overview";renderMachines();}));
   $$('[data-machine-tab]').forEach(b=>b.addEventListener('click',()=>{machineDetailTab=b.dataset.machineTab;renderMachines();}));
   $$('[data-edit-machine]').forEach(b=>b.addEventListener('click',()=>openMachineDialog('',b.dataset.editMachine)));
+  if(machineDetailTab==="files")bindMachineAttachmentControls(m);
+  if(machineDetailTab==="qr")bindMachineQrControls(m);
   bindJobEditors();
 }
 
 function renderParts() {
   $("#partsSubtitle").textContent = selectedProfileId === "all" ? "Parts usage, dates, suppliers and costs recorded through maintenance jobs." : `Parts used on jobs assigned to ${profileContext()}.`;
+  const saved=[...partCatalog].sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  if($("#stockSavedParts")) $("#stockSavedParts").textContent=String(saved.filter(p=>p.active!==false).length);
+  if($("#stockPlaceholderBody")) $("#stockPlaceholderBody").innerHTML=saved.length?saved.map(p=>`<tr><td><strong>${esc(p.name)}</strong></td><td>${esc(p.partNo||"—")}</td><td class="stock-muted">Not tracked</td><td class="stock-muted">—</td><td class="stock-muted">—</td><td><span class="status-chip placeholder">Placeholder</span></td></tr>`).join(""):`<tr><td colspan="6">No saved parts yet.</td></tr>`;
   const parts = visibleJobs().flatMap(j=>(j.parts||[]).map(p=>({...p,jobNo:j.jobNo,machine:j.machine,section:j.section||inferSection(j.machine)}))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc((machines.find(m=>m.name===p.machine)?.assetId||"—") + " · " + p.machine)}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
 }
@@ -325,7 +589,10 @@ async function handleMasterAction(button) {
       await masterMutation({entity,action:"update",id,name:name.trim(),partNo:partNo.trim()}); return;
     }
   }
-  if(action==="delete" && !confirm("Permanently delete this unused item? This cannot be undone.")) return;
+  if(action==="delete") {
+    const message=entity==="machine"?"Permanently delete this unused machine? Any attached photos/files will also be deleted. This cannot be undone.":"Permanently delete this unused item? This cannot be undone.";
+    if(!confirm(message))return;
+  }
   if(action==="archive" && !confirm("Archive this item? It will disappear from new-job pick lists but remain in historical jobs.")) return;
   await masterMutation({entity,action,id,key});
 }
@@ -405,7 +672,7 @@ function addPartRow(data={}) {
   const row = document.createElement("div");
   row.className = "part-entry";
   row.dataset.partRow = String(partRowCounter);
-  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity<input class="part-qty" type="number" min="1" step="1" value="${Number(data.qty)||1}" /></label><label>Unit price (£)<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Enter price paid" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Price is entered manually for every use; previous prices are never overwritten.</div>`;
+  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity<input class="part-qty" type="number" min="1" step="1" value="${Number(data.qty)||1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Enter price paid" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Price is entered manually for every use; previous prices are never overwritten.</div>`;
   $("#partsEditor").appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
   if (selected) row.querySelector('.part-number').value = selected.partNo || "";
@@ -476,11 +743,13 @@ function renderPickLists() {
 }
 
 function renderAll() {
+  applyUiSettings();
   buildTabs();
   renderProfileSelector();
   renderDashboard();
   renderOpen();
   renderAllJobs();
+  renderRequests();
   renderMachines();
   renderParts();
   renderManageData();
@@ -532,13 +801,13 @@ function downloadExcelReport() {
     excelRow(["Profile",profileContext()]),
     excelRow(["Generated",new Date().toLocaleString("en-GB")]),
     excelRow(["Jobs raised",{value:r.raised,type:"Number"}]), excelRow(["Completed",{value:r.completed,type:"Number"}]), excelRow(["Open now",{value:r.open,type:"Number"}]),
-    excelRow(["Hours this month",{value:r.hours,type:"Number"}]), excelRow(["Parts spend GBP",{value:r.spend.toFixed(2),type:"Number"}])
+    excelRow(["Hours this month",{value:r.hours,type:"Number"}]), excelRow([`Parts spend ${appSettings.currency}`,{value:r.spend.toFixed(2),type:"Number"}])
   ];
-  const jobsRows=[excelRow(["Job No","Title","Description","Section","Asset ID","Machine","Priority","Status","Date Raised","Target Date","Completion Date","Hours This Month","Lifetime Hours","Assigned To","Pinned","Parts This Month GBP","Lifetime Parts GBP"])];
+  const jobsRows=[excelRow(["Job No","Title","Description","Section","Asset ID","Machine","Priority","Status","Date Raised","Target Date","Completion Date","Hours This Month","Lifetime Hours","Assigned To","Pinned",`Parts This Month ${appSettings.currency}`,`Lifetime Parts ${appSettings.currency}`])];
   r.monthJobs.forEach(j=>{const m=machineForJob(j);jobsRows.push(excelRow([j.jobNo,j.title,j.description||"",j.section||inferSection(j.machine),m?.assetId||"",j.machine,j.priority,j.status,j.raised||"",j.target||"",j.completed||"",{value:workHoursThisMonth(j),type:"Number"},{value:jobHours(j),type:"Number"},j.assigned||"",j.pinned?"Yes":"No",{value:spendThisMonth(j).toFixed(2),type:"Number"},{value:jobPartsCost(j).toFixed(2),type:"Number"}]))});
   const timeRows=[excelRow(["Date","Job No","Engineer","Asset ID","Machine","Hours"])];
   r.time.forEach(x=>{const m=machineForJob(x.job);timeRows.push(excelRow([x.date,x.job.jobNo,x.job.assigned||"",m?.assetId||"",x.job.machine,{value:Number(x.hours)||0,type:"Number"}]))});
-  const partRows=[excelRow(["Date","Job No","Section","Asset ID","Machine","Part Name","Part No","Qty","Unit Price GBP","Total GBP","Supplier"])];
+  const partRows=[excelRow(["Date","Job No","Section","Asset ID","Machine","Part Name","Part No","Qty",`Unit Price ${appSettings.currency}`,`Total ${appSettings.currency}`,"Supplier"])];
   r.parts.forEach(x=>{const m=machineForJob(x.job);partRows.push(excelRow([x.date,x.job.jobNo,x.job.section||inferSection(x.job.machine),m?.assetId||"",x.job.machine,x.name,x.partNo||"",{value:Number(x.qty)||0,type:"Number"},{value:Number(x.unitPrice)||0,type:"Number"},{value:partTotal(x),type:"Number"},x.supplier||""]))});
   const xml=`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${excelSheet("Summary",summary)}${excelSheet("Jobs",jobsRows)}${excelSheet("Time Entries",timeRows)}${excelSheet("Parts",partRows)}</Workbook>`;
   const blob=new Blob([xml],{type:"application/vnd.ms-excel;charset=utf-8"});
@@ -547,8 +816,110 @@ function downloadExcelReport() {
   a.download=`maintenance-report-${profileSlug}-${selectedYear}-${String(selectedMonth+1).padStart(2,"0")}.xls`; a.click(); URL.revokeObjectURL(a.href);
 }
 
+// Global search across jobs, machines, saved parts, engineers and attachment names.
+let globalSearchTimer=null;
+let globalSearchSeq=0;
+function localSearchResults(query) {
+  const q=String(query||"").trim().toLowerCase();
+  if(q.length<2)return [];
+  const includes=(...values)=>values.some(v=>String(v??"").toLowerCase().includes(q));
+  const results=[];
+  for(const j of jobs){
+    if(includes(j.jobNo,j.title,j.description,j.machine,j.section,j.assigned,j.notes,j.status,j.priority,...(j.parts||[]).flatMap(p=>[p.name,p.partNo,p.supplier]))){
+      results.push({kind:"job",id:j.jobNo,icon:"🧰",title:`${j.jobNo} · ${j.title}`,meta:`${j.machine} · ${j.status} · ${j.assigned||"Unassigned"}`});
+      if(results.filter(x=>x.kind==="job").length>=6)break;
+    }
+  }
+  for(const m of machines){
+    if(includes(m.assetId,m.name,m.section,m.category,m.location,m.make,m.model,m.serialNumber,m.notes)){
+      results.push({kind:"machine",id:m.id,icon:"▣",title:`${m.assetId} · ${m.name}`,meta:`${m.section}${m.location?` · ${m.location}`:""}`});
+      if(results.filter(x=>x.kind==="machine").length>=5)break;
+    }
+  }
+  for(const part of partCatalog){
+    if(includes(part.name,part.partNo)){
+      results.push({kind:"part",id:part.id,icon:"◇",title:part.name,meta:`Part ${part.partNo||"number not set"} · Stock control placeholder`});
+      if(results.filter(x=>x.kind==="part").length>=4)break;
+    }
+  }
+  for(const profile of profiles){
+    if(includes(profile.name)){
+      results.push({kind:"profile",id:profile.id,icon:"♟",title:profile.name,meta:"Engineer profile"});
+      if(results.filter(x=>x.kind==="profile").length>=3)break;
+    }
+  }
+  for(const request of operatorRequests){
+    if(includes(request.requestNo,request.operatorName,request.issue,request.machine?.assetId,request.machine?.name)){
+      results.push({kind:"request",id:String(request.id),icon:"⚠",title:`${request.requestNo} · ${request.machine?.assetId||"Machine"}`,meta:`${request.operatorName} · ${request.status==="accepted"?"Accepted":"Waiting"}`});
+      if(results.filter(x=>x.kind==="request").length>=4)break;
+    }
+  }
+  return results;
+}
+
+function renderGlobalSearchResults(query, local, attachments=[]) {
+  const box=$("#globalSearchResults");
+  if(!box)return;
+  const fileResults=(attachments||[]).map(a=>({kind:"file",id:a.id,entityType:a.entityType,entityId:a.entityId,icon:attachmentIcon(a.contentType,a.fileName),title:a.label||a.fileName,meta:`${a.fileName}${a.entityType?` · ${a.entityType==="job"?"Job":"Machine"} attachment`:""}`}));
+  const all=[...local,...fileResults].slice(0,16);
+  if(String(query||"").trim().length<2){box.hidden=true;box.innerHTML="";return;}
+  box.innerHTML=all.length?all.map(r=>`<button type="button" class="global-search-result" data-search-kind="${esc(r.kind)}" data-search-id="${esc(r.id)}" ${r.entityType?`data-entity-type="${esc(r.entityType)}" data-entity-id="${esc(r.entityId)}"`:""}><span class="search-result-icon">${r.icon}</span><span><strong>${esc(r.title)}</strong><small>${esc(r.meta||"")}</small></span></button>`).join(""):`<div class="global-search-empty">No matching jobs, requests, machines, parts or files.</div>`;
+  box.hidden=false;
+}
+
+async function updateGlobalSearch() {
+  const input=$("#globalSearch");
+  if(!input)return;
+  const query=input.value.trim();
+  const seq=++globalSearchSeq;
+  const local=localSearchResults(query);
+  renderGlobalSearchResults(query,local,[]);
+  if(query.length<2)return;
+  try{
+    const data=await api(`/api/search?q=${encodeURIComponent(query)}`,{method:"GET",headers:{accept:"application/json"}});
+    if(seq!==globalSearchSeq)return;
+    renderGlobalSearchResults(query,local,data.attachments||[]);
+  }catch{}
+}
+
+$("#globalSearch")?.addEventListener("input",()=>{clearTimeout(globalSearchTimer);globalSearchTimer=setTimeout(updateGlobalSearch,180);});
+$("#globalSearch")?.addEventListener("focus",()=>{if($("#globalSearch").value.trim().length>=2)updateGlobalSearch();});
+$("#globalSearch")?.addEventListener("keydown",e=>{if(e.key==="Escape"){$("#globalSearchResults").hidden=true;e.currentTarget.blur();}});
+$("#globalSearchResults")?.addEventListener("click",e=>{
+  const hit=e.target.closest("[data-search-kind]");if(!hit)return;
+  const kind=hit.dataset.searchKind,id=hit.dataset.searchId;
+  $("#globalSearchResults").hidden=true;
+  if(kind==="job"){openJob(id);return;}
+  if(kind==="machine"){selectedMachineId=id;machineDetailTab="overview";switchView("machines");renderMachines();return;}
+  if(kind==="part"){switchView("parts");return;}
+  if(kind==="profile"){selectedProfileId=id;renderAll();switchView("dashboard");return;}
+  if(kind==="file"){window.open(attachmentFileUrl(id),"_blank","noopener");return;}
+  if(kind==="request"){switchView("requests");return;}
+});
+document.addEventListener("click",e=>{if(!e.target.closest(".global-search-shell")&&$("#globalSearchResults"))$("#globalSearchResults").hidden=true;});
+
 // Navigation and filters
 $("#mainNav").addEventListener("click",e=>{const b=e.target.closest("[data-view]");if(b)switchView(b.dataset.view);});
+$("#refreshRequestsBtn")?.addEventListener("click",async e=>{
+  const button=e.currentTarget;button.disabled=true;button.textContent="Refreshing…";
+  try{await refreshOperatorRequests();}finally{button.disabled=false;button.textContent="↻ Refresh";}
+});
+$("#requestsView")?.addEventListener("click",async e=>{
+  const button=e.target.closest("[data-accept-request]");
+  if(!button)return;
+  const id=Number(button.dataset.acceptRequest);
+  const select=$( `[data-request-assignee="${id}"]` );
+  const assignedProfileId=select?.value||"";
+  if(!assignedProfileId){alert("Choose an engineer to assign this request to.");return;}
+  button.disabled=true;button.textContent="Accepting…";if(select)select.disabled=true;
+  try{
+    const payload=await api("/api/requests/accept",{method:"POST",body:JSON.stringify({id,assignedProfileId})});
+    if(payload.state)applySharedState(payload);
+    operatorRequests=Array.isArray(payload.requests)?payload.requests:operatorRequests;
+    renderAll();
+    switchView("requests");
+  }catch(error){showSaveError(error);await refreshOperatorRequests().catch(()=>{});}
+});
 $("#reportsBtn").addEventListener("click",()=>switchView("reports"));
 $$('[data-nav]').forEach(b=>b.addEventListener('click',()=>switchView(b.dataset.nav)));
 $("#yearSelect").addEventListener("change",e=>{selectedYear=Number(e.target.value);renderAll();});
@@ -570,15 +941,23 @@ function catalogPartId(part) {
 async function openJob(jobNo=null) {
   const form=$("#jobForm");
   form.reset();
+  pendingJobFiles=[];
   editingJobNo=jobNo;
+  $("#jobAttachmentsList").innerHTML="";
+  $("#jobAttachmentStatus").textContent="";
+  renderPendingJobFiles();
   const job=jobNo?jobs.find(j=>j.jobNo===jobNo):null;
   renderSectionSelects();
   $("#partsEditor").innerHTML=""; partRowCounter=0;
   $("#timeEditor").innerHTML=""; timeRowCounter=0;
+  const deleteBtn=$("#deleteJobBtn");
   if (job) {
     $("#jobDialogTitle").textContent=`Edit ${job.jobNo}`;
     $("#jobDialogSubtitle").textContent="Any engineer can update this job, including completed jobs. Job number can also be changed.";
     $("#jobSubmitBtn").textContent="Save Changes";
+    deleteBtn.hidden=false;
+    deleteBtn.disabled=false;
+    deleteBtn.textContent="Delete Job";
     form.elements.jobNo.value=job.jobNo;
     form.elements.title.value=job.title||"";
     form.elements.description.value=job.description||"";
@@ -600,21 +979,47 @@ async function openJob(jobNo=null) {
     $("#jobDialogTitle").textContent="Add maintenance job";
     $("#jobDialogSubtitle").textContent="Job number is created automatically but can be changed before saving.";
     $("#jobSubmitBtn").textContent="Save Job";
+    deleteBtn.hidden=true;
     renderAssignedSelect(selectedProfileId === "all" ? "" : profileContext());
     renderMachineSelect("");
     try {
       const next = await api(`/api/next-job-number?year=${encodeURIComponent(selectedYear)}`, {method:"GET",headers:{accept:"application/json"}});
       form.elements.jobNo.value=next.jobNo || nextJobNumber();
     } catch { form.elements.jobNo.value=nextJobNumber(); }
+    form.elements.priority.value=appSettings.defaultPriority||"Medium";
     form.elements.raised.value=defaultFormDate();
     addTimeRow({date:defaultFormDate()});
     addPartRow({date:defaultFormDate()});
   }
   jobDialog.showModal();
+  renderPendingJobFiles();
+  if(job){
+    loadAttachments("job",job.jobNo,$("#jobAttachmentsList"),$("#jobAttachmentStatus"));
+  }else{
+    $("#jobAttachmentsList").innerHTML=`<p class="empty-note attachment-empty">Save the job first; any files you select now will upload immediately after it is saved.</p>`;
+    $("#jobAttachmentStatus").textContent=attachmentPolicyText();
+  }
 }
 $("#newJobBtn").addEventListener("click",()=>openJob());
 $$('[data-new-job]').forEach(b=>b.addEventListener('click',()=>openJob()));
-$$('[data-close-dialog]').forEach(b=>b.addEventListener('click',()=>{editingJobNo=null;jobDialog.close();}));
+$$('[data-close-dialog]').forEach(b=>b.addEventListener('click',()=>{editingJobNo=null;pendingJobFiles=[];renderPendingJobFiles();jobDialog.close();}));
+
+$("#jobAttachmentInput").addEventListener("change",e=>{addPendingJobFiles(e.target.files);e.target.value="";});
+$("#jobCameraInput").addEventListener("change",e=>{addPendingJobFiles(e.target.files);e.target.value="";});
+$("#jobPendingFiles").addEventListener("click",e=>{
+  const button=e.target.closest("[data-remove-pending]");
+  if(!button)return;
+  pendingJobFiles.splice(Number(button.dataset.removePending),1);
+  renderPendingJobFiles();
+});
+$("#jobUploadAttachmentsBtn").addEventListener("click",async()=>{
+  if(!editingJobNo||!pendingJobFiles.length)return;
+  const button=$("#jobUploadAttachmentsBtn");
+  button.disabled=true;
+  try{await uploadPendingJobFiles(editingJobNo);}
+  catch(error){showSaveError(error);}
+  finally{renderPendingJobFiles();}
+});
 
 $("#jobSectionSelect").addEventListener("change",async e=>{
   if (e.target.value === "__add_section__") await addSectionInteractive(e.target,section=>renderMachineSelect(section));
@@ -652,6 +1057,31 @@ $("#partsEditor").addEventListener("change",async e=>{
   }
 });
 
+$("#deleteJobBtn").addEventListener("click",async()=>{
+  if(!editingJobNo)return;
+  const job=jobs.find(j=>j.jobNo===editingJobNo);
+  if(!job){alert("Job not found.");return;}
+  const details=[];
+  const hours=jobHours(job);
+  const partsCost=jobPartsCost(job);
+  if(hours>0)details.push(`${hours.toFixed(1)} recorded hour${hours===1?"":"s"}`);
+  if((job.parts||[]).length)details.push(`${job.parts.length} part entr${job.parts.length===1?"y":"ies"} (${money(partsCost)})`);
+  const extra=details.length?`\n\nThis job contains ${details.join(" and ")}.`:"";
+  if(!confirm(`Permanently delete ${job.jobNo} · ${job.title}?${extra}\n\nAny attached photos/files will also be deleted. This cannot be undone.`))return;
+  const btn=$("#deleteJobBtn");
+  btn.disabled=true;btn.textContent="Deleting…";
+  try{
+    await saveMutation("/api/jobs/delete",{jobNo:editingJobNo});
+    editingJobNo=null;
+    pendingJobFiles=[];
+    renderPendingJobFiles();
+    jobDialog.close();
+  }catch(error){
+    showSaveError(error);
+    btn.disabled=false;btn.textContent="Delete Job";
+  }
+});
+
 $("#jobForm").addEventListener("submit",async e=>{
   e.preventDefault();
   const fd=new FormData(e.currentTarget),obj=Object.fromEntries(fd.entries());
@@ -664,10 +1094,28 @@ $("#jobForm").addEventListener("submit",async e=>{
   const originalJobNo=editingJobNo;
   const submit=$("#jobSubmitBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
-    await saveMutation("/api/jobs",{job:updated,originalJobNo});
-    editingJobNo=null; jobDialog.close();
+    const payload=await saveMutation("/api/jobs",{job:updated,originalJobNo},{render:false});
+    const savedJobNo=payload.jobNo||cleanNo;
+    editingJobNo=savedJobNo;
+    if(pendingJobFiles.length){
+      submit.textContent="Uploading files…";
+      try{await uploadPendingJobFiles(savedJobNo);}
+      catch(uploadError){
+        renderAll();
+        showSaveError(new Error(`Job saved, but a file could not be uploaded: ${uploadError.message||uploadError}`));
+        $("#jobDialogTitle").textContent=`Edit ${savedJobNo}`;
+        $("#jobSubmitBtn").textContent="Save Changes";
+        $("#deleteJobBtn").hidden=false;
+        await loadAttachments("job",savedJobNo,$("#jobAttachmentsList"),$("#jobAttachmentStatus"));
+        return;
+      }
+    }
+    editingJobNo=null;
+    pendingJobFiles=[];
+    renderAll();
+    jobDialog.close();
   } catch(error){ showSaveError(error); }
-  finally { submit.disabled=false; submit.textContent=editingJobNo?"Save Changes":"Save Job"; }
+  finally { submit.disabled=false; submit.textContent=editingJobNo?"Save Changes":"Save Job"; renderPendingJobFiles(); }
 });
 
 // Add / edit machine form. All authenticated maintenance users can maintain machine details.
@@ -758,17 +1206,21 @@ $("#printReportBtn").addEventListener("click",()=>window.print());
 async function initializeApp(){
   try {
     const payload=await refreshSharedState({render:false});
+    await refreshOperatorRequests({render:false});
     const identity=payload.identity||{};
     const params=new URLSearchParams(location.search);
     if(identity.cloudflareLogin && identity.admin && params.get("view")!=="dashboard") {
       location.replace("/admin");
       return;
     }
+    const machineParam=params.get("machine");
+    if(machineParam && machines.some(m=>m.id===machineParam)){selectedMachineId=machineParam;machineDetailTab="overview";}
     renderAll();
+    if(machineParam && machines.some(m=>m.id===machineParam)) switchView("machines");
   } catch(error) {
     console.error(error);
     document.body.innerHTML=`<main style="max-width:760px;margin:60px auto;font-family:system-ui;padding:24px"><h1>Maintenance Manager</h1><p>The shared database could not be loaded.</p><pre style="white-space:pre-wrap;background:#f4f5f7;padding:16px;border-radius:10px">${esc(error.message||error)}</pre><p>Check that the Worker has a D1 binding named DB, then reload this page. Tables are created automatically on first use.</p></main>`;
   }
 }
-window.addEventListener("focus",()=>{ if(!jobDialog.open && !machineDialog.open) refreshSharedState().catch(()=>{}); });
+window.addEventListener("focus",()=>{ if(!jobDialog.open && !machineDialog.open) Promise.all([refreshSharedState({render:false}),refreshOperatorRequests({render:false})]).then(()=>renderAll()).catch(()=>{}); });
 initializeApp();

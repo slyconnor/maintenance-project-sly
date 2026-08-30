@@ -1,16 +1,10 @@
-Maintenance Manager v5.2.3 fix
+Maintenance Manager v5.5.0
 
-1. Fixed Admin page getting stuck on “Checking Cloudflare Admin access…” after v5.2.2.
-   - Root cause: Cloudflare Static Assets can resolve /admin to public/admin.html before the Worker runs.
-   - Because the Admin JavaScript was requested as /admin?asset=js, the static asset layer could return the HTML page again instead of admin.js.
-   - The browser therefore never ran the Admin JavaScript, leaving the page permanently on the loading message.
-   - wrangler.jsonc now forces the Worker to run first for /admin, /admin/* and /admin.html, so the Worker can correctly serve Admin HTML, JavaScript, CSS and Admin API requests on the protected /admin path.
-
-2. Keeps the v5.2.2 profile controls.
-   - Deactivate keeps job history.
-   - Delete permanently removes a profile only when it has no assigned jobs.
-   - Cloudflare Access email syncing remains enabled for add/reactivate/deactivate/delete.
-
-3. No database migration is required. Existing profiles and jobs are preserved.
-
-Version: 5.2.3
+- Added public operator maintenance request form at /request.
+- Changed each machine QR code to open its operator request form.
+- Added engineer Requests inbox with pending badge.
+- Any signed-in engineer can assign a pending request to any active engineer and accept it.
+- Accepting a request creates a normal maintenance job and records the source request.
+- Requests are stored in D1 and recent accepted requests remain visible for 90 days.
+- Added automatic operator_requests schema creation plus migration 0003_operator_requests.sql.
+- Kept R2 attachments private and unchanged; 25 MB remains the default via Admin Settings.

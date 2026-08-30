@@ -1,0 +1,57 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Report Maintenance Issue</title>
+  <link rel="stylesheet" href="/request?asset=css" />
+</head>
+<body class="operator-request-body">
+  <main class="operator-request-shell">
+    <section class="operator-request-card" aria-labelledby="requestTitle">
+      <div class="operator-request-mark" aria-hidden="true">⚙</div>
+      <div class="operator-request-heading">
+        <p class="eyebrow">Maintenance request</p>
+        <h1 id="requestTitle">Report a machine issue</h1>
+        <p id="requestIntro">Loading machine details…</p>
+      </div>
+
+      <div id="requestError" class="operator-request-message error" hidden></div>
+
+      <div id="machineSummary" class="operator-machine-summary" hidden>
+        <span>Machine</span>
+        <strong id="machineTitle"></strong>
+        <small id="machineMeta"></small>
+      </div>
+
+      <form id="operatorRequestForm" class="operator-request-form" hidden>
+        <input type="hidden" name="machineId" id="requestMachineId" />
+        <label>
+          Your name
+          <input name="operatorName" id="operatorName" type="text" maxlength="80" autocomplete="name" required placeholder="Enter your name" />
+        </label>
+        <label>
+          What is the issue?
+          <textarea name="issue" id="operatorIssue" rows="7" maxlength="2000" required placeholder="Describe what is wrong, what you noticed, and whether the machine has stopped."></textarea>
+        </label>
+        <label class="operator-honeypot" aria-hidden="true">
+          Website
+          <input name="website" id="operatorWebsite" type="text" tabindex="-1" autocomplete="off" />
+        </label>
+        <button class="btn primary operator-submit" id="operatorSubmitBtn" type="submit">Submit maintenance request</button>
+        <p class="operator-request-note">This sends a request to the maintenance team. It does not give access to maintenance records.</p>
+      </form>
+
+      <div id="requestSuccess" class="operator-request-success" hidden>
+        <div class="operator-success-icon" aria-hidden="true">✓</div>
+        <h2>Request submitted</h2>
+        <p>Your reference is <strong id="requestReference"></strong>.</p>
+        <p>The maintenance team can now accept it and assign it to an engineer.</p>
+        <button class="btn secondary" type="button" id="submitAnotherBtn">Report another issue</button>
+      </div>
+    </section>
+  </main>
+  <script src="/request?asset=js"></script>
+</body>
+</html>

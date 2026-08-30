@@ -4,6 +4,7 @@ let profiles=[];
 let jobs=[];
 let identity=null;
 let accessSyncConfigured=false;
+let settings={companyName:"",siteName:"Maintenance Manager",currency:"GBP",defaultPriority:"Medium",maxAttachmentMb:25,allowAllFileTypes:true,allowedExtensions:"jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,csv,txt,rtf,zip,7z"};
 
 async function api(path, options={}){
   const response=await fetch(path,{credentials:"same-origin",headers:{"content-type":"application/json",...(options.headers||{})},...options});
@@ -66,6 +67,42 @@ function render(){
   }));
 }
 
+function renderSettings(){
+  const form=$("#settingsForm");if(!form)return;
+  form.elements.companyName.value=settings.companyName||"";
+  form.elements.siteName.value=settings.siteName||"Maintenance Manager";
+  form.elements.currency.value=settings.currency||"GBP";
+  form.elements.defaultPriority.value=settings.defaultPriority||"Medium";
+  form.elements.maxAttachmentMb.value=Number(settings.maxAttachmentMb)||25;
+  form.elements.allowAllFileTypes.checked=settings.allowAllFileTypes!==false;
+  form.elements.allowedExtensions.value=settings.allowedExtensions||"";
+  form.elements.allowedExtensions.disabled=form.elements.allowAllFileTypes.checked;
+}
+
+$("#settingsForm")?.elements?.allowAllFileTypes?.addEventListener("change",e=>{
+  const field=$("#settingsForm").elements.allowedExtensions;field.disabled=e.currentTarget.checked;
+});
+
+$("#settingsForm")?.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const form=e.currentTarget,button=$("#saveSettingsBtn"),status=$("#settingsStatus");
+  const next={
+    companyName:String(form.elements.companyName.value||"").trim(),
+    siteName:String(form.elements.siteName.value||"").trim()||"Maintenance Manager",
+    currency:form.elements.currency.value,
+    defaultPriority:form.elements.defaultPriority.value,
+    maxAttachmentMb:Number(form.elements.maxAttachmentMb.value)||25,
+    allowAllFileTypes:Boolean(form.elements.allowAllFileTypes.checked),
+    allowedExtensions:String(form.elements.allowedExtensions.value||"").trim()
+  };
+  button.disabled=true;button.textContent="Saving…";status.textContent="";
+  try{
+    const data=await api("/admin?api=settings",{method:"POST",body:JSON.stringify({settings:next})});
+    settings=data.settings||next;renderSettings();status.textContent="Settings saved. The main site will use them on refresh.";
+  }catch(error){status.textContent=error.message;alert(error.message)}
+  finally{button.disabled=false;button.textContent="Save Settings";}
+});
+
 function showSync(sync){
   if(!sync)return;
   setStatus(sync.ok?"Cloudflare Access synced":"Profile saved",sync.message,sync.ok?"ok":"warning");
@@ -101,13 +138,14 @@ function showDenied(error){
 async function initialize(){
   try{
     const data=await api("/admin?api=profiles",{method:"GET",headers:{accept:"application/json"}});
-    profiles=data.profiles||[];jobs=data.jobs||[];identity=data.identity||null;accessSyncConfigured=Boolean(data.accessSyncConfigured);
+    profiles=data.profiles||[];jobs=data.jobs||[];identity=data.identity||null;accessSyncConfigured=Boolean(data.accessSyncConfigured);settings={...settings,...(data.settings||{})};
     setStatus(
       "Cloudflare Admin verified",
       `${identity?.email?`Signed in as ${identity.email}. `:""}Profiles are stored in the shared D1 database.${accessSyncConfigured?" Cloudflare Access email syncing is configured.":" Cloudflare Access automatic email syncing is not configured yet; profiles will still save to D1."}`,
       accessSyncConfigured?"ok":"warning"
     );
     render();
+    renderSettings();
   }catch(error){
     showDenied(error);
   }

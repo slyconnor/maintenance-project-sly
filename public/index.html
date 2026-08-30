@@ -3,16 +3,17 @@
 <head>
   <meta charset="utf-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1" />
-  <title>Maintenance Manager</title>
+  <title id="pageTitle">Maintenance Manager</title>
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
   <div class="app-shell">
     <aside class="sidebar">
-      <div class="brand"><div class="brand-mark">⚙</div><div><strong>Maintenance</strong><span>Manager</span></div></div>
+      <div class="brand"><div class="brand-mark">⚙</div><div><strong id="brandTitle">Maintenance</strong><span id="brandSubtitle">Manager</span></div></div>
       <nav id="mainNav" class="nav-list" aria-label="Main navigation">
         <button class="nav-item active" data-view="dashboard">⌂ <span>Dashboard</span></button>
         <button class="nav-item" data-view="open">☑ <span>Open Jobs</span><b id="openBadge" class="badge">0</b></button>
+        <button class="nav-item" data-view="requests">⚠ <span>Requests</span><b id="requestBadge" class="badge">0</b></button>
         <button class="nav-item" data-view="jobs">☷ <span>All Jobs</span></button>
         <button class="nav-item" data-view="machines">▣ <span>Machines</span></button>
         <button class="nav-item" data-view="parts">◇ <span>Parts</span></button>
@@ -34,6 +35,11 @@
           <div id="monthTabs" class="month-tabs" aria-label="Months"></div>
         </div>
         <div class="top-actions profile-actions">
+          <div class="global-search-shell">
+            <label class="sr-only" for="globalSearch">Search maintenance records</label>
+            <input id="globalSearch" type="search" placeholder="Search jobs, machines, parts, files…" autocomplete="off" />
+            <div id="globalSearchResults" class="global-search-results" hidden></div>
+          </div>
           <label class="profile-picker">Viewing profile
             <select id="profileSelect" aria-label="Viewing profile"></select>
           </label>
@@ -74,9 +80,22 @@
 
       <section id="jobsView" class="view"><div class="page-heading"><div><h1 id="allJobsTitle">All Jobs</h1><p id="jobsSubtitle">Full maintenance job register.</p></div><button class="btn primary" data-new-job>＋ New Job</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Job No.</th><th>Title</th><th>Machine / Location</th><th>Priority</th><th>Status</th><th>Raised</th><th>Target</th><th>Completed</th><th>Hours</th><th>Parts</th><th>Assigned</th><th>Pin</th></tr></thead><tbody id="allJobsBody"></tbody></table></div></article></section>
 
+      <section id="requestsView" class="view">
+        <div class="page-heading"><div><h1>Operator Requests</h1><p>Issues submitted from the QR codes on machines. Any engineer can accept a request and assign it to an active engineer.</p></div><button type="button" class="btn secondary" id="refreshRequestsBtn">↻ Refresh</button></div>
+        <div id="requestsContent"></div>
+      </section>
+
       <section id="machinesView" class="view"><div class="page-heading"><div><h1>Machines</h1><p id="machinesSubtitle">Select a machine to see its maintenance history and lifetime recorded cost.</p></div><button class="btn secondary" id="addMachineBtn">＋ Add Machine</button></div><div class="machine-layout"><article class="panel"><div id="machineList" class="machine-list"></div></article><article class="panel machine-detail" id="machineDetail"></article></div></section>
 
-      <section id="partsView" class="view"><div class="page-heading"><div><h1>Parts</h1><p id="partsSubtitle">Parts usage, dates, suppliers and costs recorded through maintenance jobs.</p></div></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Date Used</th><th>Part Name</th><th>Part No.</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Supplier</th><th>Job</th><th>Machine</th></tr></thead><tbody id="partsBody"></tbody></table></div></article></section>
+      <section id="partsView" class="view">
+        <div class="page-heading"><div><h1>Parts</h1><p id="partsSubtitle">Parts usage, dates, suppliers and costs recorded through maintenance jobs.</p></div></div>
+        <article class="panel stock-placeholder-panel">
+          <div class="panel-title"><div><h2>📦 Parts Stock Control <span class="coming-soon-badge">Placeholder</span></h2><p class="muted">The stock-control area is ready for the next phase. Existing saved parts are listed now; stock movements and automatic job deductions are not enabled yet.</p></div><button class="btn secondary compact" type="button" disabled>Stock movements coming next</button></div>
+          <div class="stock-summary"><div class="mini-metric"><span>Saved parts</span><strong id="stockSavedParts">0</strong></div><div class="mini-metric"><span>Tracked stock</span><strong>—</strong></div><div class="mini-metric"><span>Low stock</span><strong>—</strong></div></div>
+          <div class="table-wrap"><table><thead><tr><th>Part</th><th>Part No.</th><th>Current Stock</th><th>Min Stock</th><th>Bin / Location</th><th>Status</th></tr></thead><tbody id="stockPlaceholderBody"></tbody></table></div>
+        </article>
+        <article class="panel"><div class="panel-title"><h2>Parts Usage History</h2></div><div class="table-wrap"><table><thead><tr><th>Date Used</th><th>Part Name</th><th>Part No.</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Supplier</th><th>Job</th><th>Machine</th></tr></thead><tbody id="partsBody"></tbody></table></div></article>
+      </section>
 
 
       <section id="dataView" class="view">
@@ -115,11 +134,12 @@
       </div>
       <fieldset class="parts-fieldset time-fieldset"><legend>Maintenance time</legend><p class="fieldset-help">Log time by date so monthly totals stay correct when a job spans more than one month.</p><div id="timeEditor" class="time-editor"></div><button id="addTimeRowBtn" type="button" class="btn secondary compact">＋ Add time entry</button></fieldset>
       <fieldset class="parts-fieldset"><legend>Parts used (optional)</legend><p class="fieldset-help">Select saved parts and suppliers to keep names consistent. Prices are deliberately entered manually each time so the exact historical price is preserved.</p><div id="partsEditor" class="parts-editor"></div><button id="addPartRowBtn" type="button" class="btn secondary compact">＋ Add part</button></fieldset>
-      <div class="modal-actions"><button type="button" class="btn secondary" data-close-dialog>Cancel</button><button id="jobSubmitBtn" class="btn primary" type="submit">Save Job</button></div>
+      <fieldset class="parts-fieldset attachment-fieldset"><legend>Photos & files</legend><p id="jobAttachmentHelp" class="fieldset-help">Attach multiple photos, manuals, documents or any other file type. Maximum 25 MB per file.</p><div class="attachment-picker-row"><label class="file-picker btn secondary compact">＋ Choose photos/files<input id="jobAttachmentInput" type="file" multiple /></label><label class="file-picker btn secondary compact camera-picker">📷 Take photo<input id="jobCameraInput" type="file" accept="image/*" capture="environment" /></label><button id="jobUploadAttachmentsBtn" type="button" class="btn primary compact">Upload selected</button></div><div id="jobPendingFiles" class="pending-files"></div><p id="jobAttachmentStatus" class="attachment-status"></p><div id="jobAttachmentsList" class="attachment-list"></div></fieldset>
+      <div class="modal-actions"><button id="deleteJobBtn" class="btn danger job-delete" type="button" hidden>Delete Job</button><button type="button" class="btn secondary" data-close-dialog>Cancel</button><button id="jobSubmitBtn" class="btn primary" type="submit">Save Job</button></div>
     </form>
   </dialog>
 
-  <dialog id="machineDialog" class="modal"><form id="machineForm" method="dialog"><div class="modal-head"><div><h2 id="machineDialogTitle">Add machine</h2><p id="machineDialogSubtitle">Machine details are shared with the whole maintenance team.</p></div><button type="button" class="icon-btn" data-close-machine>×</button></div><input type="hidden" name="machineId" /><div class="form-grid"><label>Asset / Machine ID<input name="assetId" required placeholder="RM-124" /><small class="field-help">Unique identifier separate from the machine name.</small></label><label>Section<select name="section" id="machineSectionSelect" required></select><small class="field-help">Select a saved section or add a new one.</small></label><label>Machine name<input name="name" required /></label><label>Machine type / category<input name="category" required placeholder="Rivet Machines" /></label><label>Location<input name="location" /></label><label>Purchase cost (£)<input name="purchaseCost" type="number" min="0" step="0.01" /></label><label>Make<input name="make" /></label><label>Model<input name="model" /></label><label>Serial number<input name="serialNumber" /></label><label>Purchase date<input name="purchaseDate" type="date" /></label><label>Install date<input name="installDate" type="date" /></label><label class="span-2">Machine notes<textarea name="notes" rows="3" placeholder="Useful machine information, service notes, manuals location, etc."></textarea></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-close-machine>Cancel</button><button id="machineSaveBtn" class="btn primary">Save Machine</button></div></form></dialog>
+  <dialog id="machineDialog" class="modal"><form id="machineForm" method="dialog"><div class="modal-head"><div><h2 id="machineDialogTitle">Add machine</h2><p id="machineDialogSubtitle">Machine details are shared with the whole maintenance team.</p></div><button type="button" class="icon-btn" data-close-machine>×</button></div><input type="hidden" name="machineId" /><div class="form-grid"><label>Asset / Machine ID<input name="assetId" required placeholder="RM-124" /><small class="field-help">Unique identifier separate from the machine name.</small></label><label>Section<select name="section" id="machineSectionSelect" required></select><small class="field-help">Select a saved section or add a new one.</small></label><label>Machine name<input name="name" required /></label><label>Machine type / category<input name="category" required placeholder="Rivet Machines" /></label><label>Location<input name="location" /></label><label><span id="purchaseCostLabel">Purchase cost (£)</span><input name="purchaseCost" type="number" min="0" step="0.01" /></label><label>Make<input name="make" /></label><label>Model<input name="model" /></label><label>Serial number<input name="serialNumber" /></label><label>Purchase date<input name="purchaseDate" type="date" /></label><label>Install date<input name="installDate" type="date" /></label><label class="span-2">Machine notes<textarea name="notes" rows="3" placeholder="Useful machine information, service notes, manuals location, etc."></textarea></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-close-machine>Cancel</button><button id="machineSaveBtn" class="btn primary">Save Machine</button></div></form></dialog>
 
   <script src="app.js"></script>
 </body>

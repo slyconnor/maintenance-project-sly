@@ -1,0 +1,46 @@
+Maintenance Manager v5.5.0 setup
+
+NEW IN THIS VERSION
+- One operator QR code per machine.
+- QR opens a public, no-login issue form for that machine.
+- Operator enters their name and issue only.
+- Signed-in engineers see a Requests page and can accept + assign the request to any active engineer.
+- Accepting automatically creates a normal maintenance job and links the request to it.
+- Existing R2 attachment support remains at the Admin-configured limit (25 MB by default).
+
+CLOUDFLARE STEP 1 - CREATE PRIVATE R2 FILE STORAGE
+1. Cloudflare dashboard -> R2 Object Storage.
+2. Create bucket.
+3. Bucket name: maintenance-attachments
+4. Leave it private. Do not enable a public/custom domain.
+5. After this version deploys, Worker -> Bindings should show:
+   ATTACHMENTS -> maintenance-attachments
+   The binding is already declared in wrangler.jsonc.
+
+CLOUDFLARE STEP 2 - MAKE ONLY THE OPERATOR FORM PUBLIC
+The rest of the maintenance site must stay protected by Cloudflare Access.
+1. Zero Trust -> Access controls -> Applications.
+2. Create a new Self-hosted application / public hostname.
+3. Name: Maintenance Operator Request
+4. Hostname: maintenance.project-sly.uk
+5. Path: request
+6. Create/attach a policy:
+   Action: Bypass
+   Include: Everyone
+7. Save the application.
+
+The exact /request path is intentionally used for the page, CSS, JavaScript and submissions via query strings. Do not bypass the whole maintenance.project-sly.uk hostname.
+
+DEPLOY
+- Upload/replace the changed files in GitHub.
+- Include the new files public/request.html, public/request.js and migrations/0003_operator_requests.sql.
+- Cloudflare/Wrangler creates the operator_requests table automatically on first use, so no manual D1 migration is required for the site to run.
+
+TEST
+1. In Maintenance -> Machines -> choose a machine -> QR Code.
+2. Open the shown request link in a private/incognito browser. It should NOT ask for Cloudflare login.
+3. Enter an operator name and issue and submit.
+4. Sign in as an engineer and open Requests.
+5. Choose an engineer and press Accept & create job.
+6. Confirm the new JOB number appears in Accepted requests and opens as a normal maintenance job.
+7. Test a job/machine file upload after R2 is bound.

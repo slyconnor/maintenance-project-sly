@@ -1,7 +1,8 @@
 const MONTHS=["January","February","March","April","May","June","July","August","September","October","November","December"];
 const $=s=>document.querySelector(s);
 const esc=v=>String(v??"").replace(/[&<>]/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;"}[c]));
-const money=n=>new Intl.NumberFormat("en-GB",{style:"currency",currency:"GBP",maximumFractionDigits:0}).format(Number(n)||0);
+let displaySettings={siteName:"Maintenance Manager",companyName:"",currency:"GBP"};
+const money=n=>new Intl.NumberFormat("en-GB",{style:"currency",currency:displaySettings.currency||"GBP",maximumFractionDigits:0}).format(Number(n)||0);
 const fmtDate=d=>d?new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short"}):"—";
 function partTotal(p){return (Number(p.qty)||0)*(Number(p.unitPrice)||0)}
 function jobHours(j){return Array.isArray(j.timeEntries)?j.timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0):Number(j.hours)||0}
@@ -17,6 +18,7 @@ async function render(){
   try{
     const payload=await getState();
     const state=payload.state||{};
+    displaySettings={...displaySettings,...(state.settings||{})};
     const jobs=Array.isArray(state.jobs)?state.jobs:[],machines=Array.isArray(state.machines)?state.machines:[];
     const now=new Date(),year=now.getFullYear(),month=now.getMonth(),prefix=`${year}-${String(month+1).padStart(2,"0")}`;
     const inMonth=d=>Boolean(d&&String(d).startsWith(prefix));
@@ -27,7 +29,8 @@ async function render(){
     const open=jobs.filter(j=>!["Completed","Cancelled"].includes(j.status)).length;
     const raised=jobs.filter(j=>inMonth(j.raised)).length;
     const hours=jobs.reduce((a,j)=>a+timeMonth(j),0),spend=jobs.reduce((a,j)=>a+partsMonth(j),0);
-    $("#displayTitle").textContent=`Maintenance · ${MONTHS[month]} ${year}`;$("#displayJobsHeading").textContent=`${MONTHS[month]} jobs / carried work`;
+    $("#displayTitle").textContent=`${displaySettings.siteName||"Maintenance Manager"} · ${MONTHS[month]} ${year}`;
+    document.title=`${displaySettings.siteName||"Maintenance Manager"} · Display Mode`;$("#displayJobsHeading").textContent=`${MONTHS[month]} jobs / carried work`;
     $("#dJobs").textContent=raised;$("#dOpen").textContent=open;$("#dHours").textContent=hours.toFixed(1);$("#dSpend").textContent=money(spend);
     $("#displayJobs").innerHTML=currentJobs.length?currentJobs.map(j=>{const m=machineFor(j);return `<tr><td><strong>${j.pinned?"📌 ":""}${esc(j.jobNo)}</strong></td><td class="display-machine"><strong>${esc(j.title)}</strong><span>${esc(m?.assetId||"—")} · ${esc(j.machine)} · ${esc(j.section||m?.section||"")}</span></td><td>${pill(j.priority)}</td><td>${pill(j.status)}</td><td>${esc(j.assigned||"—")}</td><td>${fmtDate(j.target)}</td><td>${timeMonth(j).toFixed(1)}</td><td>${money(partsMonth(j))}</td></tr>`}).join(""):`<tr><td colspan="8" class="display-empty">No current-month jobs yet.</td></tr>`;
     const bySection=new Map();for(const j of jobs){const h=timeMonth(j);if(!h)continue;const name=j.section||machineFor(j)?.section||"Other";bySection.set(name,(bySection.get(name)||0)+h)}
