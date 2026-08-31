@@ -10,6 +10,8 @@ let suppliers = [];
 let archivedSuppliers = [];
 let profiles = [];
 let operatorRequests = [];
+let stockOrders = [];
+let stockTransactions = [];
 let sharedRevision = 0;
 let signedInIdentity = null;
 let appSettings = {
@@ -33,6 +35,12 @@ let timeRowCounter = 0;
 let editingJobNo = null;
 let pendingJobFiles = [];
 let editingStockPartId = null;
+let downtimeRangeMode = "selected-month";
+let downtimeCustomStart = "";
+let downtimeCustomEnd = "";
+let machineSearchQuery = "";
+let machineSectionFilter = "all";
+let machineStatusFilter = "all";
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -99,11 +107,15 @@ function applySharedState(payload) {
     stockTracked:p.stockTracked===true,
     currentStock:Number.isFinite(Number(p.currentStock))?Number(p.currentStock):0,
     minStock:Math.max(0,Number.isFinite(Number(p.minStock))?Number(p.minStock):0),
-    binLocation:String(p.binLocation||"")
+    binLocation:String(p.binLocation||""),
+    preferredSupplier:String(p.preferredSupplier||""),
+    reorderQty:Math.max(1,Number.isFinite(Number(p.reorderQty))?Number(p.reorderQty):1)
   })) : [];
   suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
   archivedSuppliers = Array.isArray(state.archivedSuppliers) ? state.archivedSuppliers : [];
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
+  stockOrders = Array.isArray(state.stockOrders) ? state.stockOrders : [];
+  stockTransactions = Array.isArray(state.stockTransactions) ? state.stockTransactions : [];
   appSettings = { ...appSettings, ...(state.settings && typeof state.settings === "object" ? state.settings : {}) };
   if (Number.isFinite(Number(payload?.revision))) sharedRevision = Number(payload.revision);
   if (payload?.identity) signedInIdentity = payload.identity;
@@ -309,6 +321,74 @@ function nextJobNumber() {
   return `JOB-${year}-${String(next).padStart(4,"0")}`;
 }
 
+
+function localDateTimeValue(date=new Date()) {
+  const pad=n=>String(n).padStart(2,"0");
+  return `${date.getFullYear()}-${pad(date.getMonth()+1)}-${pad(date.getDate())}T${pad(date.getHours())}:${pad(date.getMinutes())}`;
+}
+function parseLocalDateTime(value){const d=value?new Date(value):null;return d&&Number.isFinite(d.getTime())?d:null;}
+function formatDurationMinutes(minutes){const n=Math.max(0,Math.round(Number(minutes)||0));const d=Math.floor(n/1440),h=Math.floor((n%1440)/60),m=n%60;return [d?`${d}d`:"",h?`${h}h`:"",`${m}m`].filter(Boolean).join(" ");}
+function jobDowntimeMinutes(job,start,end){
+  if(job?.downtimeStopped!==true||!job.downtimeStart)return 0;
+  const ds=parseLocalDateTime(job.downtimeStart),de=parseLocalDateTime(job.downtimeEnd)||new Date();
+  if(!ds)return 0;
+  const from=Math.max(ds.getTime(),start.getTime()),to=Math.min(de.getTime(),end.getTime());
+  return Math.max(0,(to-from)/60000);
+}
+function downtimeRange(){
+  const n=new Date(); let start,end,label;
+  if(downtimeRangeMode==="this-month"){start=new Date(n.getFullYear(),n.getMonth(),1);end=new Date(n.getFullYear(),n.getMonth()+1,1);label=`${FULL_MONTHS[n.getMonth()]} ${n.getFullYear()}`;}
+  else if(downtimeRangeMode==="last-month"){start=new Date(n.getFullYear(),n.getMonth()-1,1);end=new Date(n.getFullYear(),n.getMonth(),1);label=`${FULL_MONTHS[start.getMonth()]} ${start.getFullYear()}`;}
+  else if(downtimeRangeMode==="this-year"){start=new Date(n.getFullYear(),0,1);end=new Date(n.getFullYear()+1,0,1);label=String(n.getFullYear());}
+  else if(downtimeRangeMode==="custom"){
+    const s=downtimeCustomStart?new Date(`${downtimeCustomStart}T00:00:00`):new Date(n.getFullYear(),n.getMonth(),1);
+    const e=downtimeCustomEnd?new Date(`${downtimeCustomEnd}T23:59:59`):new Date();
+    start=s;end=e;label=`${fmtDate(downtimeCustomStart)} – ${fmtDate(downtimeCustomEnd)}`;
+  } else {start=new Date(selectedYear,selectedMonth,1);end=new Date(selectedYear,selectedMonth+1,1);label=`${FULL_MONTHS[selectedMonth]} ${selectedYear}`;}
+  return {start,end,label};
+}
+function currentDownJobs(){return jobs.filter(j=>j.downtimeStopped===true&&j.downtimeStart&&!j.downtimeEnd);}
+function ensureV58Ui(){
+  if(document.getElementById("downtimeView"))return;
+  const style=document.createElement("style");style.id="v58Styles";style.textContent=`
+  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,.45fr) minmax(140px,.38fr);gap:9px;margin:0 0 10px}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}
+  @media(max-width:900px){.v58-grid{grid-template-columns:1fr 1fr}.v58-two{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:140px 1fr}.v58-pie{width:140px;height:140px}.v58-form-grid{grid-template-columns:1fr}.machine-list-controls{grid-template-columns:1fr 1fr}.machine-list-controls .machine-search-wrap{grid-column:1/-1}}@media(max-width:520px){.v58-grid{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:1fr}.v58-pie{margin:auto}.machine-list-controls{grid-template-columns:1fr}.machine-list-controls .machine-search-wrap{grid-column:auto}}
+  `;document.head.appendChild(style);
+  const nav=document.getElementById("mainNav");if(nav){const b=document.createElement("button");b.type="button";b.className="nav-item";b.dataset.view="downtime";b.innerHTML=`<span>⏱</span><span>Downtime</span>`;const report=nav.querySelector('[data-view="reports"]');nav.insertBefore(b,report||null);}
+  const main=document.querySelector("main")||document.body;const reference=document.getElementById("reportsView");const viewParent=reference?.parentNode||main;const view=document.createElement("section");view.id="downtimeView";view.className="view";view.innerHTML=`<div class="view-head"><div><h1>Downtime</h1><p id="downtimeSubtitle">Production downtime by section and machine.</p></div></div><div class="v58-card"><div class="v58-controls"><label>Range<select id="downtimeRangeMode"><option value="selected-month">Selected month</option><option value="this-month">This month</option><option value="last-month">Last month</option><option value="this-year">This year</option><option value="custom">Custom dates</option></select></label><label class="v58-custom-date" hidden>From<input id="downtimeCustomStart" type="date"></label><label class="v58-custom-date" hidden>To<input id="downtimeCustomEnd" type="date"></label><button type="button" class="btn secondary compact" id="downtimeRefreshBtn">Refresh</button></div></div><div class="v58-grid"><div class="v58-kpi"><span>Total downtime</span><strong id="downtimeTotal">0m</strong></div><div class="v58-kpi"><span>Machines currently down</span><strong id="downtimeCurrent">0</strong></div><div class="v58-kpi"><span>Worst section</span><strong id="downtimeWorstSection">—</strong></div><div class="v58-kpi"><span>Worst machine</span><strong id="downtimeWorstMachine">—</strong></div></div><div id="downtimeCurrentCard" class="v58-card v58-down" hidden><h2>Currently down</h2><div id="downtimeCurrentList" class="v58-down-list"></div></div><div class="v58-two"><div class="v58-card"><h2>Downtime by section</h2><div class="v58-pie-wrap"><div id="downtimeSectionPie" class="v58-pie"></div><div id="downtimeSectionLegend"></div></div></div><div class="v58-card"><h2>Downtime by machine</h2><div class="v58-pie-wrap"><div id="downtimeMachinePie" class="v58-pie"></div><div id="downtimeMachineLegend"></div></div></div></div><div class="v58-card"><h2>Downtime detail</h2><div class="table-wrap"><table><thead><tr><th>Machine</th><th>Section</th><th>Job</th><th>Start</th><th>End</th><th>Downtime in range</th><th>Action</th></tr></thead><tbody id="downtimeBody"></tbody></table></div></div>`;if(reference)viewParent.insertBefore(view,reference);else viewParent.appendChild(view);
+  const dashboard=document.getElementById("dashboardView");if(dashboard){const card=document.createElement("div");card.id="dashboardCurrentDown";card.className="v58-card v58-alert";card.hidden=true;dashboard.insertBefore(card,dashboard.firstElementChild?.nextSibling||dashboard.firstChild);}
+  const parts=document.getElementById("partsView");if(parts){const block=document.createElement("div");block.id="stockPurchasingBlock";block.className="v58-order-card";block.innerHTML=`<div class="v58-card"><div class="history-heading"><div><h2>Purchasing</h2><p>Low-stock parts, orders awaiting delivery and recent receipts.</p></div></div><div class="v58-order-tabs"><div><h3>Needs ordering</h3><div class="table-wrap"><table><thead><tr><th>Part</th><th>Stock</th><th>Minimum</th><th>Already on order</th><th>Preferred supplier</th><th></th></tr></thead><tbody id="needsOrderingBody"></tbody></table></div></div><div><h3>Open orders</h3><div class="table-wrap"><table><thead><tr><th>Ordered</th><th>Part</th><th>Supplier</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Status</th><th></th></tr></thead><tbody id="openOrdersBody"></tbody></table></div></div><div><h3>Recent stock movements</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Part</th><th>Movement</th><th>Quantity</th><th>Balance</th><th>Reference</th></tr></thead><tbody id="stockTransactionsBody"></tbody></table></div></div></div></div>`;parts.appendChild(block);}
+  const jobForm=document.getElementById("jobForm");if(jobForm){const box=document.createElement("div");box.className="v58-downtime-editor";box.id="jobDowntimeEditor";box.innerHTML=`<h3>Machine downtime</h3><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="downtimeStopped" id="jobDowntimeStopped"> Machine stopped / production lost</label><div class="v58-form-grid" id="jobDowntimeFields"><label>Downtime started<input type="datetime-local" name="downtimeStart" id="jobDowntimeStart"></label><label>Back in production<input type="datetime-local" name="downtimeEnd" id="jobDowntimeEnd"></label></div><div class="v58-inline-actions"><button type="button" class="btn secondary compact" id="downtimeStartNowBtn">Start now</button><button type="button" class="btn secondary compact" id="downtimeEndNowBtn">Back in production now</button></div><p class="v58-mini-note">Leave the end time blank while the machine is still down. Downtime reports calculate the live duration automatically.</p>`;const anchor=jobForm.querySelector(".dialog-actions,.form-actions,.modal-actions");jobForm.insertBefore(box,anchor||null);}
+  const stockForm=document.getElementById("stockForm");if(stockForm){const extra=document.createElement("div");extra.className="v58-form-grid";extra.id="stockPurchasingDefaults";extra.innerHTML=`<label>Preferred supplier<input name="preferredSupplier" id="stockPreferredSupplier" list="v58SupplierList" placeholder="Optional"></label><label>Default reorder quantity<input name="reorderQty" id="stockReorderQty" type="number" min="1" step="1" value="1"></label><datalist id="v58SupplierList"></datalist>`;const anchor=stockForm.querySelector(".dialog-actions,.form-actions,.modal-actions");stockForm.insertBefore(extra,anchor||null);}
+  const dlg=document.createElement("dialog");dlg.id="stockOrderDialog";dlg.innerHTML=`<form method="dialog" id="stockOrderForm" style="min-width:min(520px,90vw);padding:20px"><h2 id="stockOrderTitle">Mark ordered</h2><input type="hidden" name="partId"><div class="v58-form-grid"><label>Quantity ordered<input name="qty" type="number" min="1" step="1" required></label><label>Supplier<input name="supplier" list="v58SupplierList"></label><label>Expected date<input name="expectedDate" type="date"></label><label>Note<input name="note" maxlength="300"></label></div><div class="v58-inline-actions" style="justify-content:flex-end"><button type="button" class="btn secondary" id="stockOrderCancelBtn">Cancel</button><button type="submit" class="btn primary">Mark Ordered</button></div></form>`;document.body.appendChild(dlg);
+  bindV58Events();
+}
+function setDowntimeFieldsEnabled(){const on=$("#jobDowntimeStopped")?.checked;[$("#jobDowntimeStart"),$("#jobDowntimeEnd")].forEach(el=>{if(el)el.disabled=!on;});}
+function bindV58Events(){
+  $("#jobDowntimeStopped")?.addEventListener("change",()=>{if($("#jobDowntimeStopped").checked&&!$("#jobDowntimeStart").value)$("#jobDowntimeStart").value=localDateTimeValue();setDowntimeFieldsEnabled();});
+  $("#downtimeStartNowBtn")?.addEventListener("click",()=>{$("#jobDowntimeStopped").checked=true;$("#jobDowntimeStart").value=localDateTimeValue();setDowntimeFieldsEnabled();});
+  $("#downtimeEndNowBtn")?.addEventListener("click",()=>{$("#jobDowntimeStopped").checked=true;if(!$("#jobDowntimeStart").value)$("#jobDowntimeStart").value=localDateTimeValue();$("#jobDowntimeEnd").value=localDateTimeValue();setDowntimeFieldsEnabled();});
+  $("#downtimeRangeMode")?.addEventListener("change",e=>{downtimeRangeMode=e.target.value;$$('.v58-custom-date').forEach(x=>x.hidden=downtimeRangeMode!=="custom");renderDowntime();});
+  $("#downtimeCustomStart")?.addEventListener("change",e=>{downtimeCustomStart=e.target.value;renderDowntime();});
+  $("#downtimeCustomEnd")?.addEventListener("change",e=>{downtimeCustomEnd=e.target.value;renderDowntime();});
+  $("#downtimeRefreshBtn")?.addEventListener("click",async()=>{await refreshSharedState({render:false});renderAll();});
+  $("#downtimeView")?.addEventListener("click",async e=>{const back=e.target.closest('[data-downtime-end-job]');if(back){await markBackInProduction(back.dataset.downtimeEndJob);return;}const edit=e.target.closest('[data-edit-downtime-job]');if(edit)openJob(edit.dataset.editDowntimeJob);});
+  $("#partsView")?.addEventListener("click",async e=>{const order=e.target.closest('[data-order-part]');if(order){openStockOrderDialog(order.dataset.orderPart);return;}const receive=e.target.closest('[data-receive-order]');if(receive){await receiveStockOrder(receive.dataset.receiveOrder);return;}const cancel=e.target.closest('[data-cancel-order]');if(cancel){await cancelStockOrder(cancel.dataset.cancelOrder);return;}});
+  $("#stockOrderCancelBtn")?.addEventListener("click",()=>$("#stockOrderDialog")?.close());
+  $("#stockOrderForm")?.addEventListener("submit",submitStockOrder);
+}
+function renderCurrentDownDashboard(){const box=$("#dashboardCurrentDown");if(!box)return;const rows=currentDownJobs();box.hidden=!rows.length;if(!rows.length)return;box.innerHTML=`<div class="history-heading"><div><h2>⚠ Machines currently down</h2><p>${rows.length} machine${rows.length===1?" is":"s are"} still marked out of production.</p></div><button class="btn secondary compact" type="button" data-nav="downtime">Open downtime</button></div><div class="v58-down-list">${rows.slice(0,5).map(j=>`<div class="v58-down-row"><span><strong>${esc(machineLabel(j))}</strong><br><small>${esc(j.section||inferSection(j.machine))} · ${esc(j.jobNo)}</small></span><strong>${formatDurationMinutes((Date.now()-parseLocalDateTime(j.downtimeStart).getTime())/60000)}</strong></div>`).join("")}</div>`;box.querySelector('[data-nav="downtime"]')?.addEventListener('click',()=>switchView('downtime'));}
+function renderDowntime(){
+  if(!$("#downtimeView"))return;const {start,end,label}=downtimeRange();const base=visibleJobs();const rows=base.map(j=>({job:j,minutes:jobDowntimeMinutes(j,start,end)})).filter(x=>x.minutes>0).sort((a,b)=>b.minutes-a.minutes);const total=rows.reduce((a,x)=>a+x.minutes,0);const sectionMap=new Map(),machineMap=new Map();for(const x of rows){const section=x.job.section||inferSection(x.job.machine);sectionMap.set(section,(sectionMap.get(section)||0)+x.minutes);machineMap.set(x.job.machine,(machineMap.get(x.job.machine)||0)+x.minutes);}const sectionRows=[...sectionMap].map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value),machineRows=[...machineMap].map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);$("#downtimeSubtitle").textContent=`Production downtime for ${label} · ${profileContext()}.`;$("#downtimeTotal").textContent=formatDurationMinutes(total);$("#downtimeCurrent").textContent=String(currentDownJobs().length);$("#downtimeWorstSection").textContent=sectionRows[0]?`${sectionRows[0].name} · ${formatDurationMinutes(sectionRows[0].value)}`:"—";$("#downtimeWorstMachine").textContent=machineRows[0]?`${machineRows[0].name} · ${formatDurationMinutes(machineRows[0].value)}`:"—";renderPie($("#downtimeSectionPie"),$("#downtimeSectionLegend"),sectionRows,v=>formatDurationMinutes(v));renderPie($("#downtimeMachinePie"),$("#downtimeMachineLegend"),machineRows,v=>formatDurationMinutes(v));const down=currentDownJobs();$("#downtimeCurrentCard").hidden=!down.length;$("#downtimeCurrentList").innerHTML=down.map(j=>`<div class="v58-down-row"><span><strong>${esc(machineLabel(j))}</strong><br><small>${esc(j.section||inferSection(j.machine))} · ${esc(j.jobNo)} · since ${esc(new Date(j.downtimeStart).toLocaleString("en-GB"))}</small></span><div class="v58-table-actions"><strong>${formatDurationMinutes((Date.now()-parseLocalDateTime(j.downtimeStart).getTime())/60000)}</strong><button type="button" class="btn primary compact" data-downtime-end-job="${esc(j.jobNo)}">Back in production</button></div></div>`).join("");$("#downtimeBody").innerHTML=rows.length?rows.map(x=>`<tr><td>${esc(machineLabel(x.job))}</td><td>${esc(x.job.section||inferSection(x.job.machine))}</td><td><button type="button" class="job-link" data-edit-downtime-job="${esc(x.job.jobNo)}">${esc(x.job.jobNo)}</button></td><td>${esc(new Date(x.job.downtimeStart).toLocaleString("en-GB"))}</td><td>${x.job.downtimeEnd?esc(new Date(x.job.downtimeEnd).toLocaleString("en-GB")):'<span class="pill p-high">Still down</span>'}</td><td><strong>${formatDurationMinutes(x.minutes)}</strong></td><td>${x.job.downtimeEnd?`<button type="button" class="btn secondary compact" data-edit-downtime-job="${esc(x.job.jobNo)}">Edit</button>`:`<button type="button" class="btn primary compact" data-downtime-end-job="${esc(x.job.jobNo)}">Back in production</button>`}</td></tr>`).join(""):`<tr><td colspan="7">No downtime recorded for this range.</td></tr>`;
+}
+async function markBackInProduction(jobNo){const job=jobs.find(j=>j.jobNo===jobNo);if(!job)return;const updated={...job,downtimeStopped:true,downtimeEnd:localDateTimeValue()};try{await saveMutation("/api/jobs",{job:updated,originalJobNo:job.jobNo});switchView("downtime");}catch(error){showSaveError(error);}}
+function outstandingOrderQty(partId){return stockOrders.filter(o=>String(o.partId)===String(partId)&&!["Received","Cancelled"].includes(String(o.status))).reduce((n,o)=>n+Math.max(0,(Number(o.orderedQty)||0)-(Number(o.receivedQty)||0)),0);}
+function renderStockPurchasing(){if(!$("#needsOrderingBody"))return;const needs=partCatalog.filter(p=>p.active!==false&&p.stockTracked===true&&(Number(p.currentStock)||0)<=(Number(p.minStock)||0)).sort((a,b)=>(Number(a.currentStock)||0)-(Number(b.currentStock)||0));$("#needsOrderingBody").innerHTML=needs.length?needs.map(p=>{const on=outstandingOrderQty(p.id);return `<tr><td><strong>${esc(p.name)}</strong><br><small>${esc(p.partNo||"No part number")}</small></td><td>${stockNumber(p.currentStock)}</td><td>${stockNumber(p.minStock)}</td><td>${on?`<strong>${stockNumber(on)}</strong>`:"—"}</td><td>${esc(p.preferredSupplier||"—")}</td><td><button type="button" class="btn primary compact" data-order-part="${esc(p.id)}">${on?"Order more":"Mark ordered"}</button></td></tr>`;}).join(""):`<tr><td colspan="6">Nothing currently needs ordering.</td></tr>`;const open=[...stockOrders].filter(o=>!["Received","Cancelled"].includes(String(o.status))).sort((a,b)=>String(b.orderedAt||"").localeCompare(String(a.orderedAt||"")));$("#openOrdersBody").innerHTML=open.length?open.map(o=>`<tr><td>${esc(new Date(o.orderedAt).toLocaleDateString("en-GB"))}</td><td><strong>${esc(o.partName||partCatalog.find(p=>p.id===o.partId)?.name||"Part")}</strong><br><small>${esc(o.partNo||"")}</small></td><td>${esc(o.supplier||"—")}</td><td>${stockNumber(o.orderedQty)}</td><td>${stockNumber(o.receivedQty)}</td><td>${stockNumber(Math.max(0,(Number(o.orderedQty)||0)-(Number(o.receivedQty)||0)))}</td><td><span class="v58-status ordered">${esc(o.status||"Ordered")}</span></td><td><div class="v58-table-actions"><button type="button" class="btn primary compact" data-receive-order="${esc(o.id)}">Mark received</button><button type="button" class="btn secondary compact" data-cancel-order="${esc(o.id)}">Cancel</button></div></td></tr>`).join(""):`<tr><td colspan="8">No open stock orders.</td></tr>`;const tx=[...stockTransactions].sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,60);$("#stockTransactionsBody").innerHTML=tx.length?tx.map(t=>{const part=partCatalog.find(p=>p.id===t.partId);const sign=(Number(t.qty)||0)>0?"+":"";const label={receipt:"Received","job-use":"Used on job","job-return":"Returned","adjustment":"Adjusted"}[t.type]||t.type;return `<tr><td>${esc(new Date(t.createdAt).toLocaleString("en-GB"))}</td><td>${esc(part?.name||"Unknown part")}</td><td>${esc(label)}</td><td><strong>${sign}${stockNumber(t.qty)}</strong></td><td>${t.balanceAfter==null?"—":stockNumber(t.balanceAfter)}</td><td>${esc(t.jobNo||t.orderId||t.note||"—")}</td></tr>`;}).join(""):`<tr><td colspan="6">No stock movements recorded yet.</td></tr>`;const list=$("#v58SupplierList");if(list)list.innerHTML=suppliers.map(s=>`<option value="${esc(s)}"></option>`).join("");}
+function openStockOrderDialog(partId){const part=partCatalog.find(p=>p.id===partId);if(!part)return;const form=$("#stockOrderForm");form.reset();form.elements.partId.value=part.id;const shortage=Math.max(1,(Number(part.minStock)||0)-(Number(part.currentStock)||0));form.elements.qty.value=Math.max(shortage,Number(part.reorderQty)||1);form.elements.supplier.value=part.preferredSupplier||"";$("#stockOrderTitle").textContent=`Mark ordered · ${part.name}`;$("#stockOrderDialog").showModal();}
+async function submitStockOrder(e){e.preventDefault();const form=e.currentTarget,fd=new FormData(form);const body={action:"order",partId:fd.get("partId"),qty:Number(fd.get("qty")),supplier:String(fd.get("supplier")||"").trim(),expectedDate:String(fd.get("expectedDate")||""),note:String(fd.get("note")||"")};try{await saveMutation("/api/stock/orders",body);$("#stockOrderDialog").close();switchView("parts");}catch(error){showSaveError(error);}}
+async function receiveStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order)return;const remaining=Math.max(0,(Number(order.orderedQty)||0)-(Number(order.receivedQty)||0));const raw=prompt(`How many ${order.partName||"items"} arrived?`,String(remaining));if(raw===null)return;const qty=Number(raw);if(!Number.isFinite(qty)||qty<=0||qty>remaining){alert(`Enter a quantity between 1 and ${remaining}.`);return;}try{await saveMutation("/api/stock/orders",{action:"receive",orderId,qty});switchView("parts");}catch(error){showSaveError(error);}}
+async function cancelStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order||!confirm(`Cancel the open order for ${order.partName||"this part"}?`))return;try{await saveMutation("/api/stock/orders",{action:"cancel",orderId});switchView("parts");}catch(error){showSaveError(error);}}
+
 function buildTabs() {
   const start = Math.min(selectedYear-1, now.getFullYear()-1);
   const ys = [start,start+1,start+2];
@@ -495,14 +575,50 @@ function renderRequests() {
   bindJobEditors();
 }
 
+function ensureMachineListControls() {
+  const list=$("#machineList");
+  if(!list||$("#machineListControls"))return;
+  const controls=document.createElement("div");
+  controls.id="machineListControls";
+  controls.className="machine-list-controls";
+  controls.innerHTML=`<div class="machine-search-wrap"><input id="machineListSearch" type="search" autocomplete="off" placeholder="Search machines…" aria-label="Search machines"></div><select id="machineSectionFilter" aria-label="Filter machines by section"><option value="all">All sections</option></select><select id="machineStatusFilter" aria-label="Filter machines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>`;
+  const count=document.createElement("div");
+  count.id="machineListCount";
+  count.className="machine-list-count";
+  list.parentNode.insertBefore(controls,list);
+  list.parentNode.insertBefore(count,list);
+  $("#machineListSearch").addEventListener("input",e=>{machineSearchQuery=e.target.value;renderMachines();});
+  $("#machineSectionFilter").addEventListener("change",e=>{machineSectionFilter=e.target.value;renderMachines();});
+  $("#machineStatusFilter").addEventListener("change",e=>{machineStatusFilter=e.target.value;renderMachines();});
+}
+
 function renderMachines() {
+  ensureMachineListControls();
   $("#machinesSubtitle").textContent = selectedProfileId === "all" ? "Select a machine to see its maintenance overview, files and full job history." : `Machine figures are filtered to work assigned to ${profileContext()}.`;
-  $("#machineList").innerHTML = machines.map(m=>{
+  const sectionsForFilter=[...new Set(machines.map(m=>String(m.section||"").trim()).filter(Boolean))].sort((a,b)=>a.localeCompare(b,undefined,{numeric:true,sensitivity:"base"}));
+  if(machineSectionFilter!=="all"&&!sectionsForFilter.includes(machineSectionFilter))machineSectionFilter="all";
+  const sectionSelect=$("#machineSectionFilter");
+  if(sectionSelect){sectionSelect.innerHTML=`<option value="all">All sections</option>${sectionsForFilter.map(section=>`<option value="${esc(section)}">${esc(section)}</option>`).join("")}`;sectionSelect.value=machineSectionFilter;}
+  const search=$("#machineListSearch"); if(search&&search.value!==machineSearchQuery)search.value=machineSearchQuery;
+  const statusSelect=$("#machineStatusFilter"); if(statusSelect)statusSelect.value=machineStatusFilter;
+  const query=machineSearchQuery.trim().toLowerCase();
+  const filteredMachines=machines.filter(m=>{
+    if(machineSectionFilter!=="all"&&String(m.section||"")!==machineSectionFilter)return false;
+    const archived=isMachineArchived(m);
+    if(machineStatusFilter==="active"&&archived)return false;
+    if(machineStatusFilter==="archived"&&!archived)return false;
+    if(!query)return true;
+    return [m.assetId,m.name,m.section,m.category,m.location,m.make,m.model,m.serialNumber].some(value=>String(value||"").toLowerCase().includes(query));
+  });
+  if(filteredMachines.length&&!filteredMachines.some(m=>m.id===selectedMachineId))selectedMachineId=filteredMachines[0].id;
+  if($("#machineListCount"))$("#machineListCount").textContent=`Showing ${filteredMachines.length} of ${machines.length} machine${machines.length===1?"":"s"}`;
+  $("#machineList").innerHTML = filteredMachines.length ? filteredMachines.map(m=>{
     const s = machineStats(m);
     return `<button class="machine-item ${m.id===selectedMachineId?"active":""}" data-machine="${esc(m.id)}"><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${esc(m.section)} · ${esc(m.category)} · ${s.jobs} jobs · ${money(s.spend)} parts</span></button>`;
-  }).join("");
-  const m = machines.find(x=>x.id===selectedMachineId) || machines[0];
-  if (!m) { $("#machineDetail").innerHTML = "<p>No machines added yet.</p>"; return; }
+  }).join("") : `<div class="machine-list-empty">No machines match your search or filters.</div>`;
+  const m = filteredMachines.find(x=>x.id===selectedMachineId) || filteredMachines[0];
+  if (!machines.length) { $("#machineDetail").innerHTML = "<p>No machines added yet.</p>"; return; }
+  if (!m) { $("#machineDetail").innerHTML = "<p>No machines match your current search or filters.</p>"; return; }
   selectedMachineId = m.id;
   const stats = machineStats(m);
   const history = visibleJobs().filter(j=>j.machine===m.name).sort((a,b)=>b.raised.localeCompare(a.raised));
@@ -794,6 +910,7 @@ function renderPickLists() {
 }
 
 function renderAll() {
+  ensureV58Ui();
   applyUiSettings();
   buildTabs();
   renderProfileSelector();
@@ -806,6 +923,9 @@ function renderAll() {
   renderManageData();
   renderReports();
   renderTeam();
+  renderDowntime();
+  renderCurrentDownDashboard();
+  renderStockPurchasing();
   renderPickLists();
   bindMonthTabs();
   bindJobEditors();
@@ -839,6 +959,7 @@ function switchView(name) {
   $(`#${name}View`)?.classList.add('active');
   $$('.nav-item').forEach(n=>n.classList.toggle('active',n.dataset.view===name));
   if (name==='reports') renderReports();
+  if (name==='downtime') renderDowntime();
 }
 
 function xmlEsc(v) { return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[c])); }
@@ -1021,6 +1142,7 @@ async function openJob(jobNo=null) {
     form.elements.completed.value=job.completed||"";
     form.elements.notes.value=job.notes||"";
     form.elements.pinned.checked=Boolean(job.pinned);
+    if($("#jobDowntimeStopped")){ $("#jobDowntimeStopped").checked=job.downtimeStopped===true; $("#jobDowntimeStart").value=job.downtimeStart||""; $("#jobDowntimeEnd").value=job.downtimeEnd||""; setDowntimeFieldsEnabled(); }
     $("#jobSectionSelect").value=job.section||inferSection(job.machine);
     renderMachineSelect($("#jobSectionSelect").value,job.machine);
     renderAssignedSelect(job.assigned||"");
@@ -1041,6 +1163,7 @@ async function openJob(jobNo=null) {
     } catch { form.elements.jobNo.value=nextJobNumber(); }
     form.elements.priority.value=appSettings.defaultPriority||"Medium";
     form.elements.raised.value=defaultFormDate();
+    if($("#jobDowntimeStopped")){ $("#jobDowntimeStopped").checked=false; $("#jobDowntimeStart").value=""; $("#jobDowntimeEnd").value=""; setDowntimeFieldsEnabled(); }
     addTimeRow({date:defaultFormDate()});
     addPartRow({date:defaultFormDate()});
   }
@@ -1145,7 +1268,7 @@ $("#jobForm").addEventListener("submit",async e=>{
   if (!obj.section || !obj.machine || String(obj.machine).startsWith('__')) { alert("Select a section and machine."); return; }
   const timeEntries=collectTimeEntries(); if(timeEntries===null)return;
   const parts=collectPartsFromEditor(); if(parts===null)return;
-  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:obj.section,machine:obj.machine,priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts};
+  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:obj.section,machine:obj.machine,priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
   const originalJobNo=editingJobNo;
   const submit=$("#jobSubmitBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
@@ -1242,7 +1365,7 @@ function setStockFormEnabled() {
   const form=$("#stockForm");
   if(!form)return;
   const tracked=form.elements.stockTracked.checked;
-  [form.elements.currentStock,form.elements.minStock,form.elements.binLocation].forEach(el=>{el.disabled=!tracked;});
+  [form.elements.currentStock,form.elements.minStock,form.elements.binLocation,form.elements.preferredSupplier,form.elements.reorderQty].filter(Boolean).forEach(el=>{el.disabled=!tracked;});
   const help=$("#stockTrackingHelp");
   if(help) help.textContent=tracked
     ? "This current-stock figure is treated as the known physical count now. Existing historical jobs are not deducted again; future job use is deducted automatically."
@@ -1259,6 +1382,8 @@ function openStockDialog(partId) {
   form.elements.currentStock.value=stockNumber(part.currentStock);
   form.elements.minStock.value=stockNumber(part.minStock);
   form.elements.binLocation.value=part.binLocation||"";
+  if(form.elements.preferredSupplier)form.elements.preferredSupplier.value=part.preferredSupplier||"";
+  if(form.elements.reorderQty)form.elements.reorderQty.value=Math.max(1,Number(part.reorderQty)||1);
   $("#stockDialogTitle").textContent=`Stock · ${part.name}`;
   $("#stockPartName").textContent=part.name;
   $("#stockPartNumber").textContent=part.partNo?`Part no. ${part.partNo}`:"No part number set";
@@ -1278,7 +1403,7 @@ $("#stockForm")?.addEventListener("submit",async e=>{
   if(tracked && (!Number.isFinite(current) || !Number.isFinite(min) || min<0)){alert("Enter a valid current stock and minimum stock.");return;}
   const btn=$("#stockSaveBtn");btn.disabled=true;btn.textContent="Saving…";
   try{
-    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:part.name,partNo:part.partNo||"",stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||""});
+    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:part.name,partNo:part.partNo||"",stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||"",preferredSupplier:tracked?String(form.elements.preferredSupplier?.value||"").trim():part.preferredSupplier||"",reorderQty:tracked?Math.max(1,Number(form.elements.reorderQty?.value)||1):Math.max(1,Number(part.reorderQty)||1)});
     if(!result)return;
     editingStockPartId=null;
     stockDialog.close();
@@ -1324,7 +1449,7 @@ async function initializeApp(){
     if(machineParam && machines.some(m=>m.id===machineParam)){selectedMachineId=machineParam;machineDetailTab="overview";}
     renderAll();
     const requestedView=params.get("view");
-    const allowedViews=new Set(["dashboard","requests","all","machines","parts","reports","data"]);
+    const allowedViews=new Set(["dashboard","requests","all","machines","parts","downtime","reports","data"]);
     if(machineParam && machines.some(m=>m.id===machineParam)) switchView("machines");
     else if(requestedView && allowedViews.has(requestedView)) switchView(requestedView);
   } catch(error) {
