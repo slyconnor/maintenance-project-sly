@@ -1,12 +1,12 @@
 import { QRCode, QRErrorCorrectLevel } from "./qr.js";
 
-/* Maintenance Manager V5.8.0 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.8.1 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.8.0";
+const APP_VERSION = "5.8.1";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -536,6 +536,7 @@ function validateJob(state, job, originalJobNo = "") {
   out.jobNo = String(out.jobNo || "").trim();
   out.title = String(out.title || "").trim();
   out.section = String(out.section || "").trim();
+  out.machineId = String(out.machineId || "").trim();
   out.machine = String(out.machine || "").trim();
   out.assigned = String(out.assigned || "").trim();
   out.timeEntries = Array.isArray(out.timeEntries) ? out.timeEntries : [];
@@ -561,9 +562,16 @@ function validateJob(state, job, originalJobNo = "") {
   if ((state.jobs || []).some((j) => String(j.jobNo).toLowerCase() === out.jobNo.toLowerCase() && String(j.jobNo) !== String(originalJobNo))) {
     throw new Error("That job number already exists.");
   }
-  if (!(state.machines || []).some((m) => m.name === out.machine && m.section === out.section)) {
-    throw new Error("The selected machine does not belong to the selected section.");
+  let selectedMachine = out.machineId ? (state.machines || []).find((m) => String(m.id) === out.machineId) : null;
+  if (!selectedMachine) {
+    const legacyMatches = (state.machines || []).filter((m) => m.name === out.machine && (!out.section || m.section === out.section));
+    if (legacyMatches.length === 1) selectedMachine = legacyMatches[0];
   }
+  if (!selectedMachine) throw new Error("Select a valid machine. Jobs are linked by the machine asset ID so identical machine names are supported.");
+  if (out.section && selectedMachine.section !== out.section) throw new Error("The selected machine does not belong to the selected section.");
+  out.machineId = String(selectedMachine.id);
+  out.machine = selectedMachine.name;
+  out.section = selectedMachine.section;
   if (!(state.profiles || []).some((p) => p.name === out.assigned)) {
     throw new Error("The assigned engineer profile does not exist.");
   }
@@ -1138,6 +1146,7 @@ async function handleApi(request, env, routeOverride = "") {
             title: title || `Operator request - ${liveMachine.name}`,
             description: `Operator: ${cleanOperatorName(requestRow.operator_name)}\n\nReported issue:\n${cleanIssue(requestRow.issue)}`,
             section: liveMachine.section,
+            machineId: liveMachine.id,
             machine: liveMachine.name,
             assigned: liveProfile.name,
             priority: normalizeSettings(state.settings).defaultPriority,
@@ -1367,7 +1376,6 @@ async function handleApi(request, env, routeOverride = "") {
       if (!machine.assetId || !machine.name || !machine.section) return json({ error: "Asset ID, machine name and section are required." }, 400);
       const outcome = await mutateState(env, auth.identity, "machine.create", async (state) => {
         if (state.machines.some((m) => String(m.assetId).toLowerCase() === machine.assetId.toLowerCase())) throw new Error("That asset ID already exists.");
-        if (state.machines.some((m) => String(m.name).toLowerCase() === machine.name.toLowerCase())) throw new Error("A machine with that name already exists.");
         ensureUniqueString(state.sections, machine.section);
         machine.id = machine.id || `m-${slug(machine.assetId)}-${Date.now()}`;
         machine.status = machine.status || "Active";
@@ -1434,7 +1442,6 @@ async function handleApi(request, env, routeOverride = "") {
             const section = String(next.section || "").trim();
             if (!assetId || !name || !section) throw new Error("Asset ID, machine name and section are required.");
             if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That asset ID already exists.");
-            if (state.machines.some((m) => m.id !== machine.id && String(m.name).toLowerCase() === name.toLowerCase())) throw new Error("A machine with that name already exists.");
             ensureUniqueString(state.sections, section);
             Object.assign(machine, {
               assetId,
@@ -1451,9 +1458,12 @@ async function handleApi(request, env, routeOverride = "") {
               notes: String(next.notes || "").trim()
             });
             for (const job of state.jobs) {
-              if (job.machine === oldName) {
+              const linkedById = String(job.machineId || "") === String(machine.id);
+              const legacyLinked = !job.machineId && job.machine === oldName && (!job.section || job.section === oldSection);
+              if (linkedById || legacyLinked) {
+                job.machineId = machine.id;
                 job.machine = name;
-                if (!job.section || job.section === oldSection) job.section = section;
+                job.section = section;
               }
             }
             return { id: machine.id, name: machine.name };
@@ -1461,7 +1471,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (action === "archive") { machine.status = "Archived"; return { id: machine.id, status: machine.status }; }
           if (action === "reactivate") { machine.status = "Active"; return { id: machine.id, status: machine.status }; }
           if (action === "delete") {
-            if (state.jobs.some((j) => j.machine === machine.name)) throw new Error("This machine has job history, so it cannot be permanently deleted. Archive it instead.");
+            if (state.jobs.some((j) => String(j.machineId || "") === String(machine.id) || (!j.machineId && j.machine === machine.name && (!j.section || j.section === machine.section)))) throw new Error("This machine has job history, so it cannot be permanently deleted. Archive it instead.");
             state.machines = state.machines.filter((m) => m.id !== machine.id);
             return { id: machine.id, deleted: true };
           }
