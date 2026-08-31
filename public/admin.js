@@ -4,13 +4,14 @@ let profiles=[];
 let jobs=[];
 let identity=null;
 let accessSyncConfigured=false;
-let settings={companyName:"",siteName:"Maintenance Manager",currency:"GBP",defaultPriority:"Medium",maxAttachmentMb:25,allowAllFileTypes:true,allowedExtensions:"jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,csv,txt,rtf,zip,7z"};
+let emailBindingConfigured=false;
+let settings={companyName:"",siteName:"Maintenance Manager",currency:"GBP",defaultPriority:"Medium",maxAttachmentMb:25,allowAllFileTypes:true,allowedExtensions:"jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,csv,txt,rtf,zip,7z",requestEmailNotificationsEnabled:false,notifyNewRequests:true,notifyAssignedEngineer:true,notifyLowStock:false,notificationProfileIds:[],notificationExtraEmails:"",notificationFromEmail:"maintenance@project-sly.uk"};
 
 async function api(path, options={}){
   const response=await fetch(path,{credentials:"same-origin",headers:{"content-type":"application/json",...(options.headers||{})},...options});
   let data={};try{data=await response.json()}catch{}
   if(!response.ok){
-    const error=new Error(data?.error||data?.accessSync?.message||`Request failed (${response.status})`);
+    const error=new Error(data?.error||data?.accessSync?.message||data?.emailTest?.message||`Request failed (${response.status})`);
     error.status=response.status;
     error.data=data;
     throw error;
@@ -34,6 +35,7 @@ function render(){
   }).join(""):`<p class="admin-note">No engineer profiles yet. Add the first engineer on the left.</p>`;
   const active=profiles.filter(p=>p.active!==false).length;
   $("#profileCount").textContent=`${active} active profile${active===1?"":"s"}. Deactivate keeps job history; Delete permanently removes profiles that have no assigned jobs.`;
+  if($("#notificationProfileList")) renderNotificationProfiles();
 
   document.querySelectorAll("[data-toggle]").forEach(btn=>btn.addEventListener("click",async()=>{
     btn.disabled=true;
@@ -67,6 +69,33 @@ function render(){
   }));
 }
 
+function renderNotificationProfiles(){
+  const box=$("#notificationProfileList");if(!box)return;
+  const selected=new Set(Array.isArray(settings.notificationProfileIds)?settings.notificationProfileIds:[]);
+  const active=[...profiles].filter(p=>p.active!==false).sort((a,b)=>a.name.localeCompare(b.name));
+  box.innerHTML=active.length?active.map(p=>`<label class="notification-profile-option"><input type="checkbox" name="notificationProfileIds" value="${esc(p.id)}" ${selected.has(String(p.id))?"checked":""}/><span>${esc(p.name)}<small>${esc(p.email||"No email")}</small></span></label>`).join(""):`<p class="admin-note">Add an active engineer profile first, or use the extra email box below.</p>`;
+}
+
+function settingsFromForm(){
+  const form=$("#settingsForm");
+  return {
+    companyName:String(form.elements.companyName.value||"").trim(),
+    siteName:String(form.elements.siteName.value||"").trim()||"Maintenance Manager",
+    currency:form.elements.currency.value,
+    defaultPriority:form.elements.defaultPriority.value,
+    maxAttachmentMb:Number(form.elements.maxAttachmentMb.value)||25,
+    allowAllFileTypes:Boolean(form.elements.allowAllFileTypes.checked),
+    allowedExtensions:String(form.elements.allowedExtensions.value||"").trim(),
+    requestEmailNotificationsEnabled:Boolean(form.elements.requestEmailNotificationsEnabled.checked),
+    notifyNewRequests:Boolean(form.elements.notifyNewRequests.checked),
+    notifyAssignedEngineer:Boolean(form.elements.notifyAssignedEngineer.checked),
+    notifyLowStock:Boolean(form.elements.notifyLowStock.checked),
+    notificationProfileIds:[...form.querySelectorAll('input[name="notificationProfileIds"]:checked')].map(input=>input.value),
+    notificationExtraEmails:String(form.elements.notificationExtraEmails.value||"").trim(),
+    notificationFromEmail:String(form.elements.notificationFromEmail.value||"").trim().toLowerCase()
+  };
+}
+
 function renderSettings(){
   const form=$("#settingsForm");if(!form)return;
   form.elements.companyName.value=settings.companyName||"";
@@ -77,6 +106,14 @@ function renderSettings(){
   form.elements.allowAllFileTypes.checked=settings.allowAllFileTypes!==false;
   form.elements.allowedExtensions.value=settings.allowedExtensions||"";
   form.elements.allowedExtensions.disabled=form.elements.allowAllFileTypes.checked;
+  form.elements.requestEmailNotificationsEnabled.checked=settings.requestEmailNotificationsEnabled===true;
+  form.elements.notifyNewRequests.checked=settings.notifyNewRequests!==false;
+  form.elements.notifyAssignedEngineer.checked=settings.notifyAssignedEngineer!==false;
+  form.elements.notifyLowStock.checked=settings.notifyLowStock===true;
+  form.elements.notificationExtraEmails.value=settings.notificationExtraEmails||"";
+  form.elements.notificationFromEmail.value=settings.notificationFromEmail||"maintenance@project-sly.uk";
+  renderNotificationProfiles();
+  if($("#emailConfigStatus")) $("#emailConfigStatus").textContent=emailBindingConfigured?"Cloudflare EMAIL binding detected.":"Cloudflare EMAIL binding not detected yet.";
 }
 
 $("#settingsForm")?.elements?.allowAllFileTypes?.addEventListener("change",e=>{
@@ -86,21 +123,27 @@ $("#settingsForm")?.elements?.allowAllFileTypes?.addEventListener("change",e=>{
 $("#settingsForm")?.addEventListener("submit",async e=>{
   e.preventDefault();
   const form=e.currentTarget,button=$("#saveSettingsBtn"),status=$("#settingsStatus");
-  const next={
-    companyName:String(form.elements.companyName.value||"").trim(),
-    siteName:String(form.elements.siteName.value||"").trim()||"Maintenance Manager",
-    currency:form.elements.currency.value,
-    defaultPriority:form.elements.defaultPriority.value,
-    maxAttachmentMb:Number(form.elements.maxAttachmentMb.value)||25,
-    allowAllFileTypes:Boolean(form.elements.allowAllFileTypes.checked),
-    allowedExtensions:String(form.elements.allowedExtensions.value||"").trim()
-  };
+  const next=settingsFromForm();
   button.disabled=true;button.textContent="Saving…";status.textContent="";
   try{
     const data=await api("/admin?api=settings",{method:"POST",body:JSON.stringify({settings:next})});
     settings=data.settings||next;renderSettings();status.textContent="Settings saved. The main site will use them on refresh.";
   }catch(error){status.textContent=error.message;alert(error.message)}
   finally{button.disabled=false;button.textContent="Save Settings";}
+});
+
+$("#testEmailBtn")?.addEventListener("click",async e=>{
+  const button=e.currentTarget,status=$("#settingsStatus");
+  const next=settingsFromForm();
+  if(!validEmail(next.notificationFromEmail)){alert("Enter a valid From email address first.");return;}
+  const selected=next.notificationProfileIds.length+String(next.notificationExtraEmails||"").split(/[\n,;]+/).filter(x=>validEmail(x.trim())).length;
+  if(!selected){alert("Select at least one engineer or enter an extra notification email address first.");return;}
+  button.disabled=true;button.textContent="Sending…";status.textContent="";
+  try{
+    const data=await api("/admin?api=test-email",{method:"POST",body:JSON.stringify({settings:next})});
+    status.textContent=data.emailTest?.message||"Test email sent.";
+  }catch(error){status.textContent=error.message;alert(error.message)}
+  finally{button.disabled=false;button.textContent="Send test email";}
 });
 
 function showSync(sync){
@@ -138,7 +181,7 @@ function showDenied(error){
 async function initialize(){
   try{
     const data=await api("/admin?api=profiles",{method:"GET",headers:{accept:"application/json"}});
-    profiles=data.profiles||[];jobs=data.jobs||[];identity=data.identity||null;accessSyncConfigured=Boolean(data.accessSyncConfigured);settings={...settings,...(data.settings||{})};
+    profiles=data.profiles||[];jobs=data.jobs||[];identity=data.identity||null;accessSyncConfigured=Boolean(data.accessSyncConfigured);emailBindingConfigured=Boolean(data.emailBindingConfigured);settings={...settings,...(data.settings||{})};
     setStatus(
       "Cloudflare Admin verified",
       `${identity?.email?`Signed in as ${identity.email}. `:""}Profiles are stored in the shared D1 database.${accessSyncConfigured?" Cloudflare Access email syncing is configured.":" Cloudflare Access automatic email syncing is not configured yet; profiles will still save to D1."}`,

@@ -1316,14 +1316,17 @@ async function initializeApp(){
     await refreshOperatorRequests({render:false});
     const identity=payload.identity||{};
     const params=new URLSearchParams(location.search);
-    if(identity.cloudflareLogin && identity.admin && params.get("view")!=="dashboard") {
+    if(identity.cloudflareLogin && identity.admin && !params.get("view")) {
       location.replace("/admin");
       return;
     }
     const machineParam=params.get("machine");
     if(machineParam && machines.some(m=>m.id===machineParam)){selectedMachineId=machineParam;machineDetailTab="overview";}
     renderAll();
+    const requestedView=params.get("view");
+    const allowedViews=new Set(["dashboard","requests","all","machines","parts","reports","data"]);
     if(machineParam && machines.some(m=>m.id===machineParam)) switchView("machines");
+    else if(requestedView && allowedViews.has(requestedView)) switchView(requestedView);
   } catch(error) {
     console.error(error);
     document.body.innerHTML=`<main style="max-width:760px;margin:60px auto;font-family:system-ui;padding:24px"><h1>Maintenance Manager</h1><p>The shared database could not be loaded.</p><pre style="white-space:pre-wrap;background:#f4f5f7;padding:16px;border-radius:10px">${esc(error.message||error)}</pre><p>Check that the Worker has a D1 binding named DB, then reload this page. Tables are created automatically on first use.</p></main>`;
