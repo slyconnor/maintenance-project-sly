@@ -81,7 +81,7 @@
       <section id="jobsView" class="view"><div class="page-heading"><div><h1 id="allJobsTitle">All Jobs</h1><p id="jobsSubtitle">Full maintenance job register.</p></div><button class="btn primary" data-new-job>＋ New Job</button></div><article class="panel"><div class="table-wrap"><table><thead><tr><th>Job No.</th><th>Title</th><th>Machine / Location</th><th>Priority</th><th>Status</th><th>Raised</th><th>Target</th><th>Completed</th><th>Hours</th><th>Parts</th><th>Assigned</th><th>Pin</th></tr></thead><tbody id="allJobsBody"></tbody></table></div></article></section>
 
       <section id="requestsView" class="view">
-        <div class="page-heading"><div><h1>Operator Requests</h1><p>Issues submitted from the QR codes on machines. Any engineer can accept and assign a request, or reject it if no maintenance job is needed.</p></div><button type="button" class="btn secondary" id="refreshRequestsBtn">↻ Refresh</button></div>
+        <div class="page-heading"><div><h1>Operator Requests</h1><p>Issues submitted from the QR codes on machines. Any engineer can accept a request and assign it to an active engineer.</p></div><button type="button" class="btn secondary" id="refreshRequestsBtn">↻ Refresh</button></div>
         <div id="requestsContent"></div>
       </section>
 
@@ -89,10 +89,11 @@
 
       <section id="partsView" class="view">
         <div class="page-heading"><div><h1>Parts</h1><p id="partsSubtitle">Parts usage, dates, suppliers and costs recorded through maintenance jobs.</p></div></div>
-        <article class="panel stock-placeholder-panel">
-          <div class="panel-title"><div><h2>📦 Parts Stock Control <span class="coming-soon-badge">Placeholder</span></h2><p class="muted">The stock-control area is ready for the next phase. Existing saved parts are listed now; stock movements and automatic job deductions are not enabled yet.</p></div><button class="btn secondary compact" type="button" disabled>Stock movements coming next</button></div>
-          <div class="stock-summary"><div class="mini-metric"><span>Saved parts</span><strong id="stockSavedParts">0</strong></div><div class="mini-metric"><span>Tracked stock</span><strong>—</strong></div><div class="mini-metric"><span>Low stock</span><strong>—</strong></div></div>
-          <div class="table-wrap"><table><thead><tr><th>Part</th><th>Part No.</th><th>Current Stock</th><th>Min Stock</th><th>Bin / Location</th><th>Status</th></tr></thead><tbody id="stockPlaceholderBody"></tbody></table></div>
+        <article class="panel stock-control-panel">
+          <div class="panel-title"><div><h2>📦 Parts Stock Control</h2><p class="muted">Set a known stock level for any part. When a tracked part is added to a job, its quantity is deducted automatically. A part is low when current stock is at or below its minimum.</p></div></div>
+          <div class="stock-summary"><div class="mini-metric"><span>Saved parts</span><strong id="stockSavedParts">0</strong></div><div class="mini-metric"><span>Tracked stock</span><strong id="stockTrackedParts">0</strong></div><div class="mini-metric"><span>Low stock</span><strong id="stockLowParts">0</strong></div></div>
+          <div id="stockLowAlert" class="stock-low-alert" hidden></div>
+          <div class="table-wrap"><table><thead><tr><th>Part</th><th>Part No.</th><th>Current Stock</th><th>Min Stock</th><th>Bin / Location</th><th>Status</th><th>Action</th></tr></thead><tbody id="stockPlaceholderBody"></tbody></table></div>
         </article>
         <article class="panel"><div class="panel-title"><h2>Parts Usage History</h2></div><div class="table-wrap"><table><thead><tr><th>Date Used</th><th>Part Name</th><th>Part No.</th><th>Qty</th><th>Unit Price</th><th>Total</th><th>Supplier</th><th>Job</th><th>Machine</th></tr></thead><tbody id="partsBody"></tbody></table></div></article>
       </section>
@@ -103,7 +104,7 @@
         <div class="manage-grid">
           <article class="panel manage-panel"><div class="panel-title"><div><h2>Machines</h2><p class="muted">Edit asset details, archive old equipment, or delete unused entries.</p></div><button class="btn secondary compact" id="manageAddMachineBtn">＋ Add</button></div><div id="manageMachinesList" class="manage-list"></div></article>
           <article class="panel manage-panel"><div class="panel-title"><div><h2>Sections</h2><p class="muted">Keep section names consistent across jobs and machines.</p></div><button class="btn secondary compact" id="manageAddSectionBtn">＋ Add</button></div><div id="manageSectionsList" class="manage-list"></div></article>
-          <article class="panel manage-panel"><div class="panel-title"><div><h2>Parts</h2><p class="muted">Part names/numbers are saved; prices remain manual on each job.</p></div><button class="btn secondary compact" id="manageAddPartBtn">＋ Add</button></div><div id="managePartsList" class="manage-list"></div></article>
+          <article class="panel manage-panel"><div class="panel-title"><div><h2>Parts</h2><p class="muted">Part names/numbers are saved here. Stock levels are managed from the Parts page; prices remain manual on each job.</p></div><button class="btn secondary compact" id="manageAddPartBtn">＋ Add</button></div><div id="managePartsList" class="manage-list"></div></article>
           <article class="panel manage-panel"><div class="panel-title"><div><h2>Suppliers</h2><p class="muted">Archive suppliers you no longer use while preserving old purchase history.</p></div><button class="btn secondary compact" id="manageAddSupplierBtn">＋ Add</button></div><div id="manageSuppliersList" class="manage-list"></div></article>
         </div>
       </section>
@@ -140,6 +141,22 @@
   </dialog>
 
   <dialog id="machineDialog" class="modal"><form id="machineForm" method="dialog"><div class="modal-head"><div><h2 id="machineDialogTitle">Add machine</h2><p id="machineDialogSubtitle">Machine details are shared with the whole maintenance team.</p></div><button type="button" class="icon-btn" data-close-machine>×</button></div><input type="hidden" name="machineId" /><div class="form-grid"><label>Asset / Machine ID<input name="assetId" required placeholder="RM-124" /><small class="field-help">Unique identifier separate from the machine name.</small></label><label>Section<select name="section" id="machineSectionSelect" required></select><small class="field-help">Select a saved section or add a new one.</small></label><label>Machine name<input name="name" required /></label><label>Machine type / category<input name="category" required placeholder="Rivet Machines" /></label><label>Location<input name="location" /></label><label><span id="purchaseCostLabel">Purchase cost (£)</span><input name="purchaseCost" type="number" min="0" step="0.01" /></label><label>Make<input name="make" /></label><label>Model<input name="model" /></label><label>Serial number<input name="serialNumber" /></label><label>Purchase date<input name="purchaseDate" type="date" /></label><label>Install date<input name="installDate" type="date" /></label><label class="span-2">Machine notes<textarea name="notes" rows="3" placeholder="Useful machine information, service notes, manuals location, etc."></textarea></label></div><div class="modal-actions"><button type="button" class="btn secondary" data-close-machine>Cancel</button><button id="machineSaveBtn" class="btn primary">Save Machine</button></div></form></dialog>
+
+  <dialog id="stockDialog" class="modal stock-modal">
+    <form id="stockForm" method="dialog">
+      <div class="modal-head"><div><h2 id="stockDialogTitle">Edit part stock</h2><p id="stockDialogSubtitle">Set the physical quantity you know is currently on hand.</p></div><button type="button" class="icon-btn" data-close-stock>×</button></div>
+      <input type="hidden" name="partId" />
+      <div class="stock-part-identity"><strong id="stockPartName"></strong><span id="stockPartNumber"></span></div>
+      <label class="check-row stock-track-toggle"><input name="stockTracked" type="checkbox" /> Track stock for this part</label>
+      <div class="form-grid stock-form-grid">
+        <label>Current stock<input name="currentStock" type="number" step="1" inputmode="numeric" /><small class="field-help">Enter the quantity physically on hand now. Job use will deduct from this number.</small></label>
+        <label>Minimum stock<input name="minStock" type="number" min="0" step="1" inputmode="numeric" /><small class="field-help">Low stock is shown when current stock is at or below this number.</small></label>
+        <label class="span-2">Bin / location<input name="binLocation" placeholder="e.g. Stores A · Bin 14" /></label>
+      </div>
+      <div id="stockTrackingHelp" class="stock-form-note"></div>
+      <div class="modal-actions"><button type="button" class="btn secondary" data-close-stock>Cancel</button><button id="stockSaveBtn" class="btn primary" type="submit">Save Stock</button></div>
+    </form>
+  </dialog>
 
   <script src="app.js"></script>
 </body>

@@ -32,6 +32,7 @@ let partRowCounter = 0;
 let timeRowCounter = 0;
 let editingJobNo = null;
 let pendingJobFiles = [];
+let editingStockPartId = null;
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -65,6 +66,16 @@ const isMachineArchived = machine => String(machine?.status || "Active").toLower
 const activeSections = () => sections.filter(s=>!isSectionArchived(s));
 const activeSuppliers = () => suppliers.filter(s=>!isSupplierArchived(s));
 const activeParts = () => partCatalog.filter(p=>p.active!==false);
+const stockTrackedParts = () => partCatalog.filter(p=>p.active!==false && p.stockTracked===true);
+const lowStockParts = () => stockTrackedParts().filter(p=>(Number(p.currentStock)||0) <= (Number(p.minStock)||0));
+const stockStatus = p => {
+  if(p?.stockTracked!==true) return {label:"Not tracked",className:"stock-off"};
+  const current=Number(p.currentStock)||0, min=Math.max(0,Number(p.minStock)||0);
+  if(current<=0) return {label:"Out of stock",className:"stock-out"};
+  if(current<=min) return {label:"Low stock",className:"stock-low"};
+  return {label:"In stock",className:"stock-ok"};
+};
+const stockNumber = value => Number.isInteger(Number(value)) ? String(Number(value)) : String(Number(value)||0);
 const selectedProfile = () => profiles.find(p=>p.id===selectedProfileId) || null;
 const selectedProfileName = () => selectedProfile()?.name || null;
 const visibleJobs = () => selectedProfileId === "all" ? jobs : jobs.filter(j=>j.assigned===selectedProfileName());
@@ -82,7 +93,14 @@ function applySharedState(payload) {
   machines = Array.isArray(state.machines) ? state.machines : [];
   sections = Array.isArray(state.sections) ? state.sections : [];
   archivedSections = Array.isArray(state.archivedSections) ? state.archivedSections : [];
-  partCatalog = Array.isArray(state.partCatalog) ? state.partCatalog : [];
+  partCatalog = Array.isArray(state.partCatalog) ? state.partCatalog.map(p=>({
+    ...p,
+    active:p.active!==false,
+    stockTracked:p.stockTracked===true,
+    currentStock:Number.isFinite(Number(p.currentStock))?Number(p.currentStock):0,
+    minStock:Math.max(0,Number.isFinite(Number(p.minStock))?Number(p.minStock):0),
+    binLocation:String(p.binLocation||"")
+  })) : [];
   suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
   archivedSuppliers = Array.isArray(state.archivedSuppliers) ? state.archivedSuppliers : [];
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
@@ -462,7 +480,6 @@ function renderRequests() {
   if(!container)return;
   const pending=operatorRequests.filter(r=>r.status==="pending"||r.status==="accepting");
   const accepted=operatorRequests.filter(r=>r.status==="accepted").slice(0,40);
-  const rejected=operatorRequests.filter(r=>r.status==="rejected").slice(0,40);
   if($("#requestBadge")){
     $("#requestBadge").textContent=String(pending.length);
     $("#requestBadge").hidden=pending.length===0;
@@ -471,11 +488,10 @@ function renderRequests() {
   const pendingHtml=pending.length?pending.map(r=>{
     const m=r.machine||{};
     const busy=r.status==="accepting";
-    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><div class="request-action-buttons"><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button><button type="button" class="btn danger" data-reject-request="${esc(r.id)}" ${busy?"disabled":""}>Reject request</button></div></div></article>`;
+    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button></div></article>`;
   }).join(""):`<div class="panel request-empty"><strong>No pending operator requests.</strong><p>New issues submitted from machine QR codes will appear here.</p></div>`;
   const acceptedHtml=accepted.length?`<article class="panel"><div class="panel-title"><div><h2>Recently accepted</h2><p class="muted">Accepted requests remain here for reference for 90 days.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Assigned</th><th>Job</th><th>Accepted</th></tr></thead><tbody>${accepted.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.assignedProfileName||"—")}</td><td>${r.linkedJobNo?`<button type="button" class="job-link" data-edit-job="${esc(r.linkedJobNo)}">${esc(r.linkedJobNo)}</button>`:"—"}</td><td>${esc(requestDate(r.acceptedAt))}</td></tr>`).join("")}</tbody></table></div></article>`:"";
-  const rejectedHtml=rejected.length?`<article class="panel"><div class="panel-title"><div><h2>Recently rejected</h2><p class="muted">Rejected requests create no job and remain here for reference for 90 days.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Rejected by</th><th>Rejected</th></tr></thead><tbody>${rejected.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.rejectedBy||"—")}</td><td>${esc(requestDate(r.rejectedAt))}</td></tr>`).join("")}</tbody></table></div></article>`:"";
-  container.innerHTML=`<div class="requests-summary"><div class="mini-metric"><span>Waiting</span><strong>${pending.length}</strong></div><div class="mini-metric"><span>Accepted recently</span><strong>${accepted.length}</strong></div><div class="mini-metric"><span>Rejected recently</span><strong>${rejected.length}</strong></div></div><div class="operator-request-list">${pendingHtml}</div>${acceptedHtml}${rejectedHtml}`;
+  container.innerHTML=`<div class="requests-summary"><div class="mini-metric"><span>Waiting</span><strong>${pending.length}</strong></div><div class="mini-metric"><span>Accepted recently</span><strong>${accepted.length}</strong></div></div><div class="operator-request-list">${pendingHtml}</div>${acceptedHtml}`;
   bindJobEditors();
 }
 
@@ -506,10 +522,26 @@ function renderMachines() {
 }
 
 function renderParts() {
-  $("#partsSubtitle").textContent = selectedProfileId === "all" ? "Parts usage, dates, suppliers and costs recorded through maintenance jobs." : `Parts used on jobs assigned to ${profileContext()}.`;
-  const saved=[...partCatalog].sort((a,b)=>String(a.name).localeCompare(String(b.name)));
+  $("#partsSubtitle").textContent = selectedProfileId === "all" ? "Parts usage, live stock levels, suppliers and costs recorded through maintenance jobs." : `Parts used on jobs assigned to ${profileContext()}, plus the shared stock position.`;
+  const stockRank=p=>p.active===false?4:p.stockTracked!==true?3:(Number(p.currentStock)||0)<=0?0:(Number(p.currentStock)||0)<=(Number(p.minStock)||0)?1:2;
+  const saved=[...partCatalog].sort((a,b)=>stockRank(a)-stockRank(b)||String(a.name).localeCompare(String(b.name)));
+  const tracked=saved.filter(p=>p.active!==false&&p.stockTracked===true);
+  const low=tracked.filter(p=>(Number(p.currentStock)||0)<=(Number(p.minStock)||0));
   if($("#stockSavedParts")) $("#stockSavedParts").textContent=String(saved.filter(p=>p.active!==false).length);
-  if($("#stockPlaceholderBody")) $("#stockPlaceholderBody").innerHTML=saved.length?saved.map(p=>`<tr><td><strong>${esc(p.name)}</strong></td><td>${esc(p.partNo||"—")}</td><td class="stock-muted">Not tracked</td><td class="stock-muted">—</td><td class="stock-muted">—</td><td><span class="status-chip placeholder">Placeholder</span></td></tr>`).join(""):`<tr><td colspan="6">No saved parts yet.</td></tr>`;
+  if($("#stockTrackedParts")) $("#stockTrackedParts").textContent=String(tracked.length);
+  if($("#stockLowParts")) $("#stockLowParts").textContent=String(low.length);
+  const alertBox=$("#stockLowAlert");
+  if(alertBox){
+    alertBox.hidden=!low.length;
+    alertBox.textContent=low.length?`${low.length} tracked part${low.length===1?" is":"s are"} at or below minimum stock: ${low.slice(0,5).map(p=>p.name).join(", ")}${low.length>5?"…":""}`:"";
+  }
+  if($("#stockPlaceholderBody")) $("#stockPlaceholderBody").innerHTML=saved.length?saved.map(p=>{
+    const status=stockStatus(p);
+    const current=p.stockTracked===true?stockNumber(p.currentStock):"Not tracked";
+    const min=p.stockTracked===true?stockNumber(p.minStock):"—";
+    const rowClass=status.className==="stock-out"?"stock-out-row":status.className==="stock-low"?"stock-low-row":"";
+    return `<tr class="${rowClass}"><td><strong>${esc(p.name)}</strong>${p.active===false?`<br><span class="stock-muted">Archived</span>`:""}</td><td>${esc(p.partNo||"—")}</td><td>${esc(current)}</td><td>${esc(min)}</td><td>${esc(p.binLocation||"—")}</td><td><span class="status-chip ${status.className}">${esc(status.label)}</span></td><td><button type="button" class="btn secondary compact stock-action" data-edit-stock="${esc(p.id)}">Edit stock</button></td></tr>`;
+  }).join(""):`<tr><td colspan="7">No saved parts yet.</td></tr>`;
   const parts = visibleJobs().flatMap(j=>(j.parts||[]).map(p=>({...p,jobNo:j.jobNo,machine:j.machine,section:j.section||inferSection(j.machine)}))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc((machines.find(m=>m.name===p.machine)?.assetId||"—") + " · " + p.machine)}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
 }
@@ -558,7 +590,7 @@ function renderManageData() {
   const machineRows=[...machines].sort((a,b)=>String(a.assetId).localeCompare(String(b.assetId))).map(m=>{const used=machineUsageCount(m);const archived=isMachineArchived(m);return `<div class="manage-row"><div><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${esc(m.section)} · ${esc(m.location||"No location")} · ${used} job${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("machine",m.id,archived,used,true)}</div></div>`;}).join("");
   $("#manageMachinesList").innerHTML=machineRows||`<p class="empty-note">No machines yet.</p>`;
   $("#manageSectionsList").innerHTML=[...sections].sort().map(name=>{const used=sectionUsageCount(name);const archived=isSectionArchived(name);return `<div class="manage-row"><div><strong>${esc(name)}</strong><span>${used} linked machine/job reference${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("section",name,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No sections yet.</p>`;
-  $("#managePartsList").innerHTML=[...partCatalog].sort((a,b)=>a.name.localeCompare(b.name)).map(part=>{const used=partUsageCount(part);const archived=part.active===false;return `<div class="manage-row"><div><strong>${esc(part.name)}</strong><span>${esc(part.partNo||"No part number")} · ${used} historical use${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("part",part.id,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No saved parts yet.</p>`;
+  $("#managePartsList").innerHTML=[...partCatalog].sort((a,b)=>a.name.localeCompare(b.name)).map(part=>{const used=partUsageCount(part);const archived=part.active===false;const stock=stockStatus(part);const stockText=part.stockTracked===true?`Stock ${stockNumber(part.currentStock)} · min ${stockNumber(part.minStock)}${part.binLocation?` · ${part.binLocation}`:""}`:"Stock not tracked";return `<div class="manage-row"><div><strong>${esc(part.name)}</strong><span>${esc(part.partNo||"No part number")} · ${used} historical use${used===1?"":"s"} · ${esc(stockText)}</span></div><div class="manage-row-right"><span class="status-chip ${stock.className}">${esc(stock.label)}</span><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("part",part.id,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No saved parts yet.</p>`;
   $("#manageSuppliersList").innerHTML=[...suppliers].sort().map(name=>{const used=supplierUsageCount(name);const archived=isSupplierArchived(name);return `<div class="manage-row"><div><strong>${esc(name)}</strong><span>${used} historical purchase record${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("supplier",name,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No suppliers yet.</p>`;
 }
 
@@ -660,13 +692,29 @@ function partOptions(selected="") {
   const list = activeParts();
   const selectedPart = partCatalog.find(p=>p.id===selected);
   if (selectedPart && !list.some(p=>p.id===selectedPart.id)) list.unshift(selectedPart);
-  const sorted = [...list].sort((a,b)=>a.name.localeCompare(b.name));
-  return `<option value="">Select part…</option>${sorted.map(p=>`<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}${p.partNo?` — ${esc(p.partNo)}`:""}${p.active===false?" (archived)":""}</option>`).join("")}<option value="__add_part__">＋ Add new part…</option>`;
+  const sorted=[...list].sort((a,b)=>a.name.localeCompare(b.name));
+  return `<option value="">Select part…</option>${sorted.map(p=>{const stock=p.stockTracked===true?` · stock ${stockNumber(p.currentStock)}${(Number(p.currentStock)||0)<=(Number(p.minStock)||0)?" LOW":""}`:"";return `<option value="${esc(p.id)}" ${p.id===selected?"selected":""}>${esc(p.name)}${p.partNo?` — ${esc(p.partNo)}`:""}${esc(stock)}${p.active===false?" (archived)":""}</option>`;}).join("")}<option value="__add_part__">＋ Add new part…</option>`;
 }
+
 function supplierOptions(selected="") {
   const list = activeSuppliers();
   if (selected && suppliers.includes(selected) && !list.includes(selected)) list.unshift(selected);
   return `<option value="">Select supplier…</option>${list.map(s=>`<option value="${esc(s)}" ${s===selected?"selected":""}>${esc(s)}${isSupplierArchived(s)?" (archived)":""}</option>`).join("")}<option value="__add_supplier__">＋ Add new supplier…</option>`;
+}
+
+function updatePartRowStockNote(row) {
+  if(!row)return;
+  const partId=row.querySelector('.part-select')?.value||"";
+  const note=row.querySelector('.part-stock-note');
+  if(!note)return;
+  const part=partCatalog.find(p=>p.id===partId);
+  note.className="part-stock-note";
+  if(!part){note.textContent="";return;}
+  if(part.stockTracked!==true){note.textContent="Stock is not currently tracked for this part.";return;}
+  const status=stockStatus(part);
+  note.textContent=`Current known stock: ${stockNumber(part.currentStock)} · minimum: ${stockNumber(part.minStock)}${part.binLocation?` · ${part.binLocation}`:""}${status.label!=="In stock"?` · ${status.label}`:""}`;
+  if(status.className==="stock-low")note.classList.add("low");
+  if(status.className==="stock-out")note.classList.add("out");
 }
 
 function addPartRow(data={}) {
@@ -674,10 +722,11 @@ function addPartRow(data={}) {
   const row = document.createElement("div");
   row.className = "part-entry";
   row.dataset.partRow = String(partRowCounter);
-  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity<input class="part-qty" type="number" min="1" step="1" value="${Number(data.qty)||1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Enter price paid" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Price is entered manually for every use; previous prices are never overwritten.</div>`;
+  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity<input class="part-qty" type="number" min="1" step="1" value="${Number(data.qty)||1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Enter price paid" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Price is entered manually for every use; previous prices are never overwritten.</div><div class="part-stock-note"></div>`;
   $("#partsEditor").appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
   if (selected) row.querySelector('.part-number').value = selected.partNo || "";
+  updatePartRowStockNote(row);
 }
 
 function refreshAllPartRowOptions() {
@@ -703,7 +752,7 @@ function collectPartsFromEditor() {
     const unitPrice = Math.max(0, Number(priceRaw)||0);
     const supplier = row.querySelector('.supplier-select').value;
     const date = row.querySelector('.part-date').value;
-    result.push({name:catalogPart.name,partNo:catalogPart.partNo||"",qty,unitPrice,supplier,date});
+    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",qty,unitPrice,supplier,date});
   }
   return result;
 }
@@ -840,7 +889,8 @@ function localSearchResults(query) {
   }
   for(const part of partCatalog){
     if(includes(part.name,part.partNo)){
-      results.push({kind:"part",id:part.id,icon:"◇",title:part.name,meta:`Part ${part.partNo||"number not set"} · Stock control placeholder`});
+      const stock=part.stockTracked===true?`Stock ${stockNumber(part.currentStock)} · min ${stockNumber(part.minStock)} · ${stockStatus(part).label}`:"Stock not tracked";
+      results.push({kind:"part",id:part.id,icon:"◇",title:part.name,meta:`Part ${part.partNo||"number not set"} · ${stock}`});
       if(results.filter(x=>x.kind==="part").length>=4)break;
     }
   }
@@ -852,7 +902,7 @@ function localSearchResults(query) {
   }
   for(const request of operatorRequests){
     if(includes(request.requestNo,request.operatorName,request.issue,request.machine?.assetId,request.machine?.name)){
-      results.push({kind:"request",id:String(request.id),icon:"⚠",title:`${request.requestNo} · ${request.machine?.assetId||"Machine"}`,meta:`${request.operatorName} · ${request.status==="accepted"?"Accepted":request.status==="rejected"?"Rejected":"Waiting"}`});
+      results.push({kind:"request",id:String(request.id),icon:"⚠",title:`${request.requestNo} · ${request.machine?.assetId||"Machine"}`,meta:`${request.operatorName} · ${request.status==="accepted"?"Accepted":"Waiting"}`});
       if(results.filter(x=>x.kind==="request").length>=4)break;
     }
   }
@@ -893,7 +943,7 @@ $("#globalSearchResults")?.addEventListener("click",e=>{
   $("#globalSearchResults").hidden=true;
   if(kind==="job"){openJob(id);return;}
   if(kind==="machine"){selectedMachineId=id;machineDetailTab="overview";switchView("machines");renderMachines();return;}
-  if(kind==="part"){switchView("parts");return;}
+  if(kind==="part"){switchView("parts");openStockDialog(id);return;}
   if(kind==="profile"){selectedProfileId=id;renderAll();switchView("dashboard");return;}
   if(kind==="file"){window.open(attachmentFileUrl(id),"_blank","noopener");return;}
   if(kind==="request"){switchView("requests");return;}
@@ -907,23 +957,6 @@ $("#refreshRequestsBtn")?.addEventListener("click",async e=>{
   try{await refreshOperatorRequests();}finally{button.disabled=false;button.textContent="↻ Refresh";}
 });
 $("#requestsView")?.addEventListener("click",async e=>{
-  const rejectButton=e.target.closest("[data-reject-request]");
-  if(rejectButton){
-    const id=Number(rejectButton.dataset.rejectRequest);
-    const request=operatorRequests.find(r=>Number(r.id)===id);
-    const label=request?.requestNo||`request ${id}`;
-    if(!confirm(`Reject ${label}?\n\nNo maintenance job will be created. The rejected request will remain in the recent history for 90 days.`))return;
-    const row=rejectButton.closest(".operator-request-row");
-    row?.querySelectorAll("button,select").forEach(control=>control.disabled=true);
-    rejectButton.textContent="Rejecting…";
-    try{
-      const payload=await api("/api/requests/reject",{method:"POST",body:JSON.stringify({id})});
-      operatorRequests=Array.isArray(payload.requests)?payload.requests:operatorRequests;
-      renderRequests();
-    }catch(error){showSaveError(error);await refreshOperatorRequests().catch(()=>{});}
-    return;
-  }
-
   const button=e.target.closest("[data-accept-request]");
   if(!button)return;
   const id=Number(button.dataset.acceptRequest);
@@ -931,7 +964,6 @@ $("#requestsView")?.addEventListener("click",async e=>{
   const assignedProfileId=select?.value||"";
   if(!assignedProfileId){alert("Choose an engineer to assign this request to.");return;}
   button.disabled=true;button.textContent="Accepting…";if(select)select.disabled=true;
-  button.closest(".operator-request-row")?.querySelectorAll("[data-reject-request]").forEach(b=>b.disabled=true);
   try{
     const payload=await api("/api/requests/accept",{method:"POST",body:JSON.stringify({id,assignedProfileId})});
     if(payload.state)applySharedState(payload);
@@ -954,8 +986,9 @@ $("#jobSearch").addEventListener("input",renderMonthTable);
 // Add / edit job form. Engineer profiles are filters, not permissions: any engineer can edit any job.
 const jobDialog = $("#jobDialog");
 function catalogPartId(part) {
+  if(part?.partId && partCatalog.some(p=>p.id===part.partId)) return part.partId;
   let found=partCatalog.find(p=>p.name.toLowerCase()===String(part.name||"").toLowerCase());
-  if (!found && part.name) { found={id:`p${Date.now()}-${partCatalog.length}`,name:part.name,partNo:part.partNo||""}; partCatalog.push(found); }
+  if (!found && part.name) { found={id:`p${Date.now()}-${partCatalog.length}`,name:part.name,partNo:part.partNo||"",active:true,stockTracked:false,currentStock:0,minStock:0,binLocation:""}; partCatalog.push(found); }
   return found?.id || "";
 }
 async function openJob(jobNo=null) {
@@ -1067,8 +1100,8 @@ $("#partsEditor").addEventListener("change",async e=>{
         try { const payload=await saveMutation("/api/catalog",{type:"part",name:clean,partNo:partNo.trim()},{render:false}); part=payload.part; }
         catch(error){ e.target.value=""; showSaveError(error); return; }
       }
-      refreshAllPartRowOptions(); row.querySelector('.part-select').value=part.id; row.querySelector('.part-number').value=part.partNo||"";
-    } else { const part=partCatalog.find(p=>p.id===e.target.value);row.querySelector('.part-number').value=part?.partNo||"";row.querySelector('.part-price').value=""; }
+      refreshAllPartRowOptions(); row.querySelector('.part-select').value=part.id; row.querySelector('.part-number').value=part.partNo||""; updatePartRowStockNote(row);
+    } else { const part=partCatalog.find(p=>p.id===e.target.value);row.querySelector('.part-number').value=part?.partNo||"";row.querySelector('.part-price').value=""; updatePartRowStockNote(row); }
   }
   if (e.target.classList.contains('supplier-select') && e.target.value === "__add_supplier__") {
     const name=prompt("New supplier name:");if(!name?.trim()){e.target.value="";return;}
@@ -1086,6 +1119,8 @@ $("#deleteJobBtn").addEventListener("click",async()=>{
   const partsCost=jobPartsCost(job);
   if(hours>0)details.push(`${hours.toFixed(1)} recorded hour${hours===1?"":"s"}`);
   if((job.parts||[]).length)details.push(`${job.parts.length} part entr${job.parts.length===1?"y":"ies"} (${money(partsCost)})`);
+  const stockReturn=(job.parts||[]).reduce((n,p)=>n+(Number(p.stockAppliedQty)||0),0);
+  if(stockReturn>0)details.push(`${stockNumber(stockReturn)} stock-tracked item${stockReturn===1?"":"s"} that will be returned to stock`);
   const extra=details.length?`\n\nThis job contains ${details.join(" and ")}.`:"";
   if(!confirm(`Permanently delete ${job.jobNo} · ${job.title}?${extra}\n\nAny attached photos/files will also be deleted. This cannot be undone.`))return;
   const btn=$("#deleteJobBtn");
@@ -1202,6 +1237,58 @@ $("#machineForm").addEventListener("submit",async e=>{
   finally { submit.disabled=false; submit.textContent=id?"Save Changes":"Save Machine"; }
 });
 
+const stockDialog=$("#stockDialog");
+function setStockFormEnabled() {
+  const form=$("#stockForm");
+  if(!form)return;
+  const tracked=form.elements.stockTracked.checked;
+  [form.elements.currentStock,form.elements.minStock,form.elements.binLocation].forEach(el=>{el.disabled=!tracked;});
+  const help=$("#stockTrackingHelp");
+  if(help) help.textContent=tracked
+    ? "This current-stock figure is treated as the known physical count now. Existing historical jobs are not deducted again; future job use is deducted automatically."
+    : "Stock is not tracked for this part. It can still be selected on jobs, but job use will not change a stock quantity.";
+}
+function openStockDialog(partId) {
+  const part=partCatalog.find(p=>p.id===partId);
+  if(!part||!stockDialog)return;
+  editingStockPartId=part.id;
+  const form=$("#stockForm");
+  form.reset();
+  form.elements.partId.value=part.id;
+  form.elements.stockTracked.checked=part.stockTracked===true;
+  form.elements.currentStock.value=stockNumber(part.currentStock);
+  form.elements.minStock.value=stockNumber(part.minStock);
+  form.elements.binLocation.value=part.binLocation||"";
+  $("#stockDialogTitle").textContent=`Stock · ${part.name}`;
+  $("#stockPartName").textContent=part.name;
+  $("#stockPartNumber").textContent=part.partNo?`Part no. ${part.partNo}`:"No part number set";
+  setStockFormEnabled();
+  stockDialog.showModal();
+}
+$$('[data-close-stock]').forEach(b=>b.addEventListener('click',()=>{editingStockPartId=null;stockDialog.close();}));
+$("#stockForm")?.elements.stockTracked.addEventListener("change",setStockFormEnabled);
+$("#stockForm")?.addEventListener("submit",async e=>{
+  e.preventDefault();
+  const form=e.currentTarget;
+  const part=partCatalog.find(p=>p.id===String(form.elements.partId.value||editingStockPartId||""));
+  if(!part){alert("Part not found.");return;}
+  const tracked=form.elements.stockTracked.checked;
+  const current=tracked?Number(form.elements.currentStock.value):Number(part.currentStock)||0;
+  const min=tracked?Number(form.elements.minStock.value):Number(part.minStock)||0;
+  if(tracked && (!Number.isFinite(current) || !Number.isFinite(min) || min<0)){alert("Enter a valid current stock and minimum stock.");return;}
+  const btn=$("#stockSaveBtn");btn.disabled=true;btn.textContent="Saving…";
+  try{
+    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:part.name,partNo:part.partNo||"",stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||""});
+    if(!result)return;
+    editingStockPartId=null;
+    stockDialog.close();
+  }finally{btn.disabled=false;btn.textContent="Save Stock";}
+});
+$("#partsView")?.addEventListener("click",e=>{
+  const button=e.target.closest('[data-edit-stock]');
+  if(button)openStockDialog(button.dataset.editStock);
+});
+
 $("#manageAddSectionBtn").addEventListener("click",async()=>{
   const name=prompt("New section name:"); if(!name?.trim())return;
   try{await saveMutation("/api/catalog",{type:"section",value:name.trim()});}catch(error){showSaveError(error);}
@@ -1242,5 +1329,5 @@ async function initializeApp(){
     document.body.innerHTML=`<main style="max-width:760px;margin:60px auto;font-family:system-ui;padding:24px"><h1>Maintenance Manager</h1><p>The shared database could not be loaded.</p><pre style="white-space:pre-wrap;background:#f4f5f7;padding:16px;border-radius:10px">${esc(error.message||error)}</pre><p>Check that the Worker has a D1 binding named DB, then reload this page. Tables are created automatically on first use.</p></main>`;
   }
 }
-window.addEventListener("focus",()=>{ if(!jobDialog.open && !machineDialog.open) Promise.all([refreshSharedState({render:false}),refreshOperatorRequests({render:false})]).then(()=>renderAll()).catch(()=>{}); });
+window.addEventListener("focus",()=>{ if(!jobDialog.open && !machineDialog.open && !stockDialog.open) Promise.all([refreshSharedState({render:false}),refreshOperatorRequests({render:false})]).then(()=>renderAll()).catch(()=>{}); });
 initializeApp();
