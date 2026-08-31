@@ -61,8 +61,9 @@ const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day
 const partTotal = p => (Number(p.qty)||0)*(Number(p.unitPrice)||0);
 const jobPartsCost = j => (j.parts||[]).reduce((a,p)=>a+partTotal(p),0);
 const jobHours = j => Array.isArray(j.timeEntries) ? j.timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0) : Number(j.hours)||0;
-const machineForJob = j => machines.find(m=>m.name===j.machine) || null;
-const machineLabel = j => { const m=machineForJob(j); return m ? `${m.assetId} · ${m.name}` : j.machine; };
+const machineForJob = j => machines.find(m=>String(m.id)===String(j?.machineId||"")) || machines.find(m=>m.name===j?.machine && (!j?.section || m.section===j.section)) || machines.find(m=>m.name===j?.machine) || null;
+const machineLabel = j => { const m=machineForJob(j); return m ? `${m.assetId} · ${m.name}` : j?.machine || "Unknown machine"; };
+const jobBelongsToMachine = (j,machine) => Boolean(machine && (String(j?.machineId||"")===String(machine.id) || (!j?.machineId && j?.machine===machine.name && (!j?.section || j.section===machine.section))));
 const selectedPrefix = () => `${selectedYear}-${String(selectedMonth+1).padStart(2,"0")}`;
 const inSelectedMonth = d => Boolean(d && d.startsWith(selectedPrefix()));
 const partsThisMonth = j => (j.parts||[]).filter(p=>inSelectedMonth(p.date));
@@ -379,7 +380,7 @@ function bindV58Events(){
 }
 function renderCurrentDownDashboard(){const box=$("#dashboardCurrentDown");if(!box)return;const rows=currentDownJobs();box.hidden=!rows.length;if(!rows.length)return;box.innerHTML=`<div class="history-heading"><div><h2>⚠ Machines currently down</h2><p>${rows.length} machine${rows.length===1?" is":"s are"} still marked out of production.</p></div><button class="btn secondary compact" type="button" data-nav="downtime">Open downtime</button></div><div class="v58-down-list">${rows.slice(0,5).map(j=>`<div class="v58-down-row"><span><strong>${esc(machineLabel(j))}</strong><br><small>${esc(j.section||inferSection(j.machine))} · ${esc(j.jobNo)}</small></span><strong>${formatDurationMinutes((Date.now()-parseLocalDateTime(j.downtimeStart).getTime())/60000)}</strong></div>`).join("")}</div>`;box.querySelector('[data-nav="downtime"]')?.addEventListener('click',()=>switchView('downtime'));}
 function renderDowntime(){
-  if(!$("#downtimeView"))return;const {start,end,label}=downtimeRange();const base=visibleJobs();const rows=base.map(j=>({job:j,minutes:jobDowntimeMinutes(j,start,end)})).filter(x=>x.minutes>0).sort((a,b)=>b.minutes-a.minutes);const total=rows.reduce((a,x)=>a+x.minutes,0);const sectionMap=new Map(),machineMap=new Map();for(const x of rows){const section=x.job.section||inferSection(x.job.machine);sectionMap.set(section,(sectionMap.get(section)||0)+x.minutes);machineMap.set(x.job.machine,(machineMap.get(x.job.machine)||0)+x.minutes);}const sectionRows=[...sectionMap].map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value),machineRows=[...machineMap].map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);$("#downtimeSubtitle").textContent=`Production downtime for ${label} · ${profileContext()}.`;$("#downtimeTotal").textContent=formatDurationMinutes(total);$("#downtimeCurrent").textContent=String(currentDownJobs().length);$("#downtimeWorstSection").textContent=sectionRows[0]?`${sectionRows[0].name} · ${formatDurationMinutes(sectionRows[0].value)}`:"—";$("#downtimeWorstMachine").textContent=machineRows[0]?`${machineRows[0].name} · ${formatDurationMinutes(machineRows[0].value)}`:"—";renderPie($("#downtimeSectionPie"),$("#downtimeSectionLegend"),sectionRows,v=>formatDurationMinutes(v));renderPie($("#downtimeMachinePie"),$("#downtimeMachineLegend"),machineRows,v=>formatDurationMinutes(v));const down=currentDownJobs();$("#downtimeCurrentCard").hidden=!down.length;$("#downtimeCurrentList").innerHTML=down.map(j=>`<div class="v58-down-row"><span><strong>${esc(machineLabel(j))}</strong><br><small>${esc(j.section||inferSection(j.machine))} · ${esc(j.jobNo)} · since ${esc(new Date(j.downtimeStart).toLocaleString("en-GB"))}</small></span><div class="v58-table-actions"><strong>${formatDurationMinutes((Date.now()-parseLocalDateTime(j.downtimeStart).getTime())/60000)}</strong><button type="button" class="btn primary compact" data-downtime-end-job="${esc(j.jobNo)}">Back in production</button></div></div>`).join("");$("#downtimeBody").innerHTML=rows.length?rows.map(x=>`<tr><td>${esc(machineLabel(x.job))}</td><td>${esc(x.job.section||inferSection(x.job.machine))}</td><td><button type="button" class="job-link" data-edit-downtime-job="${esc(x.job.jobNo)}">${esc(x.job.jobNo)}</button></td><td>${esc(new Date(x.job.downtimeStart).toLocaleString("en-GB"))}</td><td>${x.job.downtimeEnd?esc(new Date(x.job.downtimeEnd).toLocaleString("en-GB")):'<span class="pill p-high">Still down</span>'}</td><td><strong>${formatDurationMinutes(x.minutes)}</strong></td><td>${x.job.downtimeEnd?`<button type="button" class="btn secondary compact" data-edit-downtime-job="${esc(x.job.jobNo)}">Edit</button>`:`<button type="button" class="btn primary compact" data-downtime-end-job="${esc(x.job.jobNo)}">Back in production</button>`}</td></tr>`).join(""):`<tr><td colspan="7">No downtime recorded for this range.</td></tr>`;
+  if(!$("#downtimeView"))return;const {start,end,label}=downtimeRange();const base=visibleJobs();const rows=base.map(j=>({job:j,minutes:jobDowntimeMinutes(j,start,end)})).filter(x=>x.minutes>0).sort((a,b)=>b.minutes-a.minutes);const total=rows.reduce((a,x)=>a+x.minutes,0);const sectionMap=new Map(),machineMap=new Map();for(const x of rows){const section=x.job.section||inferSection(x.job.machine);sectionMap.set(section,(sectionMap.get(section)||0)+x.minutes);const machineName=machineLabel(x.job);machineMap.set(machineName,(machineMap.get(machineName)||0)+x.minutes);}const sectionRows=[...sectionMap].map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value),machineRows=[...machineMap].map(([name,value])=>({name,value})).sort((a,b)=>b.value-a.value);$("#downtimeSubtitle").textContent=`Production downtime for ${label} · ${profileContext()}.`;$("#downtimeTotal").textContent=formatDurationMinutes(total);$("#downtimeCurrent").textContent=String(currentDownJobs().length);$("#downtimeWorstSection").textContent=sectionRows[0]?`${sectionRows[0].name} · ${formatDurationMinutes(sectionRows[0].value)}`:"—";$("#downtimeWorstMachine").textContent=machineRows[0]?`${machineRows[0].name} · ${formatDurationMinutes(machineRows[0].value)}`:"—";renderPie($("#downtimeSectionPie"),$("#downtimeSectionLegend"),sectionRows,v=>formatDurationMinutes(v));renderPie($("#downtimeMachinePie"),$("#downtimeMachineLegend"),machineRows,v=>formatDurationMinutes(v));const down=currentDownJobs();$("#downtimeCurrentCard").hidden=!down.length;$("#downtimeCurrentList").innerHTML=down.map(j=>`<div class="v58-down-row"><span><strong>${esc(machineLabel(j))}</strong><br><small>${esc(j.section||inferSection(j.machine))} · ${esc(j.jobNo)} · since ${esc(new Date(j.downtimeStart).toLocaleString("en-GB"))}</small></span><div class="v58-table-actions"><strong>${formatDurationMinutes((Date.now()-parseLocalDateTime(j.downtimeStart).getTime())/60000)}</strong><button type="button" class="btn primary compact" data-downtime-end-job="${esc(j.jobNo)}">Back in production</button></div></div>`).join("");$("#downtimeBody").innerHTML=rows.length?rows.map(x=>`<tr><td>${esc(machineLabel(x.job))}</td><td>${esc(x.job.section||inferSection(x.job.machine))}</td><td><button type="button" class="job-link" data-edit-downtime-job="${esc(x.job.jobNo)}">${esc(x.job.jobNo)}</button></td><td>${esc(new Date(x.job.downtimeStart).toLocaleString("en-GB"))}</td><td>${x.job.downtimeEnd?esc(new Date(x.job.downtimeEnd).toLocaleString("en-GB")):'<span class="pill p-high">Still down</span>'}</td><td><strong>${formatDurationMinutes(x.minutes)}</strong></td><td>${x.job.downtimeEnd?`<button type="button" class="btn secondary compact" data-edit-downtime-job="${esc(x.job.jobNo)}">Edit</button>`:`<button type="button" class="btn primary compact" data-downtime-end-job="${esc(x.job.jobNo)}">Back in production</button>`}</td></tr>`).join(""):`<tr><td colspan="7">No downtime recorded for this range.</td></tr>`;
 }
 async function markBackInProduction(jobNo){const job=jobs.find(j=>j.jobNo===jobNo);if(!job)return;const updated={...job,downtimeStopped:true,downtimeEnd:localDateTimeValue()};try{await saveMutation("/api/jobs",{job:updated,originalJobNo:job.jobNo});switchView("downtime");}catch(error){showSaveError(error);}}
 function outstandingOrderQty(partId){return stockOrders.filter(o=>String(o.partId)===String(partId)&&!["Received","Cancelled"].includes(String(o.status))).reduce((n,o)=>n+Math.max(0,(Number(o.orderedQty)||0)-(Number(o.receivedQty)||0)),0);}
@@ -445,8 +446,8 @@ function renderDashboard() {
   $("#openBadge").textContent = open.length;
 
   const cats = [...new Set(machines.map(m=>m.category || "Other"))];
-  const hourRows = cats.map(c=>({name:c,value:base.filter(j=>machines.find(m=>m.name===j.machine)?.category===c).reduce((a,j)=>a+workHoursThisMonth(j),0)})).filter(x=>x.value>0);
-  const spendRows = cats.map(c=>({name:c,value:base.filter(j=>machines.find(m=>m.name===j.machine)?.category===c).reduce((a,j)=>a+spendThisMonth(j),0)})).filter(x=>x.value>0);
+  const hourRows = cats.map(c=>({name:c,value:base.filter(j=>machineForJob(j)?.category===c).reduce((a,j)=>a+workHoursThisMonth(j),0)})).filter(x=>x.value>0);
+  const spendRows = cats.map(c=>({name:c,value:base.filter(j=>machineForJob(j)?.category===c).reduce((a,j)=>a+spendThisMonth(j),0)})).filter(x=>x.value>0);
   renderPie($("#hoursPie"),$("#hoursLegend"),hourRows,v=>`${v.toFixed(1)} hrs`);
   renderPie($("#spendPie"),$("#spendLegend"),spendRows,v=>money(v));
 
@@ -482,7 +483,7 @@ function renderAllJobs() {
 }
 
 function machineStats(machine) {
-  const mj = visibleJobs().filter(j=>j.machine===machine.name);
+  const mj = visibleJobs().filter(j=>jobBelongsToMachine(j,machine));
   return {jobs:mj.length,open:mj.filter(j=>!["Completed","Cancelled"].includes(j.status)).length,hours:mj.reduce((a,j)=>a+jobHours(j),0),spend:mj.reduce((a,j)=>a+jobPartsCost(j),0)};
 }
 
@@ -621,7 +622,7 @@ function renderMachines() {
   if (!m) { $("#machineDetail").innerHTML = "<p>No machines match your current search or filters.</p>"; return; }
   selectedMachineId = m.id;
   const stats = machineStats(m);
-  const history = visibleJobs().filter(j=>j.machine===m.name).sort((a,b)=>b.raised.localeCompare(a.raised));
+  const history = visibleJobs().filter(j=>jobBelongsToMachine(j,m)).sort((a,b)=>b.raised.localeCompare(a.raised));
   const recent = history.slice(0,5);
   const overviewContent = `<div class="machine-meta"><div class="meta-box"><small>Asset ID</small><strong>${esc(m.assetId)}</strong></div><div class="meta-box"><small>Section</small><strong>${esc(m.section)}</strong></div><div class="meta-box"><small>Location</small><strong>${esc(m.location||"—")}</strong></div><div class="meta-box"><small>Purchase cost</small><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Unknown"}</strong></div><div class="meta-box"><small>Make / Model</small><strong>${esc([m.make,m.model].filter(Boolean).join(" · ")||"—")}</strong></div><div class="meta-box"><small>Serial number</small><strong>${esc(m.serialNumber||"—")}</strong></div><div class="meta-box"><small>Purchase date</small><strong>${fmtDate(m.purchaseDate)}</strong></div><div class="meta-box"><small>Install date</small><strong>${fmtDate(m.installDate)}</strong></div></div>${m.notes?`<div class="machine-notes"><strong>Machine notes</strong><p>${esc(m.notes)}</p></div>`:""}<div class="metric-strip"><div class="mini-metric"><span>Maintenance jobs</span><strong>${stats.jobs}</strong></div><div class="mini-metric"><span>Open jobs</span><strong>${stats.open}</strong></div><div class="mini-metric"><span>Maintenance hours</span><strong>${stats.hours.toFixed(1)}</strong></div><div class="mini-metric"><span>Parts spend</span><strong>${money(stats.spend)}</strong></div></div><div class="machine-overview-note">${selectedProfileId === "all" ? "These figures use the machine’s full recorded maintenance history." : `These figures currently show only ${esc(profileContext())}’s assigned work.`}</div><h3 class="subheading">Recent jobs</h3>${machineHistoryTable(recent, "No jobs recorded for this machine.")}`;
   const historyContent = `<div class="history-heading"><div><h3>Job history</h3><p>${history.length} recorded job${history.length===1?"":"s"} for ${esc(profileContext())}.</p></div></div>${machineHistoryTable(history, "No job history for this machine and profile.")}`;
@@ -658,8 +659,8 @@ function renderParts() {
     const rowClass=status.className==="stock-out"?"stock-out-row":status.className==="stock-low"?"stock-low-row":"";
     return `<tr class="${rowClass}"><td><strong>${esc(p.name)}</strong>${p.active===false?`<br><span class="stock-muted">Archived</span>`:""}</td><td>${esc(p.partNo||"—")}</td><td>${esc(current)}</td><td>${esc(min)}</td><td>${esc(p.binLocation||"—")}</td><td><span class="status-chip ${status.className}">${esc(status.label)}</span></td><td><button type="button" class="btn secondary compact stock-action" data-edit-stock="${esc(p.id)}">Edit stock</button></td></tr>`;
   }).join(""):`<tr><td colspan="7">No saved parts yet.</td></tr>`;
-  const parts = visibleJobs().flatMap(j=>(j.parts||[]).map(p=>({...p,jobNo:j.jobNo,machine:j.machine,section:j.section||inferSection(j.machine)}))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc((machines.find(m=>m.name===p.machine)?.assetId||"—") + " · " + p.machine)}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
+  const parts = visibleJobs().flatMap(j=>(j.parts||[]).map(p=>({...p,jobNo:j.jobNo,machine:j.machine,machineId:j.machineId||"",section:j.section||inferSection(j.machine)}))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc(machineLabel(p))}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
 }
 
 function reportData() {
@@ -694,7 +695,7 @@ function renderTeam() {
 }
 
 
-function machineUsageCount(machine) { return jobs.filter(j=>j.machine===machine.name).length; }
+function machineUsageCount(machine) { return jobs.filter(j=>jobBelongsToMachine(j,machine)).length; }
 function sectionUsageCount(name) { return machines.filter(m=>m.section===name).length + jobs.filter(j=>j.section===name).length; }
 function supplierUsageCount(name) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.supplier===name).length,0); }
 function partUsageCount(part) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.name===part.name).length,0); }
@@ -761,8 +762,10 @@ function renderSectionSelects() {
 function renderMachineSelect(section, selected="") {
   const select = $("#jobMachineSelect");
   if (!select) return;
-  const list = machines.filter(m=>m.section===section && (!isMachineArchived(m) || m.name===selected));
-  select.innerHTML = section ? `<option value="">Select machine…</option>${list.map(m=>`<option value="${esc(m.name)}" ${m.name===selected?"selected":""}>${esc(m.assetId)} · ${esc(m.name)}${isMachineArchived(m)?" (archived)":""}</option>`).join("")}<option value="__add_machine__">＋ Add new machine in ${esc(section)}…</option>` : `<option value="">Select a section first…</option>`;
+  const selectedValue=String(selected||"");
+  const selectedMachine=machines.find(m=>String(m.id)===selectedValue) || machines.find(m=>m.name===selectedValue && m.section===section);
+  const list = machines.filter(m=>m.section===section && (!isMachineArchived(m) || m.id===selectedMachine?.id));
+  select.innerHTML = section ? `<option value="">Select machine…</option>${list.map(m=>`<option value="${esc(m.id)}" ${m.id===selectedMachine?.id?"selected":""}>${esc(m.assetId)} · ${esc(m.name)}${isMachineArchived(m)?" (archived)":""}</option>`).join("")}<option value="__add_machine__">＋ Add new machine in ${esc(section)}…</option>` : `<option value="">Select a section first…</option>`;
   select.disabled = !section;
 }
 function renderAssignedSelect(selected="") {
@@ -793,14 +796,12 @@ async function quickAddMachine(section) {
   const name = prompt(`Machine / equipment name for ${assetId}:`);
   if (!name?.trim()) return null;
   const clean = name.trim();
-  const existing = machines.find(m=>m.name.toLowerCase()===clean.toLowerCase());
-  if (existing) { alert(`${existing.name} already exists with asset ID ${existing.assetId}.`); return existing.name; }
   try {
     const machine = {assetId,name:clean,section,category:section,location:"",purchaseCost:null,status:"Active"};
     const payload = await saveMutation("/api/machines", {machine}, {render:false});
     selectedMachineId = payload.machineId || machines.find(m=>m.assetId===assetId)?.id || null;
     renderMachines();
-    return clean;
+    return selectedMachineId;
   } catch (error) { showSaveError(error); return null; }
 }
 
@@ -1144,7 +1145,7 @@ async function openJob(jobNo=null) {
     form.elements.pinned.checked=Boolean(job.pinned);
     if($("#jobDowntimeStopped")){ $("#jobDowntimeStopped").checked=job.downtimeStopped===true; $("#jobDowntimeStart").value=job.downtimeStart||""; $("#jobDowntimeEnd").value=job.downtimeEnd||""; setDowntimeFieldsEnabled(); }
     $("#jobSectionSelect").value=job.section||inferSection(job.machine);
-    renderMachineSelect($("#jobSectionSelect").value,job.machine);
+    renderMachineSelect($("#jobSectionSelect").value,job.machineId||job.machine);
     renderAssignedSelect(job.assigned||"");
     (job.timeEntries||[]).forEach(t=>addTimeRow(t));
     if (!(job.timeEntries||[]).length) addTimeRow({date:job.raised||defaultFormDate()});
@@ -1268,7 +1269,9 @@ $("#jobForm").addEventListener("submit",async e=>{
   if (!obj.section || !obj.machine || String(obj.machine).startsWith('__')) { alert("Select a section and machine."); return; }
   const timeEntries=collectTimeEntries(); if(timeEntries===null)return;
   const parts=collectPartsFromEditor(); if(parts===null)return;
-  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:obj.section,machine:obj.machine,priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
+  const selectedMachine=machines.find(m=>String(m.id)===String(obj.machine));
+  if(!selectedMachine){alert("Select a valid machine.");return;}
+  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:selectedMachine.section,machineId:selectedMachine.id,machine:selectedMachine.name,priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
   const originalJobNo=editingJobNo;
   const submit=$("#jobSubmitBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
@@ -1341,7 +1344,6 @@ $("#machineForm").addEventListener("submit",async e=>{
   const id=String(o.machineId||"");
   const assetId=String(o.assetId||"").trim(),name=String(o.name||"").trim();
   if (machines.some(m=>m.id!==id && String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That asset ID already exists."); return; }
-  if (machines.some(m=>m.id!==id && m.name.toLowerCase()===name.toLowerCase())) { alert("A machine with that name already exists."); return; }
   const machine = {assetId,name,section:o.section,category:o.category,location:o.location,purchaseCost:o.purchaseCost===""?null:Number(o.purchaseCost),make:o.make,model:o.model,serialNumber:o.serialNumber,purchaseDate:o.purchaseDate,installDate:o.installDate,notes:o.notes};
   const submit=$("#machineSaveBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
