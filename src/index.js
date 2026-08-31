@@ -1,12 +1,12 @@
 import { QRCode, QRErrorCorrectLevel } from "./qr.js";
 
-/* Maintenance Manager V5.8.1 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.9.0 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.8.1";
+const APP_VERSION = "5.9.0";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -21,11 +21,12 @@ const DEFAULT_SETTINGS = {
   notifyLowStock: false,
   notificationProfileIds: [],
   notificationExtraEmails: "",
-  notificationFromEmail: "maintenance@project-sly.uk"
+  notificationFromEmail: "maintenance@project-sly.uk",
+  pmWeeklyEmailEnabled: true
 };
 
 const DEFAULT_STATE = {
-  version: 5.8,
+  version: 5.9,
   settings: { ...DEFAULT_SETTINGS },
   profiles: [],
   sections: ["Smokeshield"],
@@ -36,7 +37,10 @@ const DEFAULT_STATE = {
   archivedSuppliers: [],
   jobs: [],
   stockOrders: [],
-  stockTransactions: []
+  stockTransactions: [],
+  preventiveSchedules: [],
+  preventiveHistory: [],
+  pmDigestLog: []
 };
 
 function json(data, status = 200) {
@@ -232,7 +236,8 @@ function normalizeSettings(input) {
     notifyLowStock: s.notifyLowStock === true,
     notificationProfileIds: Array.isArray(s.notificationProfileIds) ? [...new Set(s.notificationProfileIds.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 100) : [],
     notificationExtraEmails: String(s.notificationExtraEmails || "").replace(/;/g, ",").slice(0, 2000),
-    notificationFromEmail: validEmail(s.notificationFromEmail) ? cleanEmail(s.notificationFromEmail) : cleanEmail(DEFAULT_SETTINGS.notificationFromEmail)
+    notificationFromEmail: validEmail(s.notificationFromEmail) ? cleanEmail(s.notificationFromEmail) : cleanEmail(DEFAULT_SETTINGS.notificationFromEmail),
+    pmWeeklyEmailEnabled: s.pmWeeklyEmailEnabled !== false
   };
 }
 
@@ -265,10 +270,66 @@ function normalizeCatalogPart(part) {
   };
 }
 
+function cleanDateOnly(value) {
+  const raw = String(value || "").trim();
+  const match = raw.match(/^(\d{4})-(\d{2})-(\d{2})$/);
+  if (!match) return "";
+  const year = Number(match[1]), month = Number(match[2]), day = Number(match[3]);
+  const date = new Date(Date.UTC(year, month - 1, day));
+  if (date.getUTCFullYear() !== year || date.getUTCMonth() !== month - 1 || date.getUTCDate() !== day) return "";
+  return `${match[1]}-${match[2]}-${match[3]}`;
+}
+
+function normalizePreventiveSchedule(schedule) {
+  const p = schedule && typeof schedule === "object" ? schedule : {};
+  const nextDueDate = cleanDateOnly(p.nextDueDate || p.startDate);
+  const intervalUnit = ["day", "week", "month", "year"].includes(String(p.intervalUnit || "")) ? String(p.intervalUnit) : "month";
+  const intervalValue = Math.max(1, Math.min(365, Number.parseInt(p.intervalValue, 10) || 1));
+  const anchorDay = Math.max(1, Math.min(31, Number(p.anchorDay) || Number(nextDueDate.slice(8, 10)) || 1));
+  return {
+    id: String(p.id || crypto.randomUUID()),
+    title: String(p.title || "").trim().slice(0, 160),
+    description: String(p.description || "").trim().slice(0, 4000),
+    section: String(p.section || "").trim().slice(0, 100),
+    machineId: String(p.machineId || "").trim(),
+    machineName: String(p.machineName || "").trim().slice(0, 160),
+    machineAssetId: String(p.machineAssetId || "").trim().slice(0, 100),
+    location: String(p.location || "").trim().slice(0, 300),
+    intervalValue,
+    intervalUnit,
+    nextDueDate,
+    anchorDay,
+    assignedProfileIds: Array.isArray(p.assignedProfileIds) ? [...new Set(p.assignedProfileIds.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 100) : [],
+    active: p.active !== false,
+    createdAt: String(p.createdAt || new Date().toISOString()),
+    updatedAt: String(p.updatedAt || p.createdAt || new Date().toISOString())
+  };
+}
+
+function normalizePreventiveHistory(row) {
+  const h = row && typeof row === "object" ? row : {};
+  return {
+    id: String(h.id || crypto.randomUUID()),
+    scheduleId: String(h.scheduleId || ""),
+    title: String(h.title || "").slice(0, 160),
+    dueDate: cleanDateOnly(h.dueDate),
+    completedAt: String(h.completedAt || new Date().toISOString()),
+    completedByEmail: cleanEmail(h.completedByEmail),
+    completedByName: String(h.completedByName || "").slice(0, 160),
+    notes: String(h.notes || "").slice(0, 2000),
+    machineId: String(h.machineId || ""),
+    machineName: String(h.machineName || "").slice(0, 160),
+    machineAssetId: String(h.machineAssetId || "").slice(0, 100),
+    section: String(h.section || "").slice(0, 100),
+    location: String(h.location || "").slice(0, 300),
+    assignedProfileIds: Array.isArray(h.assignedProfileIds) ? [...new Set(h.assignedProfileIds.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 100) : []
+  };
+}
+
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.8,
+    version: 5.9,
     settings: normalizeSettings(s.settings),
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
@@ -279,7 +340,10 @@ function normalizeState(input) {
     archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
-    stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : []
+    stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : [],
+    preventiveSchedules: Array.isArray(s.preventiveSchedules) ? s.preventiveSchedules.map(normalizePreventiveSchedule) : [],
+    preventiveHistory: Array.isArray(s.preventiveHistory) ? s.preventiveHistory.map(normalizePreventiveHistory).slice(-2500) : [],
+    pmDigestLog: Array.isArray(s.pmDigestLog) ? s.pmDigestLog.slice(-1000) : []
   };
 }
 
@@ -758,6 +822,131 @@ async function sendLowStockNotification(env, state, alerts, origin) {
   return sendMaintenanceEmail(env, state, { to: recipients, subject, text, html });
 }
 
+function utcDateFromDateOnly(value) {
+  const clean = cleanDateOnly(value);
+  if (!clean) return null;
+  const [year, month, day] = clean.split("-").map(Number);
+  return new Date(Date.UTC(year, month - 1, day));
+}
+
+function utcDateOnly(date) {
+  return `${date.getUTCFullYear()}-${String(date.getUTCMonth() + 1).padStart(2, "0")}-${String(date.getUTCDate()).padStart(2, "0")}`;
+}
+
+function todayUtcDateOnly(timestamp = Date.now()) {
+  return utcDateOnly(new Date(timestamp));
+}
+
+function addPreventiveInterval(dateValue, intervalValue, intervalUnit, anchorDay = 1) {
+  const source = utcDateFromDateOnly(dateValue);
+  if (!source) return "";
+  const amount = Math.max(1, Number.parseInt(intervalValue, 10) || 1);
+  const unit = ["day", "week", "month", "year"].includes(intervalUnit) ? intervalUnit : "month";
+  if (unit === "day" || unit === "week") {
+    source.setUTCDate(source.getUTCDate() + amount * (unit === "week" ? 7 : 1));
+    return utcDateOnly(source);
+  }
+  if (unit === "month") {
+    const target = new Date(Date.UTC(source.getUTCFullYear(), source.getUTCMonth() + amount, 1));
+    const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+    target.setUTCDate(Math.min(Math.max(1, Number(anchorDay) || 1), lastDay));
+    return utcDateOnly(target);
+  }
+  const target = new Date(Date.UTC(source.getUTCFullYear() + amount, source.getUTCMonth(), 1));
+  const lastDay = new Date(Date.UTC(target.getUTCFullYear(), target.getUTCMonth() + 1, 0)).getUTCDate();
+  target.setUTCDate(Math.min(Math.max(1, Number(anchorDay) || 1), lastDay));
+  return utcDateOnly(target);
+}
+
+function preventiveWeekRange(timestamp = Date.now()) {
+  const date = new Date(timestamp);
+  const midnight = new Date(Date.UTC(date.getUTCFullYear(), date.getUTCMonth(), date.getUTCDate()));
+  const day = midnight.getUTCDay() || 7;
+  const start = new Date(midnight);
+  start.setUTCDate(start.getUTCDate() - (day - 1));
+  const end = new Date(start);
+  end.setUTCDate(end.getUTCDate() + 6);
+  return { start: utcDateOnly(start), end: utcDateOnly(end) };
+}
+
+function preventiveFrequencyLabel(schedule) {
+  const n = Math.max(1, Number(schedule?.intervalValue) || 1);
+  const unit = String(schedule?.intervalUnit || "month");
+  if (n === 1) return `Every ${unit}`;
+  return `Every ${n} ${unit}s`;
+}
+
+function preventiveLocationLabel(state, schedule) {
+  const machine = schedule?.machineId ? (state?.machines || []).find((m) => String(m.id) === String(schedule.machineId)) : null;
+  if (machine) return `${machine.assetId || ""}${machine.assetId ? " · " : ""}${machine.name || "Machine"}${machine.section ? ` · ${machine.section}` : ""}`;
+  return schedule?.location || schedule?.section || "Site-wide";
+}
+
+function preventiveAssignedProfiles(state, schedule) {
+  const ids = new Set(schedule?.assignedProfileIds || []);
+  return (state?.profiles || []).filter((p) => p.active !== false && ids.has(String(p.id || "")));
+}
+
+function preventiveHumanDate(value) {
+  const date = utcDateFromDateOnly(value);
+  return date ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(date) : value;
+}
+
+async function sendWeeklyPreventiveDigest(env, { origin = "", timestamp = Date.now(), force = false, actorEmail = "scheduled@maintenance.invalid" } = {}) {
+  const current = await getState(env);
+  const state = current.state;
+  const settings = normalizeSettings(state.settings);
+  if (settings.pmWeeklyEmailEnabled === false) return { ok: true, skipped: true, message: "Weekly preventive-maintenance emails are disabled.", results: [] };
+  const { start, end } = preventiveWeekRange(timestamp);
+  const effectiveOrigin = String(origin || env.APP_URL || "https://maintenance.project-sly.uk").replace(/\/$/, "");
+  const link = `${effectiveOrigin}/?view=preventive`;
+  const logged = new Set((state.pmDigestLog || []).map((row) => `${row.weekStart}|${row.profileId}`));
+  const schedules = (state.preventiveSchedules || []).filter((schedule) => schedule.active !== false && cleanDateOnly(schedule.nextDueDate));
+  const results = [];
+  const successful = [];
+
+  for (const profile of (state.profiles || []).filter((p) => p.active !== false && validEmail(p.email))) {
+    const key = `${start}|${profile.id}`;
+    if (!force && logged.has(key)) continue;
+    const tasks = schedules
+      .filter((schedule) => (schedule.assignedProfileIds || []).includes(String(profile.id)) && schedule.nextDueDate <= end)
+      .sort((a, b) => String(a.nextDueDate).localeCompare(String(b.nextDueDate)) || String(a.title).localeCompare(String(b.title)));
+    if (!tasks.length) continue;
+    const overdue = tasks.filter((task) => task.nextDueDate < start);
+    const thisWeek = tasks.filter((task) => task.nextDueDate >= start && task.nextDueDate <= end);
+    const subject = `[PM] ${tasks.length} job${tasks.length === 1 ? "" : "s"} for week of ${preventiveHumanDate(start)}`;
+    const textLines = [
+      `Hi ${profile.name || "Engineer"},`,
+      "",
+      `These are your preventive-maintenance jobs for ${preventiveHumanDate(start)} to ${preventiveHumanDate(end)}.`,
+      ...(overdue.length ? ["", `OVERDUE (${overdue.length})`, ...overdue.map((task) => `- ${preventiveHumanDate(task.nextDueDate)} · ${task.title} · ${preventiveLocationLabel(state, task)}`)] : []),
+      ...(thisWeek.length ? ["", `DUE THIS WEEK (${thisWeek.length})`, ...thisWeek.map((task) => `- ${preventiveHumanDate(task.nextDueDate)} · ${task.title} · ${preventiveLocationLabel(state, task)}`)] : []),
+      "",
+      `Open Preventive Maintenance: ${link}`
+    ];
+    const sectionHtml = (heading, rows) => rows.length ? `<h3>${heading}</h3><ul>${rows.map((task) => `<li><strong>${emailHtmlEscape(task.title)}</strong> — due ${emailHtmlEscape(preventiveHumanDate(task.nextDueDate))}<br>${emailHtmlEscape(preventiveLocationLabel(state, task))} · ${emailHtmlEscape(preventiveFrequencyLabel(task))}</li>`).join("")}</ul>` : "";
+    const html = `<h2>Your preventive-maintenance jobs this week</h2><p>Hi ${emailHtmlEscape(profile.name || "Engineer")},</p><p>These are your planned jobs for <strong>${emailHtmlEscape(preventiveHumanDate(start))}</strong> to <strong>${emailHtmlEscape(preventiveHumanDate(end))}</strong>.</p>${sectionHtml("Overdue", overdue)}${sectionHtml("Due this week", thisWeek)}<p><a href="${emailHtmlEscape(link)}">Open Preventive Maintenance</a></p>`;
+    const email = await sendMaintenanceEmail(env, state, { to: [profile.email], subject, text: textLines.join("\n"), html });
+    results.push({ profileId: profile.id, profileName: profile.name, email: profile.email, taskCount: tasks.length, overdueCount: overdue.length, ...email });
+    if (email.ok) successful.push({ weekStart: start, weekEnd: end, profileId: String(profile.id), sentAt: new Date().toISOString(), taskCount: tasks.length, manual: force === true });
+  }
+
+  if (successful.length) {
+    await mutateState(env, { email: actorEmail }, "preventive.weekly-email", async (next) => {
+      next.pmDigestLog = Array.isArray(next.pmDigestLog) ? next.pmDigestLog : [];
+      for (const row of successful) {
+        const existing = next.pmDigestLog.find((item) => item.weekStart === row.weekStart && String(item.profileId) === row.profileId);
+        if (existing) Object.assign(existing, row);
+        else next.pmDigestLog.push(row);
+      }
+      next.pmDigestLog = next.pmDigestLog.slice(-1000);
+      return { weekStart: start, weekEnd: end, sent: successful.length };
+    });
+  }
+
+  return { ok: results.every((row) => row.ok !== false), weekStart: start, weekEnd: end, sentEmails: successful.length, results };
+}
+
 async function getOperatorRequest(env, id) {
   await ensureSchema(env);
   return await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no
@@ -1233,6 +1422,134 @@ async function handleApi(request, env, routeOverride = "") {
       return json({ jobNo: nextJobNumber(current.state, year) });
     }
 
+    if (method === "POST" && route === "preventive") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `preventive.${action}`, async (state) => {
+        state.preventiveSchedules = Array.isArray(state.preventiveSchedules) ? state.preventiveSchedules : [];
+        state.preventiveHistory = Array.isArray(state.preventiveHistory) ? state.preventiveHistory : [];
+
+        if (action === "create" || action === "update") {
+          const raw = body.schedule && typeof body.schedule === "object" ? body.schedule : {};
+          const existingIndex = action === "update" ? state.preventiveSchedules.findIndex((item) => String(item.id) === String(raw.id || body.id || "")) : -1;
+          if (action === "update" && existingIndex < 0) throw new Error("Preventive-maintenance schedule not found.");
+          const existing = existingIndex >= 0 ? state.preventiveSchedules[existingIndex] : null;
+          const title = String(raw.title || "").trim();
+          const nextDueDate = cleanDateOnly(raw.nextDueDate);
+          const intervalValue = Math.max(1, Math.min(365, Number.parseInt(raw.intervalValue, 10) || 1));
+          const intervalUnit = ["day", "week", "month", "year"].includes(String(raw.intervalUnit || "")) ? String(raw.intervalUnit) : "month";
+          const assignedProfileIds = [...new Set((Array.isArray(raw.assignedProfileIds) ? raw.assignedProfileIds : []).map((id) => String(id || "").trim()).filter(Boolean))];
+          if (!title) throw new Error("Enter a preventive-maintenance job title.");
+          if (!nextDueDate) throw new Error("Enter the first / next due date.");
+          if (!assignedProfileIds.length) throw new Error("Assign this preventive-maintenance job to at least one engineer.");
+          for (const profileId of assignedProfileIds) {
+            if (!(state.profiles || []).some((profile) => String(profile.id) === profileId && profile.active !== false)) throw new Error("One of the assigned engineer profiles is no longer active.");
+          }
+          let machine = null;
+          const machineId = String(raw.machineId || "").trim();
+          if (machineId) {
+            machine = (state.machines || []).find((item) => String(item.id) === machineId);
+            if (!machine) throw new Error("The selected machine could not be found.");
+          }
+          const row = normalizePreventiveSchedule({
+            ...existing,
+            ...raw,
+            id: existing?.id || raw.id || crypto.randomUUID(),
+            title,
+            nextDueDate,
+            intervalValue,
+            intervalUnit,
+            anchorDay: Number(nextDueDate.slice(8, 10)),
+            machineId: machine?.id || "",
+            machineName: machine?.name || "",
+            machineAssetId: machine?.assetId || "",
+            section: machine?.section || String(raw.section || "").trim(),
+            location: String(raw.location || "").trim(),
+            assignedProfileIds,
+            active: raw.active !== false,
+            createdAt: existing?.createdAt || new Date().toISOString(),
+            updatedAt: new Date().toISOString()
+          });
+          if (existingIndex >= 0) state.preventiveSchedules[existingIndex] = row;
+          else state.preventiveSchedules.push(row);
+          return { id: row.id, action, title: row.title, nextDueDate: row.nextDueDate };
+        }
+
+        if (action === "complete") {
+          const id = String(body.id || "").trim();
+          const schedule = state.preventiveSchedules.find((item) => String(item.id) === id);
+          if (!schedule) throw new Error("Preventive-maintenance schedule not found.");
+          if (!schedule.nextDueDate) throw new Error("This schedule does not have a valid due date.");
+          const dueDate = schedule.nextDueDate;
+          const profile = (state.profiles || []).find((item) => cleanEmail(item.email) === cleanEmail(auth.identity.email));
+          const history = normalizePreventiveHistory({
+            id: crypto.randomUUID(),
+            scheduleId: schedule.id,
+            title: schedule.title,
+            dueDate,
+            completedAt: new Date().toISOString(),
+            completedByEmail: auth.identity.email || "",
+            completedByName: profile?.name || auth.identity.email || "Engineer",
+            notes: String(body.notes || "").trim(),
+            machineId: schedule.machineId,
+            machineName: schedule.machineName,
+            machineAssetId: schedule.machineAssetId,
+            section: schedule.section,
+            location: schedule.location,
+            assignedProfileIds: schedule.assignedProfileIds
+          });
+          state.preventiveHistory.push(history);
+          if (state.preventiveHistory.length > 2500) state.preventiveHistory = state.preventiveHistory.slice(-2500);
+          // Keep the planned cadence, but if this check was completed late, roll forward
+          // until the next due date is after today instead of leaving it immediately overdue.
+          const completedDate = todayUtcDateOnly();
+          let nextDueDate = addPreventiveInterval(schedule.nextDueDate, schedule.intervalValue, schedule.intervalUnit, schedule.anchorDay);
+          let guard = 0;
+          while (nextDueDate && nextDueDate <= completedDate && guard < 1000) {
+            nextDueDate = addPreventiveInterval(nextDueDate, schedule.intervalValue, schedule.intervalUnit, schedule.anchorDay);
+            guard += 1;
+          }
+          schedule.nextDueDate = nextDueDate;
+          schedule.updatedAt = new Date().toISOString();
+          return { id: schedule.id, title: schedule.title, completedDueDate: dueDate, nextDueDate: schedule.nextDueDate, historyId: history.id };
+        }
+
+        if (action === "toggle") {
+          const schedule = state.preventiveSchedules.find((item) => String(item.id) === String(body.id || ""));
+          if (!schedule) throw new Error("Preventive-maintenance schedule not found.");
+          schedule.active = body.active === true;
+          schedule.updatedAt = new Date().toISOString();
+          return { id: schedule.id, active: schedule.active };
+        }
+
+        if (action === "delete") {
+          const id = String(body.id || "").trim();
+          const index = state.preventiveSchedules.findIndex((item) => String(item.id) === id);
+          if (index < 0) throw new Error("Preventive-maintenance schedule not found.");
+          const [deleted] = state.preventiveSchedules.splice(index, 1);
+          return { id: deleted.id, deleted: true, title: deleted.title };
+        }
+
+        throw new Error("Unknown preventive-maintenance action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
+    if (method === "POST" && route === "preventive/send-weekly") {
+      const auth = await requireUser(request, env, { admin: true });
+      if (!auth.ok) return auth.response;
+      const result = await sendWeeklyPreventiveDigest(env, {
+        origin: new URL(request.url).origin,
+        timestamp: Date.now(),
+        force: true,
+        actorEmail: auth.identity.email || "admin"
+      });
+      const current = await getState(env);
+      return json({ ok: result.ok, result, revision: current.revision, state: current.state }, result.ok ? 200 : 400);
+    }
+
     if (method === "POST" && route === "jobs") {
       const auth = await requireUser(request, env, { human: true });
       if (!auth.ok) return auth.response;
@@ -1643,8 +1960,12 @@ async function handleApi(request, env, routeOverride = "") {
           const p = state.profiles.find((x) => x.id === body.id);
           if (!p) throw new Error("Profile not found.");
           const assignedJobs = state.jobs.filter((job) => job.assigned === p.name).length;
-          if (assignedJobs) {
-            throw new Error(`This profile has ${assignedJobs} assigned job${assignedJobs === 1 ? "" : "s"}, so it cannot be permanently deleted. Deactivate it instead.`);
+          const preventiveSchedules = (state.preventiveSchedules || []).filter((schedule) => (schedule.assignedProfileIds || []).includes(String(p.id))).length;
+          if (assignedJobs || preventiveSchedules) {
+            const reasons = [];
+            if (assignedJobs) reasons.push(`${assignedJobs} maintenance job${assignedJobs === 1 ? "" : "s"}`);
+            if (preventiveSchedules) reasons.push(`${preventiveSchedules} preventive schedule${preventiveSchedules === 1 ? "" : "s"}`);
+            throw new Error(`This profile is still linked to ${reasons.join(" and ")}, so it cannot be permanently deleted. Deactivate it instead.`);
           }
           state.profiles = state.profiles.filter((x) => x.id !== p.id);
           return { id: p.id, deleted: true };
@@ -1724,6 +2045,20 @@ async function fetchStaticAsset(env, request, pathname) {
 }
 
 export default {
+  async scheduled(controller, env) {
+    try {
+      await sendWeeklyPreventiveDigest(env, {
+        timestamp: Number(controller?.scheduledTime) || Date.now(),
+        origin: env.APP_URL || "https://maintenance.project-sly.uk",
+        force: false,
+        actorEmail: "scheduled@maintenance.invalid"
+      });
+    } catch (error) {
+      console.error("Preventive-maintenance weekly email failed", error);
+      throw error;
+    }
+  },
+
   async fetch(request, env) {
     const url = new URL(request.url);
 
