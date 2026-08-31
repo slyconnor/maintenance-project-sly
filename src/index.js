@@ -1,12 +1,12 @@
 import { QRCode, QRErrorCorrectLevel } from "./qr.js";
 
-/* Maintenance Manager V5.6.0 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.7.0 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.6.0";
+const APP_VERSION = "5.7.0";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -14,11 +14,18 @@ const DEFAULT_SETTINGS = {
   defaultPriority: "Medium",
   maxAttachmentMb: 25,
   allowAllFileTypes: true,
-  allowedExtensions: "jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,csv,txt,rtf,zip,7z"
+  allowedExtensions: "jpg,jpeg,png,webp,gif,pdf,doc,docx,xls,xlsx,csv,txt,rtf,zip,7z",
+  requestEmailNotificationsEnabled: false,
+  notifyNewRequests: true,
+  notifyAssignedEngineer: true,
+  notifyLowStock: false,
+  notificationProfileIds: [],
+  notificationExtraEmails: "",
+  notificationFromEmail: "maintenance@project-sly.uk"
 };
 
 const DEFAULT_STATE = {
-  version: 5.6,
+  version: 5.7,
   settings: { ...DEFAULT_SETTINGS },
   profiles: [],
   sections: ["Smokeshield"],
@@ -216,7 +223,14 @@ function normalizeSettings(input) {
     defaultPriority: priority,
     maxAttachmentMb,
     allowAllFileTypes: s.allowAllFileTypes !== false,
-    allowedExtensions: String(s.allowedExtensions || DEFAULT_SETTINGS.allowedExtensions).toLowerCase().replace(/[^a-z0-9,._-]/g, "").slice(0, 500)
+    allowedExtensions: String(s.allowedExtensions || DEFAULT_SETTINGS.allowedExtensions).toLowerCase().replace(/[^a-z0-9,._-]/g, "").slice(0, 500),
+    requestEmailNotificationsEnabled: s.requestEmailNotificationsEnabled === true,
+    notifyNewRequests: s.notifyNewRequests !== false,
+    notifyAssignedEngineer: s.notifyAssignedEngineer !== false,
+    notifyLowStock: s.notifyLowStock === true,
+    notificationProfileIds: Array.isArray(s.notificationProfileIds) ? [...new Set(s.notificationProfileIds.map((x) => String(x || "").trim()).filter(Boolean))].slice(0, 100) : [],
+    notificationExtraEmails: String(s.notificationExtraEmails || "").replace(/;/g, ",").slice(0, 2000),
+    notificationFromEmail: validEmail(s.notificationFromEmail) ? cleanEmail(s.notificationFromEmail) : cleanEmail(DEFAULT_SETTINGS.notificationFromEmail)
   };
 }
 
@@ -250,7 +264,7 @@ function normalizeCatalogPart(part) {
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.6,
+    version: 5.7,
     settings: normalizeSettings(s.settings),
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
@@ -584,6 +598,108 @@ function cleanIssue(value) {
   return String(value || "").replace(/\u0000/g, "").trim().slice(0, 2000);
 }
 
+
+function emailHtmlEscape(value) {
+  return String(value ?? "").replace(/[&<>"']/g, (char) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[char]));
+}
+
+function notificationExtraEmailList(settings) {
+  return String(settings?.notificationExtraEmails || "")
+    .split(/[\n,;]+/)
+    .map(cleanEmail)
+    .filter(validEmail);
+}
+
+function notificationTeamRecipients(state) {
+  const settings = normalizeSettings(state?.settings);
+  const selected = new Set(settings.notificationProfileIds || []);
+  const profileEmails = (state?.profiles || [])
+    .filter((profile) => profile.active !== false && selected.has(String(profile.id || "")))
+    .map((profile) => cleanEmail(profile.email))
+    .filter(validEmail);
+  return [...new Set([...profileEmails, ...notificationExtraEmailList(settings)])].slice(0, 50);
+}
+
+async function sendMaintenanceEmail(env, state, { to = [], subject = "Maintenance notification", text = "", html = "" } = {}) {
+  const settings = normalizeSettings(state?.settings);
+  const recipients = [...new Set((Array.isArray(to) ? to : [to]).map(cleanEmail).filter(validEmail))].slice(0, 50);
+  if (!env.EMAIL || typeof env.EMAIL.send !== "function") {
+    return { ok: false, configured: false, sent: 0, message: "Cloudflare Email binding is not configured yet." };
+  }
+  if (!recipients.length) {
+    return { ok: false, configured: true, sent: 0, message: "No notification recipients are selected." };
+  }
+  const from = cleanEmail(settings.notificationFromEmail);
+  if (!validEmail(from)) {
+    return { ok: false, configured: true, sent: 0, message: "Set a valid notification From email in Admin Settings." };
+  }
+  try {
+    await env.EMAIL.send({
+      to: recipients.length === 1 ? recipients[0] : recipients,
+      from: { email: from, name: settings.siteName || "Maintenance Manager" },
+      subject: String(subject || "Maintenance notification").slice(0, 250),
+      text: String(text || "").slice(0, 50000),
+      html: String(html || "").slice(0, 100000)
+    });
+    return { ok: true, configured: true, sent: recipients.length, message: `Email sent to ${recipients.length} recipient${recipients.length === 1 ? "" : "s"}.` };
+  } catch (error) {
+    return { ok: false, configured: true, sent: 0, message: `Email could not be sent: ${error?.message || error}` };
+  }
+}
+
+async function sendNewRequestNotification(env, state, requestInfo, origin) {
+  const settings = normalizeSettings(state?.settings);
+  if (!settings.requestEmailNotificationsEnabled || !settings.notifyNewRequests) return { ok: true, skipped: true, sent: 0, message: "New-request email notifications are disabled." };
+  const recipients = notificationTeamRecipients(state);
+  const machine = requestInfo.machine || {};
+  const requestNo = requestReference(requestInfo.id);
+  const link = `${origin}/?view=requests`;
+  const subject = `[Maintenance Request] ${machine.assetId || "Machine"} · ${machine.name || "Issue reported"}`;
+  const text = `${requestNo}\nMachine: ${machine.assetId || ""} · ${machine.name || ""}\nLocation: ${machine.location || machine.section || ""}\nReported by: ${requestInfo.operatorName}\n\nIssue:\n${requestInfo.issue}\n\nOpen requests: ${link}`;
+  const html = `<h2>New maintenance request</h2><p><strong>${emailHtmlEscape(requestNo)}</strong></p><p><strong>Machine:</strong> ${emailHtmlEscape(machine.assetId || "")} · ${emailHtmlEscape(machine.name || "")}${machine.location || machine.section ? `<br><strong>Location:</strong> ${emailHtmlEscape(machine.location || machine.section || "")}` : ""}<br><strong>Reported by:</strong> ${emailHtmlEscape(requestInfo.operatorName)}</p><p><strong>Issue</strong><br>${emailHtmlEscape(requestInfo.issue).replace(/\n/g, "<br>")}</p><p><a href="${emailHtmlEscape(link)}">Open Maintenance Requests</a></p>`;
+  return sendMaintenanceEmail(env, state, { to: recipients, subject, text, html });
+}
+
+async function sendAssignedEngineerNotification(env, state, { profile, requestRow, jobNo, machine, origin }) {
+  const settings = normalizeSettings(state?.settings);
+  if (!settings.requestEmailNotificationsEnabled || !settings.notifyAssignedEngineer) return { ok: true, skipped: true, sent: 0, message: "Assigned-engineer emails are disabled." };
+  const email = cleanEmail(profile?.email);
+  if (!validEmail(email)) return { ok: false, skipped: true, sent: 0, message: "The assigned engineer does not have a valid email address." };
+  const requestNo = requestReference(requestRow.id);
+  const link = `${origin}/?view=requests`;
+  const subject = `[Job Assigned] ${jobNo} · ${machine?.assetId || machine?.name || "Maintenance"}`;
+  const text = `A maintenance request has been accepted and assigned to you.\n\nJob: ${jobNo}\nRequest: ${requestNo}\nMachine: ${machine?.assetId || ""} · ${machine?.name || ""}\nOperator: ${cleanOperatorName(requestRow.operator_name)}\n\nIssue:\n${cleanIssue(requestRow.issue)}\n\nOpen Maintenance Manager: ${link}`;
+  const html = `<h2>Maintenance job assigned to you</h2><p><strong>Job:</strong> ${emailHtmlEscape(jobNo)}<br><strong>Request:</strong> ${emailHtmlEscape(requestNo)}<br><strong>Machine:</strong> ${emailHtmlEscape(machine?.assetId || "")} · ${emailHtmlEscape(machine?.name || "")}<br><strong>Operator:</strong> ${emailHtmlEscape(cleanOperatorName(requestRow.operator_name))}</p><p><strong>Issue</strong><br>${emailHtmlEscape(cleanIssue(requestRow.issue)).replace(/\n/g, "<br>")}</p><p><a href="${emailHtmlEscape(link)}">Open Maintenance Manager</a></p>`;
+  return sendMaintenanceEmail(env, state, { to: [email], subject, text, html });
+}
+
+function lowStockTransitions(beforeStock, state) {
+  const alerts = [];
+  for (const part of state?.partCatalog || []) {
+    if (!part.stockTracked) continue;
+    const before = Number(beforeStock.get(part.id));
+    if (!Number.isFinite(before)) continue;
+    const after = Number(part.currentStock) || 0;
+    const min = Math.max(0, Number(part.minStock) || 0);
+    if (before > min && after <= min) {
+      alerts.push({ id: part.id, name: part.name || "Part", partNo: part.partNo || "", currentStock: after, minStock: min, binLocation: part.binLocation || "" });
+    }
+  }
+  return alerts;
+}
+
+async function sendLowStockNotification(env, state, alerts, origin) {
+  const settings = normalizeSettings(state?.settings);
+  if (!settings.requestEmailNotificationsEnabled || !settings.notifyLowStock || !Array.isArray(alerts) || !alerts.length) return { ok: true, skipped: true, sent: 0, message: "Low-stock emails are disabled or no part crossed its minimum." };
+  const recipients = notificationTeamRecipients(state);
+  const link = `${origin}/?view=parts`;
+  const lines = alerts.map((part) => `${part.name}${part.partNo ? ` (${part.partNo})` : ""}: ${part.currentStock} remaining; minimum ${part.minStock}${part.binLocation ? `; ${part.binLocation}` : ""}`);
+  const subject = alerts.length === 1 ? `[Low Stock] ${alerts[0].name}` : `[Low Stock] ${alerts.length} parts need attention`;
+  const text = `The following tracked part${alerts.length === 1 ? " has" : "s have"} reached or fallen below minimum stock:\n\n${lines.join("\n")}\n\nOpen Parts Stock Control: ${link}`;
+  const html = `<h2>Low stock alert</h2><p>The following tracked part${alerts.length === 1 ? " has" : "s have"} reached or fallen below minimum stock.</p><ul>${alerts.map((part) => `<li><strong>${emailHtmlEscape(part.name)}</strong>${part.partNo ? ` (${emailHtmlEscape(part.partNo)})` : ""}: ${emailHtmlEscape(part.currentStock)} remaining; minimum ${emailHtmlEscape(part.minStock)}${part.binLocation ? ` · ${emailHtmlEscape(part.binLocation)}` : ""}</li>`).join("")}</ul><p><a href="${emailHtmlEscape(link)}">Open Parts Stock Control</a></p>`;
+  return sendMaintenanceEmail(env, state, { to: recipients, subject, text, html });
+}
+
 async function getOperatorRequest(env, id) {
   await ensureSchema(env);
   return await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no
@@ -656,10 +772,13 @@ async function handlePublicRequest(request, env) {
         WHERE machine_id = ? AND lower(operator_name) = lower(?) AND issue = ? AND created_at >= datetime('now', '-45 seconds')
         ORDER BY id DESC LIMIT 1`).bind(machineId, operatorName, issue).first();
       if (duplicate?.id) return json({ ok: true, requestNo: requestReference(duplicate.id), duplicate: true });
+      const recent = await env.DB.prepare(`SELECT count(*) AS total FROM operator_requests WHERE machine_id = ? AND created_at >= datetime('now', '-10 minutes')`).bind(machineId).first();
+      if (Number(recent?.total || 0) >= 10) return json({ error: "Too many requests have just been submitted for this machine. Please tell maintenance directly if the issue is urgent." }, 429);
       const inserted = await env.DB.prepare(`INSERT INTO operator_requests (machine_id, operator_name, issue, status, created_at)
         VALUES (?, ?, ?, 'pending', datetime('now'))`).bind(machineId, operatorName, issue).run();
       const id = Number(inserted.meta?.last_row_id || 0);
-      return json({ ok: true, requestNo: requestReference(id), machine: { assetId: machine.assetId || "", name: machine.name || "" } }, 201);
+      const notification = await sendNewRequestNotification(env, current.state, { id, machine, operatorName, issue }, url.origin);
+      return json({ ok: true, requestNo: requestReference(id), machine: { assetId: machine.assetId || "", name: machine.name || "" }, notification }, 201);
     }
     return json({ error: "Operator request route not found." }, 404);
   } catch (error) {
@@ -994,8 +1113,15 @@ async function handleApi(request, env, routeOverride = "") {
       await env.DB.prepare(`UPDATE operator_requests
         SET status = 'accepted', accepted_at = datetime('now'), accepted_by = ?, assigned_profile_id = ?, assigned_profile_name = ?, linked_job_no = ?, claimed_at = NULL
         WHERE id = ?`).bind(auth.identity.email || "", assignedProfileId, outcome.result?.assignedProfileName || profile.name, outcome.result?.jobNo || "", id).run();
+      const notification = await sendAssignedEngineerNotification(env, outcome.state, {
+        profile,
+        requestRow,
+        jobNo: outcome.result?.jobNo || "",
+        machine,
+        origin: new URL(request.url).origin
+      });
       const requests = await listOperatorRequests(env, outcome.state);
-      return json({ ok: true, revision: outcome.revision, state: outcome.state, requests, linkedJobNo: outcome.result?.jobNo || "", requestNo: requestReference(id) });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, requests, linkedJobNo: outcome.result?.jobNo || "", requestNo: requestReference(id), notification });
     }
 
     if (method === "GET" && route === "search") {
@@ -1069,16 +1195,18 @@ async function handleApi(request, env, routeOverride = "") {
         const original = String(body.originalJobNo || "");
         const idx = original ? state.jobs.findIndex((j) => j.jobNo === original) : -1;
         const oldJob = idx >= 0 ? state.jobs[idx] : null;
+        const beforeStock = new Map((state.partCatalog || []).filter((part) => part.stockTracked).map((part) => [part.id, Number(part.currentStock) || 0]));
         applyJobStockChanges(state, oldJob, job);
         if (idx >= 0) state.jobs[idx] = job;
         else state.jobs.push(job);
-        return { jobNo: job.jobNo };
+        return { jobNo: job.jobNo, lowStockAlerts: lowStockTransitions(beforeStock, state) };
       });
       const originalJobNo = String(body.originalJobNo || "").trim();
       if (originalJobNo && outcome.result?.jobNo && originalJobNo !== outcome.result.jobNo) {
         try { await moveJobAttachments(env, originalJobNo, outcome.result.jobNo); } catch (_) {}
       }
-      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+      const notification = await sendLowStockNotification(env, outcome.state, outcome.result?.lowStockAlerts || [], new URL(request.url).origin);
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, notification, ...outcome.result });
     }
 
     if (method === "POST" && route === "jobs/delete") {
@@ -1343,7 +1471,8 @@ async function handleApi(request, env, routeOverride = "") {
         settings: current.state.settings,
         revision: current.revision,
         identity: { email: auth.identity.email, loginMethod: auth.identity.idpType },
-        accessSyncConfigured: Boolean(env.CF_API_TOKEN && env.CF_ACCOUNT_ID && env.CF_ACCESS_POLICY_ID && String(env.ADMIN_EMAILS||"").trim())
+        accessSyncConfigured: Boolean(env.CF_API_TOKEN && env.CF_ACCOUNT_ID && env.CF_ACCESS_POLICY_ID && String(env.ADMIN_EMAILS||"").trim()),
+        emailBindingConfigured: Boolean(env.EMAIL && typeof env.EMAIL.send === "function")
       });
     }
 
@@ -1405,6 +1534,28 @@ async function handleApi(request, env, routeOverride = "") {
         return { settings: next };
       });
       return json({ ok: true, revision: outcome.revision, settings: outcome.state.settings, state: outcome.state });
+    }
+
+    if (route === "admin/test-email" && method === "POST") {
+      const auth = await requireUser(request, env, { admin: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const current = await getState(env);
+      const testState = { ...current.state, settings: body.settings ? normalizeSettings(body.settings) : current.state.settings };
+      const recipients = notificationTeamRecipients(testState);
+      const settings = normalizeSettings(testState.settings);
+      const link = `${new URL(request.url).origin}/?view=requests`;
+      const emailTest = await sendMaintenanceEmail(env, testState, {
+        to: recipients,
+        subject: `${settings.siteName || "Maintenance Manager"} email test`,
+        text: `This is a test notification from ${settings.siteName || "Maintenance Manager"}.
+
+If you received this, Cloudflare Email Service and the selected notification recipient are configured correctly.
+
+Open Maintenance Manager: ${link}`,
+        html: `<h2>Email notifications are working</h2><p>This is a test notification from <strong>${emailHtmlEscape(settings.siteName || "Maintenance Manager")}</strong>.</p><p>If you received this, Cloudflare Email Service and this notification recipient are configured correctly.</p><p><a href="${emailHtmlEscape(link)}">Open Maintenance Manager</a></p>`
+      });
+      return json({ ok: emailTest.ok, emailTest, ...(emailTest.ok ? {} : { error: emailTest.message }) }, emailTest.ok ? 200 : 400);
     }
 
     if (route === "admin/sync-access" && method === "POST") {
@@ -1477,6 +1628,7 @@ export default {
       const adminApi = url.searchParams.get("api");
       if (adminApi === "profiles") return withVersion(await handleApi(request, env, "admin/profiles"));
       if (adminApi === "settings") return withVersion(await handleApi(request, env, "admin/settings"));
+      if (adminApi === "test-email") return withVersion(await handleApi(request, env, "admin/test-email"));
       if (adminApi === "sync-access") return withVersion(await handleApi(request, env, "admin/sync-access"));
 
       if (request.method !== "GET" && request.method !== "HEAD") {
@@ -1491,8 +1643,8 @@ export default {
 
     // If an approved admin deliberately chooses the Cloudflare identity provider on the
     // main Access login screen, send them straight to the canonical Admin path.
-    // ?view=dashboard is an escape hatch so an admin can still inspect the normal dashboard.
-    if ((url.pathname === "/" || url.pathname === "/index.html") && url.searchParams.get("view") !== "dashboard") {
+    // An explicit ?view=... link is an escape hatch so notification links can open the normal maintenance UI.
+    if ((url.pathname === "/" || url.pathname === "/index.html") && !url.searchParams.get("view")) {
       try {
         const identity = await getIdentity(request, env);
         if (isAdmin(identity, env)) {
