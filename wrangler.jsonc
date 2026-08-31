@@ -33,5 +33,10 @@
       "binding": "ATTACHMENTS",
       "bucket_name": "maintenance-attachments"
     }
+  ],
+  "send_email": [
+    {
+      "name": "EMAIL"
+    }
   ]
 }

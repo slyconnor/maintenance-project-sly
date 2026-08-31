@@ -1,15 +1,13 @@
-Maintenance Manager v5.6.0
+Maintenance Manager v5.7.0
 
-New in this version
-- Live parts stock control replaces the placeholder.
-- Any saved part can be marked as stock-tracked with Current Stock, Minimum Stock and Bin / Location.
-- Adding a tracked part to a job automatically deducts the used quantity when the job is saved.
-- Editing job part quantities reconciles the stock difference instead of deducting twice.
-- Removing a stock-tracked part from a saved job restores the quantity that had actually been deducted.
-- Deleting a job restores only stock quantities that were deducted by the stock-control system.
-- Low stock is highlighted when Current Stock is less than or equal to Minimum Stock.
-- Out-of-stock parts are highlighted separately.
-- Existing historical jobs are not retroactively deducted when stock tracking is first enabled; the Current Stock number you enter is treated as the known physical count now.
-- Job part pickers show the current known stock and LOW warning.
+Added:
+- Cloudflare Email Service Worker binding (EMAIL).
+- Admin-configured notification recipients, From address and event toggles.
+- New operator request email notifications.
+- Assigned engineer email notifications.
+- Optional low-stock transition alerts.
+- Test email button in Admin Settings.
+- Direct ?view=requests / ?view=parts links for notification emails.
+- Public request per-machine rate limit to reduce notification abuse.
 
-No new Cloudflare bindings or D1 migration are required for v5.6.0. Stock fields are stored in the existing shared app state.
+No new D1 migration is required for v5.7.0. Notification settings are stored in the existing shared state.
