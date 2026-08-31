@@ -1,0 +1,55 @@
+Maintenance Manager v5.9.0 — Preventive Maintenance
+
+THIS ZIP CONTAINS ONLY FILES CHANGED FROM v5.8.1
+- src/index.js
+- public/app.js
+- wrangler.jsonc
+- package.json
+- SETUP_V5_9.txt (instructions only)
+
+WHAT IS NEW
+- New Preventive Maintenance tab.
+- Create recurring site-wide or machine-specific PM schedules.
+- Example: Emergency light checks every 1 month.
+- Frequencies support every N days, weeks, months or years.
+- Assign each PM schedule to one or more engineer profiles.
+- Due/Upcoming view with Overdue, Due this week, Due in 30 days and Active schedule counters.
+- Complete a PM job with optional completion notes.
+- Completion history records who completed it and when.
+- Completing a PM job automatically calculates the next due date while preserving the planned recurrence.
+- If a PM job is completed late, the next due date rolls forward to the next future occurrence instead of remaining immediately overdue.
+- Pause/resume or edit recurring schedules.
+- Preventive schedules are included in the global search.
+- Every Monday morning each engineer with overdue or due-this-week PM work receives one summary email containing their assigned jobs.
+- Admins also have a "Send this week's emails" button in the Preventive tab for testing/manual sending.
+
+EMAIL / CLOUDFLARE
+- wrangler.jsonc adds a Cloudflare Cron Trigger: 0 7 * * MON
+- Cloudflare Cron Triggers run in UTC. This means the automatic weekly email runs Monday at 07:00 UTC (07:00 UK winter / 08:00 UK summer).
+- The existing EMAIL binding from v5.7/v5.8 is reused; do not create another email binding.
+- Because the site currently uses the Workers Free email setup, every engineer address that should receive PM emails must already be verified under Cloudflare Email Routing -> Destination Addresses.
+- Engineer email addresses come from their existing Maintenance Manager profiles.
+
+DEPLOYMENT
+1. Make sure v5.8.1 is currently your base version.
+2. Replace ONLY the matching files in GitHub from this ZIP.
+3. Deploy normally. The wrangler.jsonc deployment will add/update the Monday Cron Trigger.
+4. No D1 migration is required. Preventive schedules/history use the existing shared app-state storage and normalize automatically.
+5. No new R2 bucket or Access rule is required.
+6. After deployment, hard refresh the Maintenance site.
+
+FIRST TEST
+1. Open Preventive Maintenance.
+2. Create a schedule called "Emergency light checks".
+3. Set Repeat every = 1 Month.
+4. Choose the first/next due date.
+5. Leave Machine blank if the check is site-wide, and optionally choose a Section / enter an Area or location.
+6. Tick one or more engineers.
+7. Save the schedule and confirm it appears in Due & upcoming / All schedules.
+8. As an admin, press "Send this week's emails" to test the weekly digest. An email is only sent to an engineer if that engineer has an overdue or due-this-week PM job and their profile has a valid, Cloudflare-verified email address.
+9. Complete the PM job and confirm it appears in Recent completion history and the next due date advances automatically.
+
+IMPORTANT
+- A PM schedule is a recurring planned task, not a breakdown job, so it does not add downtime.
+- Multiple engineers may be assigned to the same PM schedule. Each assigned engineer receives that task in their own weekly email.
+- Automatic Monday emails avoid duplicate sends for the same engineer/week. The admin manual-send button deliberately allows a resend for testing or reminders.
