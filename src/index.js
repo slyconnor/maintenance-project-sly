@@ -1,12 +1,12 @@
 import { QRCode, QRErrorCorrectLevel } from "./qr.js";
 
-/* Maintenance Manager V5.7.0 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.8.0 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.7.0";
+const APP_VERSION = "5.8.0";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -25,16 +25,18 @@ const DEFAULT_SETTINGS = {
 };
 
 const DEFAULT_STATE = {
-  version: 5.7,
+  version: 5.8,
   settings: { ...DEFAULT_SETTINGS },
   profiles: [],
   sections: ["Smokeshield"],
   archivedSections: [],
   machines: [],
-  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true, stockTracked: false, currentStock: 0, minStock: 0, binLocation: "" }],
+  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true, stockTracked: false, currentStock: 0, minStock: 0, binLocation: "", preferredSupplier: "", reorderQty: 1 }],
   suppliers: [],
   archivedSuppliers: [],
-  jobs: []
+  jobs: [],
+  stockOrders: [],
+  stockTransactions: []
 };
 
 function json(data, status = 200) {
@@ -257,14 +259,16 @@ function normalizeCatalogPart(part) {
     stockTracked: p.stockTracked === true,
     currentStock: Number.isFinite(Number(p.currentStock)) ? Number(p.currentStock) : 0,
     minStock: Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
-    binLocation: String(p.binLocation || "").trim()
+    binLocation: String(p.binLocation || "").trim(),
+    preferredSupplier: String(p.preferredSupplier || "").trim(),
+    reorderQty: Math.max(1, Number.isFinite(Number(p.reorderQty)) ? Number(p.reorderQty) : 1)
   };
 }
 
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.7,
+    version: 5.8,
     settings: normalizeSettings(s.settings),
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
@@ -273,7 +277,9 @@ function normalizeState(input) {
     partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog.map(normalizeCatalogPart) : [normalizeCatalogPart({ id: "p-anvil", name: "Anvil", partNo: "", active: true })],
     suppliers: Array.isArray(s.suppliers) ? s.suppliers : [],
     archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
-    jobs: Array.isArray(s.jobs) ? s.jobs : []
+    jobs: Array.isArray(s.jobs) ? s.jobs : [],
+    stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
+    stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : []
   };
 }
 
@@ -444,6 +450,7 @@ function distributeAppliedStock(state, job, appliedByPart) {
 }
 
 function applyJobStockChanges(state, oldJob, newJob) {
+  const movements = [];
   const oldUsage = aggregateJobStockUsage(state, oldJob);
   const newUsage = aggregateJobStockUsage(state, newJob);
   const keys = new Set([...oldUsage.keys(), ...newUsage.keys()]);
@@ -464,18 +471,23 @@ function applyJobStockChanges(state, oldJob, newJob) {
     const nextApplied = Math.max(0, Math.min(newRec.qty, oldRec.applied + deltaQty));
     const stockDelta = nextApplied - oldRec.applied;
     part.currentStock = (Number(part.currentStock) || 0) - stockDelta;
+    if (stockDelta !== 0) movements.push({ part, qty: -stockDelta });
     desiredApplied.set(partId, nextApplied);
   }
 
   distributeAppliedStock(state, newJob, desiredApplied);
+  return movements;
 }
 
 function restoreJobStock(state, job) {
+  const movements = [];
   const usage = aggregateJobStockUsage(state, job);
   for (const { part, applied } of usage.values()) {
     if (!part || !part.stockTracked || applied <= 0) continue;
     part.currentStock = (Number(part.currentStock) || 0) + applied;
+    movements.push({ part, qty: applied });
   }
+  return movements;
 }
 
 function resetHistoricalStockBaseline(state, part) {
@@ -485,6 +497,38 @@ function resetHistoricalStockBaseline(state, part) {
       if (linked?.id === part.id) usage.stockAppliedQty = 0;
     }
   }
+}
+
+
+function cleanDateTime(value) {
+  const raw = String(value || "").trim();
+  if (!raw) return "";
+  const match = raw.match(/^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})(?::\d{2})?/);
+  return match ? `${match[1]}T${match[2]}` : "";
+}
+
+function pushStockTransaction(state, tx) {
+  state.stockTransactions = Array.isArray(state.stockTransactions) ? state.stockTransactions : [];
+  const row = {
+    id: String(tx.id || crypto.randomUUID()),
+    createdAt: String(tx.createdAt || new Date().toISOString()),
+    partId: String(tx.partId || ""),
+    type: String(tx.type || "adjustment"),
+    qty: Number(tx.qty) || 0,
+    balanceAfter: Number.isFinite(Number(tx.balanceAfter)) ? Number(tx.balanceAfter) : null,
+    jobNo: String(tx.jobNo || ""),
+    orderId: String(tx.orderId || ""),
+    supplier: String(tx.supplier || ""),
+    note: String(tx.note || "").slice(0, 300),
+    actor: String(tx.actor || "").slice(0, 180)
+  };
+  state.stockTransactions.push(row);
+  if (state.stockTransactions.length > 2500) state.stockTransactions = state.stockTransactions.slice(-2500);
+  return row;
+}
+
+function orderRemaining(order) {
+  return Math.max(0, (Number(order?.orderedQty) || 0) - (Number(order?.receivedQty) || 0));
 }
 
 function validateJob(state, job, originalJobNo = "") {
@@ -523,6 +567,12 @@ function validateJob(state, job, originalJobNo = "") {
   if (!(state.profiles || []).some((p) => p.name === out.assigned)) {
     throw new Error("The assigned engineer profile does not exist.");
   }
+  out.downtimeStopped = out.downtimeStopped === true;
+  out.downtimeStart = cleanDateTime(out.downtimeStart);
+  out.downtimeEnd = cleanDateTime(out.downtimeEnd);
+  if (out.downtimeStopped && !out.downtimeStart) throw new Error("Enter when the machine downtime started.");
+  if (!out.downtimeStopped) { out.downtimeStart = ""; out.downtimeEnd = ""; }
+  if (out.downtimeStart && out.downtimeEnd && new Date(out.downtimeEnd).getTime() < new Date(out.downtimeStart).getTime()) throw new Error("Downtime end cannot be before downtime start.");
   out.hours = out.timeEntries.reduce((sum, t) => sum + (Number(t.hours) || 0), 0);
   return out;
 }
@@ -1196,9 +1246,10 @@ async function handleApi(request, env, routeOverride = "") {
         const idx = original ? state.jobs.findIndex((j) => j.jobNo === original) : -1;
         const oldJob = idx >= 0 ? state.jobs[idx] : null;
         const beforeStock = new Map((state.partCatalog || []).filter((part) => part.stockTracked).map((part) => [part.id, Number(part.currentStock) || 0]));
-        applyJobStockChanges(state, oldJob, job);
+        const stockMovements = applyJobStockChanges(state, oldJob, job);
         if (idx >= 0) state.jobs[idx] = job;
         else state.jobs.push(job);
+        for (const movement of stockMovements) pushStockTransaction(state, { partId: movement.part.id, type: movement.qty < 0 ? "job-use" : "job-return", qty: movement.qty, balanceAfter: movement.part.currentStock, jobNo: job.jobNo, note: movement.qty < 0 ? "Used on maintenance job" : "Returned after job edit" });
         return { jobNo: job.jobNo, lowStockAlerts: lowStockTransitions(beforeStock, state) };
       });
       const originalJobNo = String(body.originalJobNo || "").trim();
@@ -1218,8 +1269,9 @@ async function handleApi(request, env, routeOverride = "") {
       const outcome = await mutateState(env, auth.identity, "job.delete", async (state) => {
         const idx = state.jobs.findIndex((j) => j.jobNo === jobNo);
         if (idx < 0) throw new Error("Job not found.");
-        restoreJobStock(state, state.jobs[idx]);
+        const movements = restoreJobStock(state, state.jobs[idx]);
         const [deleted] = state.jobs.splice(idx, 1);
+        for (const movement of movements) pushStockTransaction(state, { partId: movement.part.id, type: "job-return", qty: movement.qty, balanceAfter: movement.part.currentStock, jobNo: deleted.jobNo, note: "Stock returned because job was deleted" });
         return { jobNo: deleted.jobNo, deleted: true };
       });
       let deletedAttachments = 0;
@@ -1238,6 +1290,70 @@ async function handleApi(request, env, routeOverride = "") {
         return { jobNo: job.jobNo, pinned: job.pinned };
       });
       return json({ ok: true, revision: outcome.revision, state: outcome.state });
+    }
+
+
+    if (method === "POST" && route === "stock/orders") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `stock.order.${action}`, async (state) => {
+        state.stockOrders = Array.isArray(state.stockOrders) ? state.stockOrders : [];
+        state.stockTransactions = Array.isArray(state.stockTransactions) ? state.stockTransactions : [];
+        if (action === "order") {
+          const part = (state.partCatalog || []).find((p) => String(p.id) === String(body.partId || ""));
+          if (!part) throw new Error("Part not found.");
+          if (!part.stockTracked) throw new Error("Enable stock tracking before ordering this part.");
+          const orderedQty = Number(body.qty);
+          if (!Number.isFinite(orderedQty) || orderedQty <= 0) throw new Error("Order quantity must be greater than zero.");
+          const supplier = String(body.supplier || part.preferredSupplier || "").trim();
+          if (supplier) ensureUniqueString(state.suppliers, supplier);
+          part.preferredSupplier = supplier || String(part.preferredSupplier || "");
+          part.reorderQty = Math.max(1, Number(body.reorderQty || part.reorderQty || orderedQty) || 1);
+          const order = {
+            id: `ord-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+            partId: part.id,
+            partName: part.name,
+            partNo: part.partNo || "",
+            supplier,
+            orderedQty,
+            receivedQty: 0,
+            orderedAt: new Date().toISOString(),
+            expectedDate: String(body.expectedDate || "").trim(),
+            note: String(body.note || "").trim().slice(0, 300),
+            status: "Ordered",
+            orderedBy: auth.identity.email || ""
+          };
+          state.stockOrders.push(order);
+          return { order };
+        }
+        const order = state.stockOrders.find((o) => String(o.id) === String(body.orderId || ""));
+        if (!order) throw new Error("Stock order not found.");
+        const part = (state.partCatalog || []).find((p) => String(p.id) === String(order.partId));
+        if (!part) throw new Error("The ordered part no longer exists.");
+        if (action === "receive") {
+          if (["Received", "Cancelled"].includes(String(order.status))) throw new Error("This order is already closed.");
+          const remaining = orderRemaining(order);
+          const qty = body.qty === undefined || body.qty === "" ? remaining : Number(body.qty);
+          if (!Number.isFinite(qty) || qty <= 0 || qty > remaining) throw new Error(`Receive between 0 and ${remaining} units.`);
+          part.currentStock = (Number(part.currentStock) || 0) + qty;
+          order.receivedQty = (Number(order.receivedQty) || 0) + qty;
+          order.lastReceivedAt = new Date().toISOString();
+          order.status = orderRemaining(order) <= 0 ? "Received" : "Part received";
+          pushStockTransaction(state, { partId: part.id, type: "receipt", qty, balanceAfter: part.currentStock, orderId: order.id, supplier: order.supplier || "", note: "Stock order received", actor: auth.identity.email || "" });
+          return { order, receivedQty: qty, currentStock: part.currentStock };
+        }
+        if (action === "cancel") {
+          if (String(order.status) === "Received") throw new Error("A fully received order cannot be cancelled.");
+          order.status = "Cancelled";
+          order.cancelledAt = new Date().toISOString();
+          order.cancelledBy = auth.identity.email || "";
+          return { order };
+        }
+        throw new Error("Unknown stock order action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
     }
 
     if (method === "POST" && route === "machines") {
@@ -1420,8 +1536,9 @@ async function handleApi(request, env, routeOverride = "") {
             if (!name) throw new Error("Part name is required.");
             if (state.partCatalog.some((p) => p.id !== part.id && String(p.name).toLowerCase() === name.toLowerCase())) throw new Error("That part name already exists.");
             const wasTracked = part.stockTracked === true;
+            const previousStock = Number(part.currentStock) || 0;
             const stockTracked = body.stockTracked === undefined ? wasTracked : Boolean(body.stockTracked);
-            const currentStock = body.currentStock === undefined ? (Number(part.currentStock) || 0) : Number(body.currentStock);
+            const currentStock = body.currentStock === undefined ? previousStock : Number(body.currentStock);
             const minStock = body.minStock === undefined ? (Number(part.minStock) || 0) : Number(body.minStock);
             if (!Number.isFinite(currentStock)) throw new Error("Current stock must be a number.");
             if (!Number.isFinite(minStock) || minStock < 0) throw new Error("Minimum stock must be zero or more.");
@@ -1431,7 +1548,11 @@ async function handleApi(request, env, routeOverride = "") {
             part.currentStock = currentStock;
             part.minStock = Math.max(0, minStock);
             part.binLocation = body.binLocation === undefined ? String(part.binLocation || "").trim() : String(body.binLocation || "").trim();
+            part.preferredSupplier = body.preferredSupplier === undefined ? String(part.preferredSupplier || "").trim() : String(body.preferredSupplier || "").trim();
+            part.reorderQty = body.reorderQty === undefined ? Math.max(1, Number(part.reorderQty) || 1) : Math.max(1, Number(body.reorderQty) || 1);
+            if (part.preferredSupplier) ensureUniqueString(state.suppliers, part.preferredSupplier);
             if (!wasTracked && stockTracked) resetHistoricalStockBaseline(state, part);
+            if (wasTracked && stockTracked && currentStock !== previousStock) pushStockTransaction(state, { partId: part.id, type: "adjustment", qty: currentStock - previousStock, balanceAfter: currentStock, note: "Manual stock count adjustment" });
             for (const job of state.jobs) {
               for (const used of (job.parts || [])) {
                 if (used.name === oldName) {
