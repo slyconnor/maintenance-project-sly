@@ -1,12 +1,12 @@
 import { QRCode, QRErrorCorrectLevel } from "./qr.js";
 
-/* Maintenance Manager V5.5.1 — Cloudflare Workers + Static Assets + D1
+/* Maintenance Manager V5.6.0 — Cloudflare Workers + Static Assets + D1
  * Canonical Worker entry point for the existing Cloudflare Worker named "maintenance".
  * Static files live in ./public and are exposed through env.ASSETS.
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.5.1";
+const APP_VERSION = "5.6.0";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -18,13 +18,13 @@ const DEFAULT_SETTINGS = {
 };
 
 const DEFAULT_STATE = {
-  version: 5.5,
+  version: 5.6,
   settings: { ...DEFAULT_SETTINGS },
   profiles: [],
   sections: ["Smokeshield"],
   archivedSections: [],
   machines: [],
-  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true }],
+  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true, stockTracked: false, currentStock: 0, minStock: 0, binLocation: "" }],
   suppliers: [],
   archivedSuppliers: [],
   jobs: []
@@ -232,57 +232,37 @@ function attachmentExtensionAllowed(fileName, state) {
   return Boolean(extension && allowed.includes(extension));
 }
 
+function normalizeCatalogPart(part) {
+  const p = part && typeof part === "object" ? part : {};
+  return {
+    ...p,
+    id: String(p.id || `p-${slug(p.name || "part")}-${Date.now()}`),
+    name: String(p.name || "").trim(),
+    partNo: String(p.partNo || "").trim(),
+    active: p.active !== false,
+    stockTracked: p.stockTracked === true,
+    currentStock: Number.isFinite(Number(p.currentStock)) ? Number(p.currentStock) : 0,
+    minStock: Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
+    binLocation: String(p.binLocation || "").trim()
+  };
+}
+
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.5,
+    version: 5.6,
     settings: normalizeSettings(s.settings),
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
     archivedSections: Array.isArray(s.archivedSections) ? s.archivedSections : [],
     machines: Array.isArray(s.machines) ? s.machines : [],
-    partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog.map((p) => ({ ...p, active: p.active !== false })) : [{ id: "p-anvil", name: "Anvil", partNo: "", active: true }],
+    partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog.map(normalizeCatalogPart) : [normalizeCatalogPart({ id: "p-anvil", name: "Anvil", partNo: "", active: true })],
     suppliers: Array.isArray(s.suppliers) ? s.suppliers : [],
     archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
     jobs: Array.isArray(s.jobs) ? s.jobs : []
   };
 }
 
-
-
-async function ensureOperatorRequestRejectSchema(env) {
-  const schema = await env.DB.prepare("SELECT sql FROM sqlite_master WHERE type = 'table' AND name = 'operator_requests'").first();
-  const sql = String(schema?.sql || "").toLowerCase();
-  if (!sql || (sql.includes("'rejected'") && sql.includes("rejected_at") && sql.includes("rejected_by"))) return;
-
-  // v5.5.0 used a CHECK constraint that only allowed pending/accepting/accepted.
-  // SQLite cannot widen that CHECK in place, so rebuild the small request table once.
-  await env.DB.batch([
-    env.DB.prepare("DROP TABLE IF EXISTS operator_requests_v551_new"),
-    env.DB.prepare(`CREATE TABLE operator_requests_v551_new (
-      id INTEGER PRIMARY KEY AUTOINCREMENT,
-      machine_id TEXT NOT NULL,
-      operator_name TEXT NOT NULL,
-      issue TEXT NOT NULL,
-      status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepting', 'accepted', 'rejected')),
-      created_at TEXT NOT NULL DEFAULT (datetime('now')),
-      claimed_at TEXT,
-      accepted_at TEXT,
-      accepted_by TEXT,
-      assigned_profile_id TEXT,
-      assigned_profile_name TEXT,
-      linked_job_no TEXT,
-      rejected_at TEXT,
-      rejected_by TEXT
-    )`),
-    env.DB.prepare(`INSERT INTO operator_requests_v551_new
-      (id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, rejected_at, rejected_by)
-      SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, NULL, NULL
-      FROM operator_requests`),
-    env.DB.prepare("DROP TABLE operator_requests"),
-    env.DB.prepare("ALTER TABLE operator_requests_v551_new RENAME TO operator_requests")
-  ]);
-}
 
 let schemaReady = false;
 async function ensureSchema(env) {
@@ -321,18 +301,15 @@ async function ensureSchema(env) {
     machine_id TEXT NOT NULL,
     operator_name TEXT NOT NULL,
     issue TEXT NOT NULL,
-    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepting', 'accepted', 'rejected')),
+    status TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'accepting', 'accepted')),
     created_at TEXT NOT NULL DEFAULT (datetime('now')),
     claimed_at TEXT,
     accepted_at TEXT,
     accepted_by TEXT,
     assigned_profile_id TEXT,
     assigned_profile_name TEXT,
-    linked_job_no TEXT,
-    rejected_at TEXT,
-    rejected_by TEXT
+    linked_job_no TEXT
   )`).run();
-  await ensureOperatorRequestRejectSchema(env);
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_operator_requests_status ON operator_requests(status, created_at DESC)").run();
   await env.DB.prepare("CREATE INDEX IF NOT EXISTS idx_operator_requests_machine ON operator_requests(machine_id, created_at DESC)").run();
   schemaReady = true;
@@ -405,6 +382,97 @@ function ensureUniqueString(list, value) {
   return clean;
 }
 
+function catalogPartForUsage(state, usage) {
+  const partId = String(usage?.partId || "").trim();
+  if (partId) {
+    const byId = (state.partCatalog || []).find((p) => p.id === partId);
+    if (byId) return byId;
+  }
+  const name = String(usage?.name || "").trim().toLowerCase();
+  return name ? (state.partCatalog || []).find((p) => String(p.name || "").trim().toLowerCase() === name) || null : null;
+}
+
+function usageQty(value) {
+  const qty = Number(value);
+  return Number.isFinite(qty) && qty > 0 ? qty : 0;
+}
+
+function aggregateJobStockUsage(state, job) {
+  const map = new Map();
+  for (const usage of job?.parts || []) {
+    const part = catalogPartForUsage(state, usage);
+    if (!part) continue;
+    const qty = usageQty(usage.qty);
+    const rawApplied = Number(usage.stockAppliedQty);
+    const applied = Number.isFinite(rawApplied) ? Math.max(0, Math.min(qty, rawApplied)) : 0;
+    const current = map.get(part.id) || { part, qty: 0, applied: 0 };
+    current.qty += qty;
+    current.applied += applied;
+    map.set(part.id, current);
+  }
+  return map;
+}
+
+function distributeAppliedStock(state, job, appliedByPart) {
+  const remaining = new Map(appliedByPart);
+  for (const usage of job.parts || []) {
+    const part = catalogPartForUsage(state, usage);
+    const qty = usageQty(usage.qty);
+    if (!part || !part.stockTracked) {
+      usage.stockAppliedQty = 0;
+      continue;
+    }
+    const left = Math.max(0, Number(remaining.get(part.id)) || 0);
+    const applied = Math.min(qty, left);
+    usage.stockAppliedQty = applied;
+    remaining.set(part.id, left - applied);
+  }
+}
+
+function applyJobStockChanges(state, oldJob, newJob) {
+  const oldUsage = aggregateJobStockUsage(state, oldJob);
+  const newUsage = aggregateJobStockUsage(state, newJob);
+  const keys = new Set([...oldUsage.keys(), ...newUsage.keys()]);
+  const desiredApplied = new Map();
+
+  for (const partId of keys) {
+    const oldRec = oldUsage.get(partId) || { qty: 0, applied: 0, part: null };
+    const newRec = newUsage.get(partId) || { qty: 0, applied: 0, part: oldRec.part };
+    const part = newRec.part || oldRec.part || (state.partCatalog || []).find((p) => p.id === partId);
+    if (!part || !part.stockTracked) {
+      desiredApplied.set(partId, 0);
+      continue;
+    }
+
+    // A newly enabled stock count is an as-of-now figure. Legacy job quantities have
+    // stockAppliedQty = 0, so simply editing an old job does not deduct them again.
+    const deltaQty = newRec.qty - oldRec.qty;
+    const nextApplied = Math.max(0, Math.min(newRec.qty, oldRec.applied + deltaQty));
+    const stockDelta = nextApplied - oldRec.applied;
+    part.currentStock = (Number(part.currentStock) || 0) - stockDelta;
+    desiredApplied.set(partId, nextApplied);
+  }
+
+  distributeAppliedStock(state, newJob, desiredApplied);
+}
+
+function restoreJobStock(state, job) {
+  const usage = aggregateJobStockUsage(state, job);
+  for (const { part, applied } of usage.values()) {
+    if (!part || !part.stockTracked || applied <= 0) continue;
+    part.currentStock = (Number(part.currentStock) || 0) + applied;
+  }
+}
+
+function resetHistoricalStockBaseline(state, part) {
+  for (const job of state.jobs || []) {
+    for (const usage of job.parts || []) {
+      const linked = catalogPartForUsage(state, usage);
+      if (linked?.id === part.id) usage.stockAppliedQty = 0;
+    }
+  }
+}
+
 function validateJob(state, job, originalJobNo = "") {
   const out = { ...job };
   out.jobNo = String(out.jobNo || "").trim();
@@ -413,7 +481,21 @@ function validateJob(state, job, originalJobNo = "") {
   out.machine = String(out.machine || "").trim();
   out.assigned = String(out.assigned || "").trim();
   out.timeEntries = Array.isArray(out.timeEntries) ? out.timeEntries : [];
-  out.parts = Array.isArray(out.parts) ? out.parts : [];
+  out.parts = Array.isArray(out.parts) ? out.parts.map((usage) => {
+    const raw = usage && typeof usage === "object" ? { ...usage } : {};
+    const matched = catalogPartForUsage(state, raw);
+    const qty = Math.max(1, Number(raw.qty) || 1);
+    return {
+      ...raw,
+      partId: matched?.id || String(raw.partId || "").trim(),
+      name: matched?.name || String(raw.name || "").trim(),
+      partNo: matched?.partNo || String(raw.partNo || "").trim(),
+      qty,
+      unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
+      supplier: String(raw.supplier || "").trim(),
+      date: String(raw.date || "").trim()
+    };
+  }) : [];
 
   if (!out.jobNo || !out.title || !out.section || !out.machine || !out.assigned || !out.raised) {
     throw new Error("Job number, title, section, machine, assigned engineer and date raised are required.");
@@ -504,7 +586,7 @@ function cleanIssue(value) {
 
 async function getOperatorRequest(env, id) {
   await ensureSchema(env);
-  return await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, rejected_at, rejected_by
+  return await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no
     FROM operator_requests WHERE id = ?`).bind(Number(id)).first();
 }
 
@@ -523,9 +605,7 @@ function operatorRequestJson(row, state) {
     acceptedBy: row.accepted_by || "",
     assignedProfileId: row.assigned_profile_id || "",
     assignedProfileName: row.assigned_profile_name || "",
-    linkedJobNo: row.linked_job_no || "",
-    rejectedAt: row.rejected_at || "",
-    rejectedBy: row.rejected_by || ""
+    linkedJobNo: row.linked_job_no || ""
   };
 }
 
@@ -533,10 +613,10 @@ async function listOperatorRequests(env, state) {
   await ensureSchema(env);
   // If a Worker invocation died midway through an accept, make the request available again.
   await env.DB.prepare("UPDATE operator_requests SET status = 'pending', claimed_at = NULL WHERE status = 'accepting' AND claimed_at < datetime('now', '-5 minutes')").run();
-  const result = await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no, rejected_at, rejected_by
+  const result = await env.DB.prepare(`SELECT id, machine_id, operator_name, issue, status, created_at, claimed_at, accepted_at, accepted_by, assigned_profile_id, assigned_profile_name, linked_job_no
     FROM operator_requests
-    WHERE status IN ('pending', 'accepting') OR (status = 'accepted' AND accepted_at >= datetime('now', '-90 days')) OR (status = 'rejected' AND rejected_at >= datetime('now', '-90 days'))
-    ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'accepting' THEN 1 WHEN 'accepted' THEN 2 ELSE 3 END, created_at DESC
+    WHERE status IN ('pending', 'accepting') OR (status = 'accepted' AND accepted_at >= datetime('now', '-90 days'))
+    ORDER BY CASE status WHEN 'pending' THEN 0 WHEN 'accepting' THEN 1 ELSE 2 END, created_at DESC
     LIMIT 250`).all();
   return (result.results || []).map((row) => operatorRequestJson(row, state));
 }
@@ -869,7 +949,6 @@ async function handleApi(request, env, routeOverride = "") {
       if ((claim.meta?.changes || 0) !== 1) {
         const latest = await getOperatorRequest(env, id);
         if (latest?.status === "accepted") return json({ ok: true, alreadyAccepted: true, linkedJobNo: latest.linked_job_no || "", state: current.state, requests: await listOperatorRequests(env, current.state) });
-        if (latest?.status === "rejected") return json({ error: "This request has already been rejected. Refresh the Requests page." }, 409);
         return json({ error: "Another engineer is accepting this request. Refresh the Requests page." }, 409);
       }
 
@@ -917,37 +996,6 @@ async function handleApi(request, env, routeOverride = "") {
         WHERE id = ?`).bind(auth.identity.email || "", assignedProfileId, outcome.result?.assignedProfileName || profile.name, outcome.result?.jobNo || "", id).run();
       const requests = await listOperatorRequests(env, outcome.state);
       return json({ ok: true, revision: outcome.revision, state: outcome.state, requests, linkedJobNo: outcome.result?.jobNo || "", requestNo: requestReference(id) });
-    }
-
-    if (method === "POST" && route === "requests/reject") {
-      const auth = await requireUser(request, env, { human: true });
-      if (!auth.ok) return auth.response;
-      const body = await bodyJson(request);
-      const id = Number(body.id);
-      if (!Number.isInteger(id) || id <= 0) return json({ error: "Request ID is required." }, 400);
-
-      const current = await getState(env);
-      const requestRow = await getOperatorRequest(env, id);
-      if (!requestRow) return json({ error: "Operator request not found." }, 404);
-      if (requestRow.status === "rejected") {
-        return json({ ok: true, alreadyRejected: true, requests: await listOperatorRequests(env, current.state) });
-      }
-      if (requestRow.status === "accepted") {
-        return json({ error: `This request has already been accepted as ${requestRow.linked_job_no || "a maintenance job"}.`, linkedJobNo: requestRow.linked_job_no || "" }, 409);
-      }
-      if (requestRow.status === "accepting") {
-        return json({ error: "Another engineer is accepting this request. Refresh the Requests page." }, 409);
-      }
-
-      const result = await env.DB.prepare(`UPDATE operator_requests
-        SET status = 'rejected', rejected_at = datetime('now'), rejected_by = ?, claimed_at = NULL
-        WHERE id = ? AND status = 'pending'`).bind(auth.identity.email || "", id).run();
-      if ((result.meta?.changes || 0) !== 1) {
-        return json({ error: "This request changed while you were viewing it. Refresh the Requests page." }, 409);
-      }
-
-      const requests = await listOperatorRequests(env, current.state);
-      return json({ ok: true, requestNo: requestReference(id), requests });
     }
 
     if (method === "GET" && route === "search") {
@@ -1013,13 +1061,15 @@ async function handleApi(request, env, routeOverride = "") {
         for (const p of job.parts || []) {
           const name = String(p.name || "").trim();
           if (name && !state.partCatalog.some((x) => String(x.name).toLowerCase() === name.toLowerCase())) {
-            state.partCatalog.push({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(p.partNo || "").trim() });
+            state.partCatalog.push(normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(p.partNo || "").trim(), active: true }));
           }
           if (p.supplier) ensureUniqueString(state.suppliers, p.supplier);
         }
 
         const original = String(body.originalJobNo || "");
         const idx = original ? state.jobs.findIndex((j) => j.jobNo === original) : -1;
+        const oldJob = idx >= 0 ? state.jobs[idx] : null;
+        applyJobStockChanges(state, oldJob, job);
         if (idx >= 0) state.jobs[idx] = job;
         else state.jobs.push(job);
         return { jobNo: job.jobNo };
@@ -1040,6 +1090,7 @@ async function handleApi(request, env, routeOverride = "") {
       const outcome = await mutateState(env, auth.identity, "job.delete", async (state) => {
         const idx = state.jobs.findIndex((j) => j.jobNo === jobNo);
         if (idx < 0) throw new Error("Job not found.");
+        restoreJobStock(state, state.jobs[idx]);
         const [deleted] = state.jobs.splice(idx, 1);
         return { jobNo: deleted.jobNo, deleted: true };
       });
@@ -1105,7 +1156,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (!name) throw new Error("Part name is required.");
           let part = state.partCatalog.find((p) => String(p.name).toLowerCase() === name.toLowerCase());
           if (!part) {
-            part = { id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true };
+            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true });
             state.partCatalog.push(part);
           } else {
             part.active = true;
@@ -1240,8 +1291,19 @@ async function handleApi(request, env, routeOverride = "") {
             const partNo = String(body.partNo || "").trim();
             if (!name) throw new Error("Part name is required.");
             if (state.partCatalog.some((p) => p.id !== part.id && String(p.name).toLowerCase() === name.toLowerCase())) throw new Error("That part name already exists.");
+            const wasTracked = part.stockTracked === true;
+            const stockTracked = body.stockTracked === undefined ? wasTracked : Boolean(body.stockTracked);
+            const currentStock = body.currentStock === undefined ? (Number(part.currentStock) || 0) : Number(body.currentStock);
+            const minStock = body.minStock === undefined ? (Number(part.minStock) || 0) : Number(body.minStock);
+            if (!Number.isFinite(currentStock)) throw new Error("Current stock must be a number.");
+            if (!Number.isFinite(minStock) || minStock < 0) throw new Error("Minimum stock must be zero or more.");
             part.name = name;
             part.partNo = partNo;
+            part.stockTracked = stockTracked;
+            part.currentStock = currentStock;
+            part.minStock = Math.max(0, minStock);
+            part.binLocation = body.binLocation === undefined ? String(part.binLocation || "").trim() : String(body.binLocation || "").trim();
+            if (!wasTracked && stockTracked) resetHistoricalStockBaseline(state, part);
             for (const job of state.jobs) {
               for (const used of (job.parts || [])) {
                 if (used.name === oldName) {
