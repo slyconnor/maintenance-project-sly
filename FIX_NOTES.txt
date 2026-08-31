@@ -1,13 +1,8 @@
-Maintenance Manager v5.7.0
+Maintenance Manager v5.8.0 changed-files package.
 
-Added:
-- Cloudflare Email Service Worker binding (EMAIL).
-- Admin-configured notification recipients, From address and event toggles.
-- New operator request email notifications.
-- Assigned engineer email notifications.
-- Optional low-stock transition alerts.
-- Test email button in Admin Settings.
-- Direct ?view=requests / ?view=parts links for notification emails.
-- Public request per-machine rate limit to reduce notification abuse.
+Built on v5.7.0, so it also contains the email notification + R2 changes from that release.
+No manual D1 SQL migration is required.
 
-No new D1 migration is required for v5.7.0. Notification settings are stored in the existing shared state.
+Small revision: the Machines tab now has instant search, Section and Active/Archived filters, plus a Showing X of Y count for large machine lists.
+
+Important: downtime is only counted when a job has Machine stopped enabled and a downtime start time. Leaving Back in production blank deliberately keeps that machine in the Currently Down list.

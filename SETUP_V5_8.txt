@@ -1,0 +1,29 @@
+Maintenance Manager v5.8.0 — Downtime & Purchasing
+
+WHAT IS NEW
+- Machines tab now has instant search, Section and Active/Archived filters, and a Showing X of Y count. Search covers asset ID, machine name, section, location, make/model and serial number.
+- New Downtime tab with total downtime, currently-down count, worst section and worst machine.
+- Downtime pie charts by section and by exact machine.
+- Range selector: selected month, this month, last month, this year or custom dates.
+- Job form now records Machine stopped, downtime start and back-in-production time.
+- Currently-down panel on the main dashboard and a one-click Back in production action.
+- Parts Stock Control now has Needs Ordering, Open Orders and Recent Stock Movements.
+- Mark Ordered records quantity/supplier/expected date.
+- Mark Received automatically increases live stock. Partial receipts are supported.
+- Open orders can be cancelled.
+- Each tracked part can store a preferred supplier and default reorder quantity.
+- Job stock use, job returns, manual adjustments and receipts are written to stock movement history.
+
+DEPLOYMENT
+1. Finish the Cloudflare Email Routing setup for v5.7 if you have not already done so.
+2. You can skip deploying v5.7 separately: this v5.8 package includes all v5.7 changed files too.
+3. Replace the matching files in GitHub with the files from this ZIP and deploy normally.
+4. No new Cloudflare binding, R2 bucket or D1 migration is required for v5.8.
+5. After deployment, hard refresh the Maintenance site.
+6. Test one tracked part: set stock/minimum/preferred supplier/reorder quantity, mark it ordered, then mark it received and confirm stock increases.
+7. Test one job: tick Machine stopped, set a start time, save, open Downtime, then press Back in production and confirm the charts/table update.
+
+DATA NOTES
+- v5.8 stores orders and stock movement history in the existing shared D1 app-state JSON. Existing v5.7 data is normalized automatically.
+- Existing jobs have no downtime until you explicitly record it; nothing historical is guessed.
+- Ongoing downtime is calculated live up to the current time. Monthly totals are clipped to the selected reporting range.
