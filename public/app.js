@@ -374,7 +374,7 @@ function currentDownJobs(){return jobs.filter(j=>j.downtimeStopped===true&&j.dow
 function ensureV58Ui(){
   if(document.getElementById("downtimeView"))return;
   const style=document.createElement("style");style.id="v58Styles";style.textContent=`
-  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9px;margin:0 0 10px;min-width:0}.machine-list-controls .machine-search-wrap{grid-column:1/-1;min-width:0}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machines-layout>*{min-width:0}.machine-list-panel,.machine-detail{min-width:0}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.stock-order-nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stock-order-tab{border:1px solid #cfd6e1;background:#fff;color:#344054;border-radius:999px;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}.stock-order-tab.active{background:#101828;color:#fff;border-color:#101828}.stock-order-tab span{opacity:.72;font-size:.78rem;margin-left:5px}.stock-order-panel[hidden]{display:none}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}.machine-tooling-editor{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:12px;padding:14px;background:var(--card,#fff)}.machine-tooling-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.machine-tooling-head small{display:block;color:#667085;margin-top:3px}.machine-tooling-rows{display:grid;gap:9px}.machine-tooling-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.3fr) auto;gap:8px;align-items:end}.machine-tooling-row label{min-width:0}.machine-tooling-row input{width:100%;min-width:0}.machine-tooling-empty{color:#667085;font-size:.82rem;padding:5px 0}.machine-tooling-overview{margin:14px 0;border:1px solid #e2e7ef;border-radius:12px;padding:14px}.machine-tooling-overview h3{margin:0 0 10px}.machine-tooling-list{display:grid;gap:8px}.machine-tooling-item{padding:9px 10px;border:1px solid #e6eaf0;border-radius:9px}.machine-tooling-item small{display:block;color:#667085;margin-top:3px}.job-ordered-parts-section{margin:18px 0 22px;padding:14px;border:1px solid #dfe4ec;border-radius:12px;background:var(--card,#fff)}.job-ordered-parts-section h3{margin:0 0 6px}.job-ordered-parts-section>p{margin:0 0 12px;color:#667085;font-size:.86rem}.job-ordered-parts-section .price-note{margin-top:8px}
+  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9px;margin:0 0 10px;min-width:0}.machine-list-controls .machine-search-wrap{grid-column:1/-1;min-width:0}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machine-download-qrs{grid-column:1/-1;width:100%}.machines-layout>*{min-width:0}.machine-list-panel,.machine-detail{min-width:0}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.stock-order-nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stock-order-tab{border:1px solid #cfd6e1;background:#fff;color:#344054;border-radius:999px;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}.stock-order-tab.active{background:#101828;color:#fff;border-color:#101828}.stock-order-tab span{opacity:.72;font-size:.78rem;margin-left:5px}.stock-order-panel[hidden]{display:none}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}.machine-tooling-editor{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:12px;padding:14px;background:var(--card,#fff)}.machine-tooling-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.machine-tooling-head small{display:block;color:#667085;margin-top:3px}.machine-tooling-rows{display:grid;gap:9px}.machine-tooling-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.3fr) auto;gap:8px;align-items:end}.machine-tooling-row label{min-width:0}.machine-tooling-row input{width:100%;min-width:0}.machine-tooling-empty{color:#667085;font-size:.82rem;padding:5px 0}.machine-tooling-overview{margin:14px 0;border:1px solid #e2e7ef;border-radius:12px;padding:14px}.machine-tooling-overview h3{margin:0 0 10px}.machine-tooling-list{display:grid;gap:8px}.machine-tooling-item{padding:9px 10px;border:1px solid #e6eaf0;border-radius:9px}.machine-tooling-item small{display:block;color:#667085;margin-top:3px}.job-ordered-parts-section{margin:18px 0 22px;padding:14px;border:1px solid #dfe4ec;border-radius:12px;background:var(--card,#fff)}.job-ordered-parts-section h3{margin:0 0 6px}.job-ordered-parts-section>p{margin:0 0 12px;color:#667085;font-size:.86rem}.job-ordered-parts-section .price-note{margin-top:8px}
   @media(max-width:900px){.v58-grid{grid-template-columns:1fr 1fr}.v58-two{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:140px 1fr}.v58-pie{width:140px;height:140px}.v58-form-grid{grid-template-columns:1fr}.machine-list-controls{grid-template-columns:1fr 1fr}.machine-list-controls .machine-search-wrap{grid-column:1/-1}}@media(max-width:520px){.v58-grid{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:1fr}.v58-pie{margin:auto}.machine-list-controls{grid-template-columns:1fr}.machine-list-controls .machine-search-wrap{grid-column:auto}.machine-tooling-head{align-items:flex-start}.machine-tooling-row{grid-template-columns:1fr}.machine-tooling-row button{width:100%}}}
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const b=document.createElement("button");b.type="button";b.className="nav-item";b.dataset.view="downtime";b.innerHTML=`<span>⏱</span><span>Downtime</span>`;const report=nav.querySelector('[data-view="reports"]');nav.insertBefore(b,report||null);}
@@ -598,7 +598,7 @@ function machineFilesContent(machine) {
 function machineQrContent(machine) {
   const qrUrl=`/api/machines/qr?id=${encodeURIComponent(machine.id)}`;
   const destination=`${location.origin}/request?machine=${encodeURIComponent(machine.id)}`;
-  return `<div class="machine-qr-panel"><div class="history-heading"><div><h3>Operator Maintenance QR</h3><p>Print one QR code and place it on the machine. Operators scan it, enter their name and describe the issue. No maintenance login is required on the request form.</p></div></div><div class="machine-qr-layout"><div class="qr-card"><img src="${qrUrl}" alt="Operator request QR code for ${esc(machine.assetId)} · ${esc(machine.name)}" /><strong>${esc(machine.assetId)} · ${esc(machine.name)}</strong><span>${esc(machine.location||machine.section||"")}</span></div><div class="qr-actions"><p><strong>Operator form:</strong><br><span class="qr-destination">${esc(destination)}</span></p><a class="btn secondary" href="${qrUrl}&download=1">Download QR SVG</a><button type="button" class="btn primary" id="printMachineQrBtn">Print QR Label</button><button type="button" class="btn secondary" id="copyMachineLinkBtn">Copy request link</button><p class="muted">This is the only QR needed on the machine. Submitted issues appear in the Requests page for any engineer to accept and assign.</p></div></div></div>`;
+  return `<div class="machine-qr-panel"><div class="history-heading"><div><h3>Operator Maintenance QR</h3><p>Print one QR code and place it on the machine. Operators scan it, enter their name and describe the issue. No maintenance login is required on the request form.</p></div></div><div class="machine-qr-layout"><div class="qr-card"><img src="${qrUrl}" alt="Operator request QR code for ${esc(machine.assetId)} · ${esc(machine.name)}" /><strong>${esc(machine.assetId)} · ${esc(machine.name)}</strong><span>${esc(machine.location||machine.section||"")}</span></div><div class="qr-actions"><p><strong>Operator form:</strong><br><span class="qr-destination">${esc(destination)}</span></p><a class="btn secondary" href="${qrUrl}&download=1&label=1">Download QR SVG</a><button type="button" class="btn primary" id="printMachineQrBtn">Print QR Label</button><button type="button" class="btn secondary" id="copyMachineLinkBtn">Copy request link</button><p class="muted">This is the only QR needed on the machine. Submitted issues appear in the Requests page for any engineer to accept and assign.</p></div></div></div>`;
 }
 
 function bindMachineQrControls(machine) {
@@ -681,7 +681,7 @@ function ensureMachineListControls() {
   const controls=document.createElement("div");
   controls.id="machineListControls";
   controls.className="machine-list-controls";
-  controls.innerHTML=`<div class="machine-search-wrap"><input id="machineListSearch" type="search" autocomplete="off" placeholder="Search machine no, asset no, name, manufacturer or tooling…" aria-label="Search machines"></div><select id="machineSectionFilter" aria-label="Filter machines by section"><option value="all">All sections</option></select><select id="machineStatusFilter" aria-label="Filter machines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>`;
+  controls.innerHTML=`<div class="machine-search-wrap"><input id="machineListSearch" type="search" autocomplete="off" placeholder="Search machine no, asset no, name, manufacturer or tooling…" aria-label="Search machines"></div><select id="machineSectionFilter" aria-label="Filter machines by section"><option value="all">All sections</option></select><select id="machineStatusFilter" aria-label="Filter machines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select><button type="button" class="btn secondary compact machine-download-qrs" id="machineDownloadAllQrBtn">Download all QR codes</button>`;
   const count=document.createElement("div");
   count.id="machineListCount";
   count.className="machine-list-count";
@@ -690,6 +690,111 @@ function ensureMachineListControls() {
   $("#machineListSearch").addEventListener("input",e=>{machineSearchQuery=e.target.value;renderMachines();});
   $("#machineSectionFilter").addEventListener("change",e=>{machineSectionFilter=e.target.value;renderMachines();});
   $("#machineStatusFilter").addEventListener("change",e=>{machineStatusFilter=e.target.value;renderMachines();});
+  $("#machineDownloadAllQrBtn").addEventListener("click",downloadFilteredMachineQrs);
+}
+
+function filteredMachinesForList() {
+  const query=machineSearchQuery.trim().toLowerCase();
+  return machines.filter(m=>{
+    if(machineSectionFilter!=="all"&&String(m.section||"")!==machineSectionFilter)return false;
+    const archived=isMachineArchived(m);
+    if(machineStatusFilter==="active"&&archived)return false;
+    if(machineStatusFilter==="archived"&&!archived)return false;
+    if(!query)return true;
+    return [m.assetId,m.assetNumber,m.name,m.section,m.category,m.location,m.manufacturer,m.make,m.model,m.serialNumber,...(Array.isArray(m.tooling)?m.tooling.flatMap(t=>[t?.name,t?.description]):[])].some(value=>String(value||"").toLowerCase().includes(query));
+  });
+}
+
+function qrSafeFilename(value) {
+  return String(value||"machine").trim().replace(/[\\/:*?"<>|\u0000-\u001f]+/g,"-").replace(/\s+/g," ").slice(0,120)||"machine";
+}
+
+let qrCrcTable=null;
+function qrCrc32(bytes) {
+  if(!qrCrcTable){
+    qrCrcTable=Array.from({length:256},(_,n)=>{
+      let c=n;
+      for(let k=0;k<8;k++)c=(c&1)?(0xedb88320^(c>>>1)):(c>>>1);
+      return c>>>0;
+    });
+  }
+  let crc=0xffffffff;
+  for(const byte of bytes)crc=qrCrcTable[(crc^byte)&255]^(crc>>>8);
+  return (crc^0xffffffff)>>>0;
+}
+
+function qrZipU16(view,offset,value){view.setUint16(offset,value,true);}
+function qrZipU32(view,offset,value){view.setUint32(offset,value>>>0,true);}
+
+function createStoredZip(files) {
+  const encoder=new TextEncoder();
+  const now=new Date();
+  const dosTime=((now.getHours()&31)<<11)|((now.getMinutes()&63)<<5)|((Math.floor(now.getSeconds()/2))&31);
+  const dosDate=(((Math.max(1980,now.getFullYear())-1980)&127)<<9)|(((now.getMonth()+1)&15)<<5)|(now.getDate()&31);
+  const entries=files.map(file=>{
+    const nameBytes=encoder.encode(file.name);
+    const data=file.data instanceof Uint8Array?file.data:encoder.encode(String(file.data||""));
+    return {nameBytes,data,crc:qrCrc32(data),offset:0};
+  });
+  let localSize=0;
+  for(const entry of entries)localSize+=30+entry.nameBytes.length+entry.data.length;
+  let centralSize=0;
+  for(const entry of entries)centralSize+=46+entry.nameBytes.length;
+  const out=new Uint8Array(localSize+centralSize+22);
+  const view=new DataView(out.buffer);
+  let p=0;
+  for(const entry of entries){
+    entry.offset=p;
+    qrZipU32(view,p,0x04034b50); qrZipU16(view,p+4,20); qrZipU16(view,p+6,0x0800); qrZipU16(view,p+8,0);
+    qrZipU16(view,p+10,dosTime); qrZipU16(view,p+12,dosDate); qrZipU32(view,p+14,entry.crc);
+    qrZipU32(view,p+18,entry.data.length); qrZipU32(view,p+22,entry.data.length); qrZipU16(view,p+26,entry.nameBytes.length); qrZipU16(view,p+28,0);
+    p+=30; out.set(entry.nameBytes,p); p+=entry.nameBytes.length; out.set(entry.data,p); p+=entry.data.length;
+  }
+  const centralStart=p;
+  for(const entry of entries){
+    qrZipU32(view,p,0x02014b50); qrZipU16(view,p+4,20); qrZipU16(view,p+6,20); qrZipU16(view,p+8,0x0800); qrZipU16(view,p+10,0);
+    qrZipU16(view,p+12,dosTime); qrZipU16(view,p+14,dosDate); qrZipU32(view,p+16,entry.crc);
+    qrZipU32(view,p+20,entry.data.length); qrZipU32(view,p+24,entry.data.length); qrZipU16(view,p+28,entry.nameBytes.length); qrZipU16(view,p+30,0);
+    qrZipU16(view,p+32,0); qrZipU16(view,p+34,0); qrZipU16(view,p+36,0); qrZipU32(view,p+38,0); qrZipU32(view,p+42,entry.offset);
+    p+=46; out.set(entry.nameBytes,p); p+=entry.nameBytes.length;
+  }
+  const centralLength=p-centralStart;
+  qrZipU32(view,p,0x06054b50); qrZipU16(view,p+4,0); qrZipU16(view,p+6,0); qrZipU16(view,p+8,entries.length); qrZipU16(view,p+10,entries.length);
+  qrZipU32(view,p+12,centralLength); qrZipU32(view,p+16,centralStart); qrZipU16(view,p+20,0);
+  return out;
+}
+
+async function downloadFilteredMachineQrs(e) {
+  const button=e?.currentTarget||$("#machineDownloadAllQrBtn");
+  const rows=filteredMachinesForList();
+  if(!rows.length){alert("No machines match the current search and filters.");return;}
+  const original=button?.textContent||"Download all QR codes";
+  if(button){button.disabled=true;button.textContent=`Preparing ${rows.length} QR code${rows.length===1?"":"s"}…`;}
+  try{
+    const encoder=new TextEncoder();
+    const files=[];
+    for(let i=0;i<rows.length;i++){
+      const machine=rows[i];
+      if(button)button.textContent=`Preparing ${i+1} of ${rows.length}…`;
+      const response=await fetch(`/api/machines/qr?id=${encodeURIComponent(machine.id)}&label=1`,{credentials:"same-origin"});
+      if(!response.ok)throw new Error(`Could not create QR code for ${machine.assetId||machine.name}.`);
+      const svg=await response.text();
+      files.push({name:`${qrSafeFilename(`${machine.assetId||""}${machine.assetId&&machine.name?" - ":""}${machine.name||"machine"}`)}.svg`,data:encoder.encode(svg)});
+    }
+    const zip=createStoredZip(files);
+    const blob=new Blob([zip],{type:"application/zip"});
+    const link=document.createElement("a");
+    link.href=URL.createObjectURL(blob);
+    const objectUrl=link.href;
+    const sectionPart=machineSectionFilter!=="all"?`-${qrSafeFilename(machineSectionFilter).toLowerCase().replace(/\s+/g,"-")}`:"";
+    const searchPart=machineSearchQuery.trim()?`-search-${qrSafeFilename(machineSearchQuery).toLowerCase().replace(/\s+/g,"-")}`:"";
+    link.download=`machine-qr-codes${sectionPart}${searchPart}.zip`;
+    document.body.appendChild(link);
+    link.click();
+    link.remove();
+    setTimeout(()=>URL.revokeObjectURL(objectUrl),1000);
+  }catch(error){showSaveError(error);}
+  finally{if(button){button.disabled=false;button.textContent=original;renderMachines();}}
 }
 
 function renderMachines() {
@@ -701,17 +806,10 @@ function renderMachines() {
   if(sectionSelect){sectionSelect.innerHTML=`<option value="all">All sections</option>${sectionsForFilter.map(section=>`<option value="${esc(section)}">${esc(section)}</option>`).join("")}`;sectionSelect.value=machineSectionFilter;}
   const search=$("#machineListSearch"); if(search&&search.value!==machineSearchQuery)search.value=machineSearchQuery;
   const statusSelect=$("#machineStatusFilter"); if(statusSelect)statusSelect.value=machineStatusFilter;
-  const query=machineSearchQuery.trim().toLowerCase();
-  const filteredMachines=machines.filter(m=>{
-    if(machineSectionFilter!=="all"&&String(m.section||"")!==machineSectionFilter)return false;
-    const archived=isMachineArchived(m);
-    if(machineStatusFilter==="active"&&archived)return false;
-    if(machineStatusFilter==="archived"&&!archived)return false;
-    if(!query)return true;
-    return [m.assetId,m.assetNumber,m.name,m.section,m.category,m.location,m.manufacturer,m.make,m.model,m.serialNumber,...(Array.isArray(m.tooling)?m.tooling.flatMap(t=>[t?.name,t?.description]):[])].some(value=>String(value||"").toLowerCase().includes(query));
-  });
+  const filteredMachines=filteredMachinesForList();
   if(filteredMachines.length&&!filteredMachines.some(m=>m.id===selectedMachineId))selectedMachineId=filteredMachines[0].id;
   if($("#machineListCount"))$("#machineListCount").textContent=`Showing ${filteredMachines.length} of ${machines.length} machine${machines.length===1?"":"s"}`;
+  const qrAllBtn=$("#machineDownloadAllQrBtn");if(qrAllBtn&&!qrAllBtn.disabled){qrAllBtn.textContent=`Download ${filteredMachines.length} QR code${filteredMachines.length===1?"":"s"}`;qrAllBtn.disabled=filteredMachines.length===0;}
   $("#machineList").innerHTML = filteredMachines.length ? filteredMachines.map(m=>{
     const s = machineStats(m);
     return `<button class="machine-item ${m.id===selectedMachineId?"active":""}" data-machine="${esc(m.id)}"><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${m.assetNumber?`Asset ${esc(m.assetNumber)} · `:""}${esc(m.section)} · ${esc(m.category)} · ${s.jobs} jobs · ${money(s.spend)} parts</span></button>`;
