@@ -668,9 +668,9 @@ function renderRequests() {
   const pendingHtml=pending.length?pending.map(r=>{
     const m=r.machine||{};
     const busy=r.status==="accepting";
-    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button></div></article>`;
+    return `<article class="operator-request-row ${busy?"accepting":""}"><div class="request-main"><div class="request-topline"><strong>${esc(r.requestNo)}</strong><span>${esc(requestDate(r.createdAt))}</span></div><h3>${esc(m.assetId||"Machine")} · ${esc(m.name||"Unknown machine")}</h3><p class="request-operator">Reported by <strong>${esc(r.operatorName)}</strong>${m.location?` · ${esc(m.location)}`:""}</p><p class="request-issue">${esc(r.issue)}</p></div><div class="request-accept"><label>Assign to<select data-request-assignee="${esc(r.id)}" ${busy?"disabled":""}>${options}</select></label><button type="button" class="btn primary" data-accept-request="${esc(r.id)}" ${busy||!options?"disabled":""}>${busy?"Being accepted…":"Accept & create job"}</button><button type="button" class="btn danger compact" data-delete-request="${esc(r.id)}" data-request-no="${esc(r.requestNo)}" data-request-status="pending" ${busy?"disabled":""}>Delete</button></div></article>`;
   }).join(""):`<div class="panel request-empty"><strong>No pending operator requests.</strong><p>New issues submitted from machine QR codes will appear here.</p></div>`;
-  const acceptedHtml=accepted.length?`<article class="panel"><div class="panel-title"><div><h2>Recently accepted</h2><p class="muted">Accepted requests remain here for reference for 90 days.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Assigned</th><th>Job</th><th>Accepted</th></tr></thead><tbody>${accepted.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.assignedProfileName||"—")}</td><td>${r.linkedJobNo?`<button type="button" class="job-link" data-edit-job="${esc(r.linkedJobNo)}">${esc(r.linkedJobNo)}</button>`:"—"}</td><td>${esc(requestDate(r.acceptedAt))}</td></tr>`).join("")}</tbody></table></div></article>`:"";
+  const acceptedHtml=accepted.length?`<article class="panel"><div class="panel-title"><div><h2>Recently accepted</h2><p class="muted">Accepted requests remain here for reference for 90 days unless you delete them.</p></div></div><div class="table-wrap"><table class="requests-history-table"><thead><tr><th>Request</th><th>Machine</th><th>Operator</th><th>Assigned</th><th>Job</th><th>Accepted</th><th>Action</th></tr></thead><tbody>${accepted.map(r=>`<tr><td>${esc(r.requestNo)}</td><td>${esc(r.machine?.assetId||"")} · ${esc(r.machine?.name||"Unknown")}</td><td>${esc(r.operatorName)}</td><td>${esc(r.assignedProfileName||"—")}</td><td>${r.linkedJobNo?`<button type="button" class="job-link" data-edit-job="${esc(r.linkedJobNo)}">${esc(r.linkedJobNo)}</button>`:"—"}</td><td>${esc(requestDate(r.acceptedAt))}</td><td><button type="button" class="btn danger compact" data-delete-request="${esc(r.id)}" data-request-no="${esc(r.requestNo)}" data-request-status="accepted" data-linked-job="${esc(r.linkedJobNo||"")}">Delete</button></td></tr>`).join("")}</tbody></table></div></article>`:"";
   container.innerHTML=`<div class="requests-summary"><div class="mini-metric"><span>Waiting</span><strong>${pending.length}</strong></div><div class="mini-metric"><span>Accepted recently</span><strong>${accepted.length}</strong></div></div><div class="operator-request-list">${pendingHtml}</div>${acceptedHtml}`;
   bindJobEditors();
 }
@@ -1539,6 +1539,24 @@ $("#refreshRequestsBtn")?.addEventListener("click",async e=>{
   try{await refreshOperatorRequests();}finally{button.disabled=false;button.textContent="↻ Refresh";}
 });
 $("#requestsView")?.addEventListener("click",async e=>{
+  const deleteButton=e.target.closest("[data-delete-request]");
+  if(deleteButton){
+    const id=Number(deleteButton.dataset.deleteRequest);
+    const requestNo=deleteButton.dataset.requestNo||`Request ${id}`;
+    const linkedJob=deleteButton.dataset.linkedJob||"";
+    const message=linkedJob
+      ? `Delete ${requestNo}?\n\nThis removes the operator request only. Linked job ${linkedJob} will remain in the job history.`
+      : `Delete ${requestNo}?\n\nThis cannot be undone.`;
+    if(!confirm(message))return;
+    const original=deleteButton.textContent;
+    deleteButton.disabled=true;deleteButton.textContent="Deleting…";
+    try{
+      const payload=await api(`/api/requests?id=${encodeURIComponent(id)}`,{method:"DELETE"});
+      operatorRequests=Array.isArray(payload.requests)?payload.requests:operatorRequests;
+      renderRequests();
+    }catch(error){showSaveError(error);deleteButton.disabled=false;deleteButton.textContent=original;}
+    return;
+  }
   const button=e.target.closest("[data-accept-request]");
   if(!button)return;
   const id=Number(button.dataset.acceptRequest);
