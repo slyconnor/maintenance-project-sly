@@ -1,0 +1,33 @@
+Maintenance Manager v5.9.6 - Job Part Ordered vs Used Quantities
+
+Changed from v5.9.5:
+- public/app.js
+- src/index.js
+
+What changed
+- Job part rows now record Quantity ordered separately from Quantity used.
+- Quantity used may be zero, so a part can be recorded as ordered before anything is fitted.
+- Only Quantity used is deducted from tracked stock.
+- Quantity ordered is stored on the job for purchasing/history reference and does not alter stock by itself.
+- Example: Ordered 5, Used 2 -> the job records both values and stock usage deducts only 2.
+- Existing jobs remain compatible. Their existing quantity is treated as Quantity used; historical Quantity ordered remains blank/zero because it was never recorded.
+- Parts lists show e.g. "2 used / 5 ordered" in the existing quantity column.
+- Monthly report and Excel export now include Qty Ordered and Qty Used separately. Excel also includes Used Value and Ordered Value.
+
+Important
+- This does NOT automatically create a Purchasing/Open Order entry when Quantity ordered is entered on a job. The existing Mark Ordered / Mark Received workflow remains the source of truth for deliveries and stock receipts.
+- Unit price remains a per-item price.
+
+Deployment
+1. Replace only public/app.js and src/index.js in GitHub.
+2. Deploy normally.
+3. No D1 migration is required.
+4. No Cloudflare settings changes are required.
+
+Suggested test
+1. Open a job and add a tracked part.
+2. Enter Quantity ordered = 5, Quantity used = 2, and a unit price.
+3. Save the job.
+4. Confirm the job reopens showing Ordered 5 / Used 2.
+5. Confirm tracked stock fell by only 2.
+6. Edit Quantity used from 2 to 3 and save; tracked stock should fall by only 1 more.
