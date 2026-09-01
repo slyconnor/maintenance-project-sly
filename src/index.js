@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.0";
+const APP_VERSION = "5.9.1";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -25,6 +25,12 @@ const DEFAULT_SETTINGS = {
   pmWeeklyEmailEnabled: true
 };
 
+const DEFAULT_PM_CATEGORIES = [
+  { id: "pmcat-mechanical", name: "Mechanical", active: true },
+  { id: "pmcat-electrical", name: "Electrical", active: true },
+  { id: "pmcat-tooling", name: "Tooling", active: true }
+];
+
 const DEFAULT_STATE = {
   version: 5.9,
   settings: { ...DEFAULT_SETTINGS },
@@ -38,6 +44,7 @@ const DEFAULT_STATE = {
   jobs: [],
   stockOrders: [],
   stockTransactions: [],
+  preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
   preventiveSchedules: [],
   preventiveHistory: [],
   pmDigestLog: []
@@ -280,6 +287,18 @@ function cleanDateOnly(value) {
   return `${match[1]}-${match[2]}-${match[3]}`;
 }
 
+function normalizePreventiveCategory(category) {
+  const value = category && typeof category === "object" ? category : {};
+  const name = String(value.name || "").trim().slice(0, 80);
+  return {
+    id: String(value.id || crypto.randomUUID()).trim(),
+    name,
+    active: value.active !== false,
+    createdAt: String(value.createdAt || new Date().toISOString()),
+    updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString())
+  };
+}
+
 function normalizePreventiveSchedule(schedule) {
   const p = schedule && typeof schedule === "object" ? schedule : {};
   const nextDueDate = cleanDateOnly(p.nextDueDate || p.startDate);
@@ -290,6 +309,7 @@ function normalizePreventiveSchedule(schedule) {
     id: String(p.id || crypto.randomUUID()),
     title: String(p.title || "").trim().slice(0, 160),
     description: String(p.description || "").trim().slice(0, 4000),
+    categoryId: String(p.categoryId || "").trim(),
     section: String(p.section || "").trim().slice(0, 100),
     machineId: String(p.machineId || "").trim(),
     machineName: String(p.machineName || "").trim().slice(0, 160),
@@ -317,6 +337,8 @@ function normalizePreventiveHistory(row) {
     completedByEmail: cleanEmail(h.completedByEmail),
     completedByName: String(h.completedByName || "").slice(0, 160),
     notes: String(h.notes || "").slice(0, 2000),
+    categoryId: String(h.categoryId || "").trim(),
+    categoryName: String(h.categoryName || "").trim().slice(0, 80),
     machineId: String(h.machineId || ""),
     machineName: String(h.machineName || "").slice(0, 160),
     machineAssetId: String(h.machineAssetId || "").slice(0, 100),
@@ -341,6 +363,9 @@ function normalizeState(input) {
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
     stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : [],
+    preventiveCategories: (Array.isArray(s.preventiveCategories) ? s.preventiveCategories : DEFAULT_PM_CATEGORIES)
+      .map(normalizePreventiveCategory)
+      .filter((item, index, rows) => item.name && item.id && rows.findIndex((other) => String(other.id) === String(item.id)) === index),
     preventiveSchedules: Array.isArray(s.preventiveSchedules) ? s.preventiveSchedules.map(normalizePreventiveSchedule) : [],
     preventiveHistory: Array.isArray(s.preventiveHistory) ? s.preventiveHistory.map(normalizePreventiveHistory).slice(-2500) : [],
     pmDigestLog: Array.isArray(s.pmDigestLog) ? s.pmDigestLog.slice(-1000) : []
@@ -887,6 +912,12 @@ function preventiveAssignedProfiles(state, schedule) {
   return (state?.profiles || []).filter((p) => p.active !== false && ids.has(String(p.id || "")));
 }
 
+function preventiveCategoryName(state, schedule) {
+  const id = String(schedule?.categoryId || "").trim();
+  if (!id) return "Uncategorised";
+  return (state?.preventiveCategories || []).find((item) => String(item.id) === id)?.name || "Uncategorised";
+}
+
 function preventiveHumanDate(value) {
   const date = utcDateFromDateOnly(value);
   return date ? new Intl.DateTimeFormat("en-GB", { day: "2-digit", month: "short", year: "numeric", timeZone: "UTC" }).format(date) : value;
@@ -919,12 +950,12 @@ async function sendWeeklyPreventiveDigest(env, { origin = "", timestamp = Date.n
       `Hi ${profile.name || "Engineer"},`,
       "",
       `These are your preventive-maintenance jobs for ${preventiveHumanDate(start)} to ${preventiveHumanDate(end)}.`,
-      ...(overdue.length ? ["", `OVERDUE (${overdue.length})`, ...overdue.map((task) => `- ${preventiveHumanDate(task.nextDueDate)} · ${task.title} · ${preventiveLocationLabel(state, task)}`)] : []),
-      ...(thisWeek.length ? ["", `DUE THIS WEEK (${thisWeek.length})`, ...thisWeek.map((task) => `- ${preventiveHumanDate(task.nextDueDate)} · ${task.title} · ${preventiveLocationLabel(state, task)}`)] : []),
+      ...(overdue.length ? ["", `OVERDUE (${overdue.length})`, ...overdue.map((task) => `- ${preventiveHumanDate(task.nextDueDate)} · ${task.title} · ${preventiveCategoryName(state, task)} · ${preventiveLocationLabel(state, task)}`)] : []),
+      ...(thisWeek.length ? ["", `DUE THIS WEEK (${thisWeek.length})`, ...thisWeek.map((task) => `- ${preventiveHumanDate(task.nextDueDate)} · ${task.title} · ${preventiveCategoryName(state, task)} · ${preventiveLocationLabel(state, task)}`)] : []),
       "",
       `Open Preventive Maintenance: ${link}`
     ];
-    const sectionHtml = (heading, rows) => rows.length ? `<h3>${heading}</h3><ul>${rows.map((task) => `<li><strong>${emailHtmlEscape(task.title)}</strong> — due ${emailHtmlEscape(preventiveHumanDate(task.nextDueDate))}<br>${emailHtmlEscape(preventiveLocationLabel(state, task))} · ${emailHtmlEscape(preventiveFrequencyLabel(task))}</li>`).join("")}</ul>` : "";
+    const sectionHtml = (heading, rows) => rows.length ? `<h3>${heading}</h3><ul>${rows.map((task) => `<li><strong>${emailHtmlEscape(task.title)}</strong> — due ${emailHtmlEscape(preventiveHumanDate(task.nextDueDate))}<br>${emailHtmlEscape(preventiveCategoryName(state, task))} · ${emailHtmlEscape(preventiveLocationLabel(state, task))} · ${emailHtmlEscape(preventiveFrequencyLabel(task))}</li>`).join("")}</ul>` : "";
     const html = `<h2>Your preventive-maintenance jobs this week</h2><p>Hi ${emailHtmlEscape(profile.name || "Engineer")},</p><p>These are your planned jobs for <strong>${emailHtmlEscape(preventiveHumanDate(start))}</strong> to <strong>${emailHtmlEscape(preventiveHumanDate(end))}</strong>.</p>${sectionHtml("Overdue", overdue)}${sectionHtml("Due this week", thisWeek)}<p><a href="${emailHtmlEscape(link)}">Open Preventive Maintenance</a></p>`;
     const email = await sendMaintenanceEmail(env, state, { to: [profile.email], subject, text: textLines.join("\n"), html });
     results.push({ profileId: profile.id, profileName: profile.name, email: profile.email, taskCount: tasks.length, overdueCount: overdue.length, ...email });
@@ -1428,8 +1459,41 @@ async function handleApi(request, env, routeOverride = "") {
       const body = await bodyJson(request);
       const action = String(body.action || "").toLowerCase();
       const outcome = await mutateState(env, auth.identity, `preventive.${action}`, async (state) => {
+        state.preventiveCategories = Array.isArray(state.preventiveCategories) && state.preventiveCategories.length
+          ? state.preventiveCategories.map(normalizePreventiveCategory)
+          : DEFAULT_PM_CATEGORIES.map((item) => normalizePreventiveCategory(item));
         state.preventiveSchedules = Array.isArray(state.preventiveSchedules) ? state.preventiveSchedules : [];
         state.preventiveHistory = Array.isArray(state.preventiveHistory) ? state.preventiveHistory : [];
+
+        if (action === "category-add" || action === "category-rename" || action === "category-toggle") {
+          if (!isAdmin(auth.identity, env)) throw new Error("Only an admin can manage preventive-maintenance categories.");
+          if (action === "category-add") {
+            const name = String(body.name || "").trim().slice(0, 80);
+            if (!name) throw new Error("Enter a category name.");
+            if (state.preventiveCategories.some((item) => item.name.toLowerCase() === name.toLowerCase())) throw new Error("That preventive-maintenance category already exists.");
+            const category = normalizePreventiveCategory({ id: crypto.randomUUID(), name, active: true });
+            state.preventiveCategories.push(category);
+            return { action, category };
+          }
+          const id = String(body.id || "").trim();
+          const category = state.preventiveCategories.find((item) => String(item.id) === id);
+          if (!category) throw new Error("Preventive-maintenance category not found.");
+          if (action === "category-rename") {
+            const name = String(body.name || "").trim().slice(0, 80);
+            if (!name) throw new Error("Enter a category name.");
+            if (state.preventiveCategories.some((item) => String(item.id) !== id && item.name.toLowerCase() === name.toLowerCase())) throw new Error("That preventive-maintenance category already exists.");
+            category.name = name;
+            category.updatedAt = new Date().toISOString();
+            return { action, category };
+          }
+          const nextActive = body.active === true;
+          if (!nextActive && category.active !== false && state.preventiveCategories.filter((item) => item.active !== false).length <= 1) {
+            throw new Error("Keep at least one preventive-maintenance category active.");
+          }
+          category.active = nextActive;
+          category.updatedAt = new Date().toISOString();
+          return { action, category };
+        }
 
         if (action === "create" || action === "update") {
           const raw = body.schedule && typeof body.schedule === "object" ? body.schedule : {};
@@ -1441,8 +1505,13 @@ async function handleApi(request, env, routeOverride = "") {
           const intervalValue = Math.max(1, Math.min(365, Number.parseInt(raw.intervalValue, 10) || 1));
           const intervalUnit = ["day", "week", "month", "year"].includes(String(raw.intervalUnit || "")) ? String(raw.intervalUnit) : "month";
           const assignedProfileIds = [...new Set((Array.isArray(raw.assignedProfileIds) ? raw.assignedProfileIds : []).map((id) => String(id || "").trim()).filter(Boolean))];
+          const categoryId = String(raw.categoryId || "").trim();
           if (!title) throw new Error("Enter a preventive-maintenance job title.");
           if (!nextDueDate) throw new Error("Enter the first / next due date.");
+          if (!categoryId) throw new Error("Choose a preventive-maintenance category.");
+          const selectedCategory = state.preventiveCategories.find((item) => String(item.id) === categoryId);
+          if (!selectedCategory) throw new Error("The selected preventive-maintenance category could not be found.");
+          if (selectedCategory.active === false && String(existing?.categoryId || "") !== categoryId) throw new Error("The selected preventive-maintenance category is archived.");
           if (!assignedProfileIds.length) throw new Error("Assign this preventive-maintenance job to at least one engineer.");
           for (const profileId of assignedProfileIds) {
             if (!(state.profiles || []).some((profile) => String(profile.id) === profileId && profile.active !== false)) throw new Error("One of the assigned engineer profiles is no longer active.");
@@ -1458,6 +1527,7 @@ async function handleApi(request, env, routeOverride = "") {
             ...raw,
             id: existing?.id || raw.id || crypto.randomUUID(),
             title,
+            categoryId,
             nextDueDate,
             intervalValue,
             intervalUnit,
@@ -1493,6 +1563,8 @@ async function handleApi(request, env, routeOverride = "") {
             completedByEmail: auth.identity.email || "",
             completedByName: profile?.name || auth.identity.email || "Engineer",
             notes: String(body.notes || "").trim(),
+            categoryId: schedule.categoryId,
+            categoryName: preventiveCategoryName(state, schedule),
             machineId: schedule.machineId,
             machineName: schedule.machineName,
             machineAssetId: schedule.machineAssetId,
