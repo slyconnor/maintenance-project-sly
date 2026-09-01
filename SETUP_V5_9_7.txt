@@ -1,0 +1,41 @@
+Maintenance Manager v5.9.7 - Ordering workflow
+===============================================
+
+This package contains ONLY files changed from v5.9.6:
+- public/app.js
+- src/index.js
+- SETUP_V5_9_7.txt
+
+New Parts > Purchasing workflow
+-------------------------------
+Purchasing now has four sub-tabs:
+1. Needs ordering
+2. Open orders
+3. Ordered
+4. Stock movements
+
+Workflow:
+- From Needs ordering, press Create order.
+- Enter quantity, supplier, expected date and optional note.
+- The new order is saved with status Open and appears in Open orders.
+- Press Place order to move it to Ordered.
+- Place order does not email or contact a supplier yet; it only records that the order has been placed.
+- Placed orders retain the existing Mark received workflow.
+- Partial receipts remain in Ordered until the full quantity is received.
+
+Testing delete
+--------------
+- Open orders can be deleted.
+- Ordered orders can be deleted while received quantity is still zero.
+- Once any quantity has been received, Delete is disabled/protected so stock receipt history is not damaged.
+
+Compatibility
+-------------
+- Existing v5.9.6 orders already marked Ordered automatically appear in the new Ordered tab.
+- No D1 migration is required.
+- No Cloudflare settings changes are required.
+- No R2 or email changes are required.
+
+Deployment
+----------
+Replace only the matching files in GitHub and deploy normally.
