@@ -1734,6 +1734,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (supplier) ensureUniqueString(state.suppliers, supplier);
           part.preferredSupplier = supplier || String(part.preferredSupplier || "");
           part.reorderQty = Math.max(1, Number(body.reorderQty || part.reorderQty || orderedQty) || 1);
+          const createdAt = new Date().toISOString();
           const order = {
             id: `ord-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
             partId: part.id,
@@ -1742,11 +1743,13 @@ async function handleApi(request, env, routeOverride = "") {
             supplier,
             orderedQty,
             receivedQty: 0,
-            orderedAt: new Date().toISOString(),
+            createdAt,
+            createdBy: auth.identity.email || "",
+            orderedAt: "",
             expectedDate: String(body.expectedDate || "").trim(),
             note: String(body.note || "").trim().slice(0, 300),
-            status: "Ordered",
-            orderedBy: auth.identity.email || ""
+            status: "Open",
+            orderedBy: ""
           };
           state.stockOrders.push(order);
           return { order };
@@ -1755,7 +1758,21 @@ async function handleApi(request, env, routeOverride = "") {
         if (!order) throw new Error("Stock order not found.");
         const part = (state.partCatalog || []).find((p) => String(p.id) === String(order.partId));
         if (!part) throw new Error("The ordered part no longer exists.");
+        if (action === "place") {
+          if (String(order.status) !== "Open") throw new Error("Only an open order can be placed.");
+          order.status = "Ordered";
+          order.orderedAt = new Date().toISOString();
+          order.orderedBy = auth.identity.email || "";
+          return { order };
+        }
+        if (action === "delete") {
+          if ((Number(order.receivedQty) || 0) > 0) throw new Error("Orders with received stock cannot be deleted.");
+          const idx = state.stockOrders.findIndex((row) => String(row.id) === String(order.id));
+          if (idx >= 0) state.stockOrders.splice(idx, 1);
+          return { orderId: order.id, deleted: true };
+        }
         if (action === "receive") {
+          if (String(order.status) === "Open") throw new Error("Place the order before receiving stock.");
           if (["Received", "Cancelled"].includes(String(order.status))) throw new Error("This order is already closed.");
           const remaining = orderRemaining(order);
           const qty = body.qty === undefined || body.qty === "" ? remaining : Number(body.qty);
