@@ -64,6 +64,8 @@ const fileAllowedClient = file => {
 };
 const fmtDate = d => d ? new Date(d+"T00:00:00").toLocaleDateString("en-GB",{day:"2-digit",month:"short",year:"numeric"}) : "—";
 const partTotal = p => (Number(p.qty)||0)*(Number(p.unitPrice)||0);
+const partOrderedQty = p => Math.max(0, Number(p?.orderedQty)||0);
+const partOrderedTotal = p => partOrderedQty(p)*(Number(p?.unitPrice)||0);
 const jobPartsCost = j => (j.parts||[]).reduce((a,p)=>a+partTotal(p),0);
 const jobHours = j => Array.isArray(j.timeEntries) ? j.timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0) : Number(j.hours)||0;
 const machineForJob = j => machines.find(m=>String(m.id)===String(j?.machineId||"")) || machines.find(m=>m.name===j?.machine && (!j?.section || m.section===j.section)) || machines.find(m=>m.name===j?.machine) || null;
@@ -675,7 +677,7 @@ function renderParts() {
     return `<tr class="${rowClass}"><td><strong>${esc(p.name)}</strong>${p.active===false?`<br><span class="stock-muted">Archived</span>`:""}</td><td>${esc(p.partNo||"—")}</td><td>${esc(current)}</td><td>${esc(min)}</td><td>${esc(p.binLocation||"—")}</td><td><span class="status-chip ${status.className}">${esc(status.label)}</span></td><td><button type="button" class="btn secondary compact stock-action" data-edit-stock="${esc(p.id)}">Edit stock</button></td></tr>`;
   }).join(""):`<tr><td colspan="7">No saved parts yet.</td></tr>`;
   const parts = visibleJobs().flatMap(j=>(j.parts||[]).map(p=>({...p,jobNo:j.jobNo,machine:j.machine,machineId:j.machineId||"",section:j.section||inferSection(j.machine)}))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc(machineLabel(p))}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
+  $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0} used${partOrderedQty(p)>0?` / ${partOrderedQty(p)} ordered`:""}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc(machineLabel(p))}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
 }
 
 function reportData() {
@@ -694,9 +696,9 @@ function renderReports() {
   $("#reportMonth").textContent = `${FULL_MONTHS[selectedMonth]} ${selectedYear} · ${profileContext()}`;
   $("#reportSummary").textContent = `${r.raised} jobs raised, ${r.completed} completed, ${r.open} currently open, ${r.hours.toFixed(1)} maintenance hours logged in this month and ${money(r.spend)} of parts used in this month.`;
   const jobsRows = r.monthJobs.map(j=>`<tr><td>${esc(j.jobNo)}</td><td>${esc(j.title)}</td><td>${esc(machineLabel(j))}</td><td>${esc(j.assigned||"—")}</td><td>${esc(j.status)}</td><td>${fmtDate(j.raised)}</td><td>${fmtDate(j.completed)}</td><td>${workHoursThisMonth(j).toFixed(1)}</td><td>${money(spendThisMonth(j))}</td></tr>`).join("");
-  const partsRows = r.parts.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.job.jobNo)}</td><td>${esc(machineLabel(x.job))}</td><td>${esc(x.name)}</td><td>${Number(x.qty)||0}</td><td>${money(x.unitPrice)}</td><td>${money(partTotal(x))}</td><td>${esc(x.supplier||"—")}</td></tr>`).join("");
+  const partsRows = r.parts.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.job.jobNo)}</td><td>${esc(machineLabel(x.job))}</td><td>${esc(x.name)}</td><td>${partOrderedQty(x)}</td><td>${Number(x.qty)||0}</td><td>${money(x.unitPrice)}</td><td>${money(partTotal(x))}</td><td>${esc(x.supplier||"—")}</td></tr>`).join("");
   const timeRows = r.time.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.job.jobNo)}</td><td>${esc(x.job.assigned||"—")}</td><td>${esc(machineLabel(x.job))}</td><td>${Number(x.hours||0).toFixed(2)}</td></tr>`).join("");
-  $("#reportPreview").innerHTML = `<div class="print-report-head"><div><h2>Monthly Maintenance Report</h2><p>${esc(FULL_MONTHS[selectedMonth])} ${selectedYear} · ${esc(profileContext())}</p></div><span>Generated ${esc(new Date().toLocaleString("en-GB"))}</span></div><div class="report-kpis"><div><span>Jobs raised</span><strong>${r.raised}</strong></div><div><span>Completed</span><strong>${r.completed}</strong></div><div><span>Open now</span><strong>${r.open}</strong></div><div><span>Hours this month</span><strong>${r.hours.toFixed(1)}</strong></div><div><span>Parts spend</span><strong>${money(r.spend)}</strong></div></div><h3>Jobs in / carried through this month</h3><div class="table-wrap"><table><thead><tr><th>Job</th><th>Title</th><th>Asset / Machine</th><th>Engineer</th><th>Status</th><th>Raised</th><th>Completed</th><th>Month hours</th><th>Month parts</th></tr></thead><tbody>${jobsRows||`<tr><td colspan="9">No jobs for this report.</td></tr>`}</tbody></table></div><h3>Time entries</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Engineer</th><th>Asset / Machine</th><th>Hours</th></tr></thead><tbody>${timeRows||`<tr><td colspan="5">No time entries this month.</td></tr>`}</tbody></table></div><h3>Parts used</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Asset / Machine</th><th>Part</th><th>Qty</th><th>Unit price</th><th>Total</th><th>Supplier</th></tr></thead><tbody>${partsRows||`<tr><td colspan="8">No parts used this month.</td></tr>`}</tbody></table></div>`;
+  $("#reportPreview").innerHTML = `<div class="print-report-head"><div><h2>Monthly Maintenance Report</h2><p>${esc(FULL_MONTHS[selectedMonth])} ${selectedYear} · ${esc(profileContext())}</p></div><span>Generated ${esc(new Date().toLocaleString("en-GB"))}</span></div><div class="report-kpis"><div><span>Jobs raised</span><strong>${r.raised}</strong></div><div><span>Completed</span><strong>${r.completed}</strong></div><div><span>Open now</span><strong>${r.open}</strong></div><div><span>Hours this month</span><strong>${r.hours.toFixed(1)}</strong></div><div><span>Parts spend</span><strong>${money(r.spend)}</strong></div></div><h3>Jobs in / carried through this month</h3><div class="table-wrap"><table><thead><tr><th>Job</th><th>Title</th><th>Asset / Machine</th><th>Engineer</th><th>Status</th><th>Raised</th><th>Completed</th><th>Month hours</th><th>Month parts</th></tr></thead><tbody>${jobsRows||`<tr><td colspan="9">No jobs for this report.</td></tr>`}</tbody></table></div><h3>Time entries</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Engineer</th><th>Asset / Machine</th><th>Hours</th></tr></thead><tbody>${timeRows||`<tr><td colspan="5">No time entries this month.</td></tr>`}</tbody></table></div><h3>Parts used / ordered</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Asset / Machine</th><th>Part</th><th>Ordered</th><th>Used</th><th>Unit price</th><th>Used value</th><th>Supplier</th></tr></thead><tbody>${partsRows||`<tr><td colspan="9">No parts recorded this month.</td></tr>`}</tbody></table></div>`;
 }
 
 function renderTeam() {
@@ -870,7 +872,7 @@ function addPartRow(data={}) {
   const row = document.createElement("div");
   row.className = "part-entry";
   row.dataset.partRow = String(partRowCounter);
-  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity<input class="part-qty" type="number" min="1" step="1" value="${Number(data.qty)||1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Enter price paid" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Price is entered manually for every use; previous prices are never overwritten.</div><div class="part-stock-note"></div>`;
+  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity ordered<input class="part-ordered-qty" type="number" min="0" step="1" value="${data.orderedQty!==undefined&&Number(data.orderedQty)>0?esc(data.orderedQty):""}" placeholder="0" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Ordered quantity is recorded against the job for reference. Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
   $("#partsEditor").appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
   if (selected) row.querySelector('.part-number').value = selected.partNo || "";
@@ -894,13 +896,15 @@ function collectPartsFromEditor() {
     if (!partId || partId.startsWith('__')) continue;
     const catalogPart = partCatalog.find(p=>p.id===partId);
     if (!catalogPart) continue;
+    const orderedQty = Math.max(0, Number(row.querySelector('.part-ordered-qty')?.value)||0);
+    const qty = Math.max(0, Number(row.querySelector('.part-qty').value)||0);
+    if (orderedQty === 0 && qty === 0) continue;
     const priceRaw = row.querySelector('.part-price').value;
-    if (priceRaw === "") { alert(`Enter the current price for ${catalogPart.name}.`); row.querySelector('.part-price').focus(); return null; }
-    const qty = Math.max(1, Number(row.querySelector('.part-qty').value)||1);
+    if (priceRaw === "") { alert(`Enter the current unit price for ${catalogPart.name}.`); row.querySelector('.part-price').focus(); return null; }
     const unitPrice = Math.max(0, Number(priceRaw)||0);
     const supplier = row.querySelector('.supplier-select').value;
     const date = row.querySelector('.part-date').value;
-    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",qty,unitPrice,supplier,date});
+    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",orderedQty,qty,unitPrice,supplier,date});
   }
   return result;
 }
@@ -1116,8 +1120,8 @@ function downloadExcelReport() {
   r.monthJobs.forEach(j=>{const m=machineForJob(j);jobsRows.push(excelRow([j.jobNo,j.title,j.description||"",j.section||inferSection(j.machine),m?.assetId||"",j.machine,j.priority,j.status,j.raised||"",j.target||"",j.completed||"",{value:workHoursThisMonth(j),type:"Number"},{value:jobHours(j),type:"Number"},j.assigned||"",j.pinned?"Yes":"No",{value:spendThisMonth(j).toFixed(2),type:"Number"},{value:jobPartsCost(j).toFixed(2),type:"Number"}]))});
   const timeRows=[excelRow(["Date","Job No","Engineer","Asset ID","Machine","Hours"])];
   r.time.forEach(x=>{const m=machineForJob(x.job);timeRows.push(excelRow([x.date,x.job.jobNo,x.job.assigned||"",m?.assetId||"",x.job.machine,{value:Number(x.hours)||0,type:"Number"}]))});
-  const partRows=[excelRow(["Date","Job No","Section","Asset ID","Machine","Part Name","Part No","Qty",`Unit Price ${appSettings.currency}`,`Total ${appSettings.currency}`,"Supplier"])];
-  r.parts.forEach(x=>{const m=machineForJob(x.job);partRows.push(excelRow([x.date,x.job.jobNo,x.job.section||inferSection(x.job.machine),m?.assetId||"",x.job.machine,x.name,x.partNo||"",{value:Number(x.qty)||0,type:"Number"},{value:Number(x.unitPrice)||0,type:"Number"},{value:partTotal(x),type:"Number"},x.supplier||""]))});
+  const partRows=[excelRow(["Date","Job No","Section","Asset ID","Machine","Part Name","Part No","Qty Ordered","Qty Used",`Unit Price ${appSettings.currency}`,`Used Value ${appSettings.currency}`,`Ordered Value ${appSettings.currency}`,"Supplier"])];
+  r.parts.forEach(x=>{const m=machineForJob(x.job);partRows.push(excelRow([x.date,x.job.jobNo,x.job.section||inferSection(x.job.machine),m?.assetId||"",x.job.machine,x.name,x.partNo||"",{value:partOrderedQty(x),type:"Number"},{value:Number(x.qty)||0,type:"Number"},{value:Number(x.unitPrice)||0,type:"Number"},{value:partTotal(x),type:"Number"},{value:partOrderedTotal(x),type:"Number"},x.supplier||""]))});
   const xml=`<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?><Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:o="urn:schemas-microsoft-com:office:office" xmlns:x="urn:schemas-microsoft-com:office:excel" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">${excelSheet("Summary",summary)}${excelSheet("Jobs",jobsRows)}${excelSheet("Time Entries",timeRows)}${excelSheet("Parts",partRows)}</Workbook>`;
   const blob=new Blob([xml],{type:"application/vnd.ms-excel;charset=utf-8"});
   const a=document.createElement("a"); a.href=URL.createObjectURL(blob);
@@ -1292,7 +1296,7 @@ async function openJob(jobNo=null) {
     renderAssignedSelect(job.assigned||"");
     (job.timeEntries||[]).forEach(t=>addTimeRow(t));
     if (!(job.timeEntries||[]).length) addTimeRow({date:job.raised||defaultFormDate()});
-    (job.parts||[]).forEach(p=>addPartRow({partId:catalogPartId(p),partNo:p.partNo||"",qty:p.qty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
+    (job.parts||[]).forEach(p=>addPartRow({partId:catalogPartId(p),partNo:p.partNo||"",orderedQty:p.orderedQty,qty:p.qty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
     if (!(job.parts||[]).length) addPartRow({date:job.raised||defaultFormDate()});
   } else {
     $("#jobDialogTitle").textContent="Add maintenance job";
@@ -1385,7 +1389,7 @@ $("#deleteJobBtn").addEventListener("click",async()=>{
   const hours=jobHours(job);
   const partsCost=jobPartsCost(job);
   if(hours>0)details.push(`${hours.toFixed(1)} recorded hour${hours===1?"":"s"}`);
-  if((job.parts||[]).length)details.push(`${job.parts.length} part entr${job.parts.length===1?"y":"ies"} (${money(partsCost)})`);
+  if((job.parts||[]).length)details.push(`${job.parts.length} part entr${job.parts.length===1?"y":"ies"} (${money(partsCost)} used value)`);
   const stockReturn=(job.parts||[]).reduce((n,p)=>n+(Number(p.stockAppliedQty)||0),0);
   if(stockReturn>0)details.push(`${stockNumber(stockReturn)} stock-tracked item${stockReturn===1?"":"s"} that will be returned to stock`);
   const extra=details.length?`\n\nThis job contains ${details.join(" and ")}.`:"";
