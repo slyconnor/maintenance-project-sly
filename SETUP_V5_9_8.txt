@@ -1,0 +1,53 @@
+Maintenance Manager v5.9.8 - Purchase Order Builder
+===================================================
+
+CHANGED FILES ONLY
+------------------
+Replace only:
+  public/app.js
+  src/index.js
+
+No D1 migration is required.
+No Cloudflare binding, R2, Access or Email changes are required.
+
+WHAT CHANGED
+------------
+The v5.9.7 purchasing layout inside Parts has been replaced with two main navigation items placed after Parts and before Manage Data:
+
+  Open Orders
+  Ordered
+
+OPEN ORDERS
+-----------
+- Select an existing supplier or add a new supplier directly from the order page.
+- Add any number of parts to one supplier order.
+- Each line contains:
+    Part name
+    Part code
+    Quantity
+    Unit price
+    Calculated line total
+- The full order total is calculated automatically at the bottom.
+- Save Open Order keeps the order as an editable draft.
+- Place Order moves the order to Ordered.
+- Open drafts can be edited or deleted.
+
+ORDERED
+-------
+- Placed orders are locked/read-only.
+- Supplier, order reference, placed date, line details and total are retained.
+- Delete is intentionally still enabled on placed orders for testing at this stage.
+
+ORDER REFERENCES
+----------------
+Orders receive references such as:
+  PO-2026-0001
+  PO-2026-0002
+
+NOT YET INCLUDED
+----------------
+Placing an order does not yet email a supplier, create a PDF, receive stock, or contact any external purchasing system. This version establishes the order-building workflow first.
+
+UPGRADE NOTE
+------------
+This v5.9.8 public/app.js and src/index.js include the previous v5.9.7 code as their base. If you had not deployed v5.9.7 yet, you can use these files directly over v5.9.6.
