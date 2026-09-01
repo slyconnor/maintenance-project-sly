@@ -1137,7 +1137,7 @@ function ensurePurchaseOrderUi(){
   $("#poSaveOpenBtn")?.addEventListener("click",()=>submitPurchaseOrder("save"));
   $("#poPlaceBtn")?.addEventListener("click",()=>submitPurchaseOrder("place"));
   $("#poLines")?.addEventListener("input",updatePurchaseOrderTotals);
-  $("#poLines")?.addEventListener("change",e=>{const name=e.target.closest('.po-part-name');if(name){const part=activeParts().find(p=>String(p.name).toLowerCase()===String(name.value).trim().toLowerCase());const row=name.closest('.po-line');const code=row?.querySelector('.po-part-code');if(part&&code&&!code.value)code.value=part.partNo||"";}updatePurchaseOrderTotals();});
+  $("#poLines")?.addEventListener("change",e=>{const name=e.target.closest('.po-part-name');if(name){const part=activeParts().find(p=>String(p.name).toLowerCase()===String(name.value).trim().toLowerCase());const row=name.closest('.po-line');const code=row?.querySelector('.po-part-code');if(part&&code&&!code.value)code.value=part.partNo||"";autofillPurchaseOrderPrice(row,part);}updatePurchaseOrderTotals();});
   $("#poLines")?.addEventListener("click",e=>{const btn=e.target.closest('[data-po-remove-line]');if(!btn)return;btn.closest('.po-line')?.remove();if(!$("#poLines")?.children.length)addPurchaseOrderLine();updatePurchaseOrderTotals();});
   $("#poOpenList")?.addEventListener("click",handleOpenPurchaseOrderClick);
   $("#poOrderedList")?.addEventListener("click",handleOrderedPurchaseOrderClick);
@@ -1146,6 +1146,34 @@ function ensurePurchaseOrderUi(){
 function purchaseOrderDate(value){if(!value)return "—";const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";}
 function purchaseOrderTotal(order){return (order?.lines||[]).reduce((sum,row)=>sum+(Math.max(1,Number(row.qty)||1)*Math.max(0,Number(row.unitPrice)||0)),0);}
 function purchaseOrderSupplierOptions(selected=""){const values=activeSuppliers().slice().sort((a,b)=>a.localeCompare(b));return `<option value="">Select supplier…</option>${values.map(name=>`<option value="${esc(name)}" ${name===selected?"selected":""}>${esc(name)}</option>`).join("")}`;}
+function lastPurchasePrice(partName,partCode,supplier=""){
+  const name=String(partName||"").trim().toLowerCase(),code=String(partCode||"").trim().toLowerCase(),wantedSupplier=String(supplier||"").trim().toLowerCase();
+  if(!name&&!code)return null;
+  const ordered=[...purchaseOrders].filter(order=>order.status==="Ordered").sort((a,b)=>String(b.orderedAt||b.updatedAt||b.createdAt||"").localeCompare(String(a.orderedAt||a.updatedAt||a.createdAt||"")));
+  const matches=[];
+  for(const order of ordered){
+    for(const line of order.lines||[]){
+      const lineName=String(line.partName||"").trim().toLowerCase(),lineCode=String(line.partCode||"").trim().toLowerCase();
+      const same=(code&&lineCode===code)||(!code&&name&&lineName===name)||(code&&name&&lineName===name);
+      if(!same)continue;
+      const price=Number(line.unitPrice);
+      if(!Number.isFinite(price)||price<0)continue;
+      matches.push({price,supplier:String(order.supplier||"").trim().toLowerCase(),date:order.orderedAt||order.updatedAt||order.createdAt||""});
+    }
+  }
+  if(!matches.length)return null;
+  return (wantedSupplier&&matches.find(row=>row.supplier===wantedSupplier))||matches[0];
+}
+function autofillPurchaseOrderPrice(row,part){
+  if(!row)return;
+  const priceInput=row.querySelector('.po-unit-price');
+  if(!priceInput||String(priceInput.value||"").trim()!=="")return;
+  const partName=part?.name||row.querySelector('.po-part-name')?.value||"",partCode=part?.partNo||row.querySelector('.po-part-code')?.value||"";
+  const remembered=lastPurchasePrice(partName,partCode,$("#poSupplierSelect")?.value||"");
+  if(!remembered)return;
+  priceInput.value=Number(remembered.price).toFixed(2);
+  priceInput.title=`Last ordered price: ${money(remembered.price)}`;
+}
 function addPurchaseOrderLine(data={}){const lines=$("#poLines");if(!lines)return;const row=document.createElement("div");row.className="po-line";row.innerHTML=`<label class="po-name-cell">Part name<input class="po-part-name" list="poPartNames" maxlength="180" value="${esc(data.partName||"")}" placeholder="Bearing 6204" required></label><label class="po-code-cell">Part code<input class="po-part-code" maxlength="120" value="${esc(data.partCode||"")}" placeholder="6204-2RS"></label><label>Qty<input class="po-qty" type="number" min="1" step="1" value="${Math.max(1,Number(data.qty)||1)}"></label><label>Unit price (${currencySymbol()})<input class="po-unit-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label class="po-total-cell">Line total<span class="po-line-total">${money((Number(data.qty)||1)*(Number(data.unitPrice)||0))}</span></label><div class="po-remove-cell"><button type="button" class="btn danger compact" data-po-remove-line>Remove</button></div>`;lines.appendChild(row);updatePurchaseOrderTotals();}
 function collectPurchaseOrderLines(){return $$("#poLines .po-line").map(row=>({partName:String(row.querySelector('.po-part-name')?.value||"").trim(),partCode:String(row.querySelector('.po-part-code')?.value||"").trim(),qty:Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),unitPrice:Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0)})).filter(row=>row.partName);}
 function updatePurchaseOrderTotals(){let grand=0;$$("#poLines .po-line").forEach(row=>{const qty=Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),price=Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0),total=qty*price;grand+=total;const cell=row.querySelector('.po-line-total');if(cell)cell.textContent=money(total);});if($("#poGrandTotal"))$("#poGrandTotal").textContent=money(grand);}
