@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.8";
+const APP_VERSION = "5.9.13";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -76,6 +76,15 @@ function cleanFilename(value) {
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .trim();
   return (name || "file").slice(0, 180);
+}
+
+function escapeSvgText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function contentDispositionFilename(filename) {
@@ -1506,9 +1515,23 @@ async function handleApi(request, env, routeOverride = "") {
           if (qr.isDark(row, col)) path += `M${col + quiet} ${row + quiet}h1v1h-1z`;
         }
       }
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="640" height="640" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d="${path}" fill="black"/></svg>`;
+      const includeLabel = url.searchParams.get("label") === "1";
+      const machineLabel = [machine.assetId, machine.name].filter(Boolean).join(" · ") || "Machine";
+      const locationLabel = machine.location || machine.section || "";
+      const labelHeight = includeLabel ? 10 : 0;
+      const totalHeight = size + labelHeight;
+      const pixelHeight = Math.round(640 * totalHeight / size);
+      const mainFont = Math.max(1.8, Math.min(3, (size - 4) / Math.max(1, machineLabel.length * 0.56)));
+      const subFont = Math.max(1.5, Math.min(2.3, (size - 4) / Math.max(1, locationLabel.length * 0.56)));
+      const labelSvg = includeLabel
+        ? `<text x="${size / 2}" y="${size + 4}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${mainFont.toFixed(2)}" font-weight="700" fill="black">${escapeSvgText(machineLabel)}</text>${locationLabel ? `<text x="${size / 2}" y="${size + 7.2}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${subFont.toFixed(2)}" fill="black">${escapeSvgText(locationLabel)}</text>` : ""}`
+        : "";
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${totalHeight}" width="640" height="${pixelHeight}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d="${path}" fill="black"/>${labelSvg}</svg>`;
       const headers = new Headers({ "content-type": "image/svg+xml; charset=utf-8", "cache-control": "private, no-store", "x-content-type-options": "nosniff" });
-      if (url.searchParams.get("download") === "1") headers.set("content-disposition", `attachment; ${contentDispositionFilename(`${machine.assetId || "machine"}-qr.svg`)}`);
+      if (url.searchParams.get("download") === "1") {
+        const fileLabel = [machine.assetId, machine.name].filter(Boolean).join(" - ") || "machine";
+        headers.set("content-disposition", `attachment; ${contentDispositionFilename(`${fileLabel}-qr.svg`)}`);
+      }
       return new Response(svg, { status: 200, headers });
     }
 
