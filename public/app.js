@@ -50,6 +50,7 @@ let machineSectionFilter = "all";
 let machineStatusFilter = "all";
 let selectedPmCategory = "all";
 let editingPurchaseOrderId = null;
+let orderedPurchaseSearchQuery = "";
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -79,6 +80,7 @@ const selectedPrefix = () => `${selectedYear}-${String(selectedMonth+1).padStart
 const inSelectedMonth = d => Boolean(d && d.startsWith(selectedPrefix()));
 const partsThisMonth = j => (j.parts||[]).filter(p=>inSelectedMonth(p.date));
 const spendThisMonth = j => partsThisMonth(j).reduce((a,p)=>a+partTotal(p),0);
+const orderedSpendThisMonth = j => partsThisMonth(j).reduce((a,p)=>a+partOrderedTotal(p),0);
 const activeProfiles = () => profiles.filter(p=>p.active!==false);
 const isSectionArchived = name => archivedSections.includes(name);
 const isSupplierArchived = name => archivedSuppliers.includes(name);
@@ -474,21 +476,71 @@ function renderPie(el, legendEl, rows, format) {
   legendEl.innerHTML = rows.length ? rows.map((r,i)=>`<div class="legend-row"><span class="swatch" style="background:${colors[i%colors.length]}"></span><span>${esc(r.name)}</span><strong>${format(r.value)}</strong></div>`).join("") : `<span class="empty-note">No data for this month.</span>`;
 }
 
+function ensureDashboardSpendSplit() {
+  const usedValue = $("#kpiSpend");
+  if (!usedValue) return;
+
+  // Rename the original spend KPI to make it clear that it is actual parts used.
+  let card = usedValue;
+  let node = usedValue.parentElement;
+  while (node && node.parentElement) {
+    const ownKpis = node.querySelectorAll('[id^="kpi"]').length;
+    const parentKpis = node.parentElement.querySelectorAll('[id^="kpi"]').length;
+    if (ownKpis === 1 && parentKpis > 1) { card = node; break; }
+    node = node.parentElement;
+  }
+  const renameLabel = (root, from, to) => {
+    const candidates = [...root.querySelectorAll('span,small,p,div')];
+    const label = candidates.find(el => el.children.length === 0 && String(el.textContent||'').trim().toLowerCase() === from.toLowerCase());
+    if (label) label.textContent = to;
+  };
+  renameLabel(card, 'Parts spend', 'Parts used');
+
+  if (!$("#kpiOrderedSpend")) {
+    const clone = card.cloneNode(true);
+    const clonedSpendValue = clone.querySelector('#kpiSpend');
+    clone.id = 'kpiOrderedSpendCard';
+    clone.querySelectorAll('[id]').forEach(el => {
+      if (el === clonedSpendValue) el.id = 'kpiOrderedSpend';
+      else el.removeAttribute('id');
+    });
+    if (!clonedSpendValue) {
+      const fallbackValue = clone.querySelector('strong');
+      if (fallbackValue) fallbackValue.id = 'kpiOrderedSpend';
+    }
+    renameLabel(clone, 'Parts spend', 'Parts ordered');
+    renameLabel(clone, 'Parts used', 'Parts ordered');
+    card.insertAdjacentElement('afterend', clone);
+  }
+
+  // The existing donut remains a machine-category view of actual parts consumed.
+  const spendPie = $("#spendPie");
+  if (spendPie) {
+    let pieCard = spendPie.parentElement;
+    while (pieCard && pieCard.parentElement && !/parts spend by machine category/i.test(String(pieCard.textContent||''))) pieCard = pieCard.parentElement;
+    const title = pieCard ? [...pieCard.querySelectorAll('h1,h2,h3,h4,h5,h6,strong')].find(el => /parts spend by machine category/i.test(String(el.textContent||''))) : null;
+    if (title) title.textContent = 'PARTS USED BY MACHINE CATEGORY';
+  }
+}
+
 function renderDashboard() {
   const base = visibleJobs();
   const monthJobs = selectedMonthJobs();
   const raised = base.filter(j=>inSelectedMonth(j.raised));
   const open = base.filter(j=>!["Completed","Cancelled"].includes(j.status));
   const hours = monthJobs.reduce((a,j)=>a+workHoursThisMonth(j),0);
-  const spend = base.reduce((a,j)=>a+spendThisMonth(j),0);
+  const usedSpend = base.reduce((a,j)=>a+spendThisMonth(j),0);
+  const orderedSpend = base.reduce((a,j)=>a+orderedSpendThisMonth(j),0);
   $("#monthTitle").textContent = `${FULL_MONTHS[selectedMonth]} ${selectedYear}`;
   $("#dashboardSubtitle").textContent = selectedProfileId === "all" ? "Overview of maintenance activity for the whole team this month." : `Showing only jobs and activity assigned to ${profileContext()}.`;
   $("#sideMonthLabel").textContent = `${FULL_MONTHS[selectedMonth]} ${selectedYear} · ${profileContext()}`;
   $("#kpiJobs").textContent = raised.length;
   $("#kpiOpen").textContent = open.length;
   $("#kpiHours").textContent = hours.toFixed(1);
-  $("#kpiSpend").textContent = shortMoney(spend);
-  $("#sideSpend").textContent = shortMoney(spend);
+  ensureDashboardSpendSplit();
+  $("#kpiSpend").textContent = shortMoney(usedSpend);
+  if ($("#kpiOrderedSpend")) $("#kpiOrderedSpend").textContent = shortMoney(orderedSpend);
+  $("#sideSpend").textContent = shortMoney(usedSpend);
   $("#sideHours").textContent = hours.toFixed(1);
   $("#openBadge").textContent = open.length;
 
@@ -717,20 +769,21 @@ function reportData() {
   const monthJobs = selectedMonthJobs();
   const parts = base.flatMap(j=>partsThisMonth(j).map(p=>({...p,job:j})));
   const time = base.flatMap(j=>(j.timeEntries||[]).filter(t=>inSelectedMonth(t.date)).map(t=>({...t,job:j})));
-  const spend = parts.reduce((a,x)=>a+partTotal(x),0);
+  const usedSpend = parts.reduce((a,x)=>a+partTotal(x),0);
+  const orderedSpend = parts.reduce((a,x)=>a+partOrderedTotal(x),0);
   const hours = time.reduce((a,x)=>a+(Number(x.hours)||0),0);
-  return {base,monthJobs,parts,time,spend,hours,raised:base.filter(j=>inSelectedMonth(j.raised)).length,completed:base.filter(j=>inSelectedMonth(j.completed)).length,open:base.filter(j=>!["Completed","Cancelled"].includes(j.status)).length};
+  return {base,monthJobs,parts,time,spend:usedSpend,usedSpend,orderedSpend,hours,raised:base.filter(j=>inSelectedMonth(j.raised)).length,completed:base.filter(j=>inSelectedMonth(j.completed)).length,open:base.filter(j=>!["Completed","Cancelled"].includes(j.status)).length};
 }
 
 function renderReports() {
   const r = reportData();
   $("#reportsSubtitle").textContent = selectedProfileId === "all" ? "Generate a whole-team PDF or Excel report for the selected month." : `Generate a monthly PDF or Excel report for ${profileContext()} only.`;
   $("#reportMonth").textContent = `${FULL_MONTHS[selectedMonth]} ${selectedYear} · ${profileContext()}`;
-  $("#reportSummary").textContent = `${r.raised} jobs raised, ${r.completed} completed, ${r.open} currently open, ${r.hours.toFixed(1)} maintenance hours logged in this month and ${money(r.spend)} of parts used in this month.`;
+  $("#reportSummary").textContent = `${r.raised} jobs raised, ${r.completed} completed, ${r.open} currently open, ${r.hours.toFixed(1)} maintenance hours logged, ${money(r.usedSpend)} of parts used and ${money(r.orderedSpend)} of parts ordered in this month.`;
   const jobsRows = r.monthJobs.map(j=>`<tr><td>${esc(j.jobNo)}</td><td>${esc(j.title)}</td><td>${esc(machineLabel(j))}</td><td>${esc(j.assigned||"—")}</td><td>${esc(j.status)}</td><td>${fmtDate(j.raised)}</td><td>${fmtDate(j.completed)}</td><td>${workHoursThisMonth(j).toFixed(1)}</td><td>${money(spendThisMonth(j))}</td></tr>`).join("");
   const partsRows = r.parts.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.job.jobNo)}</td><td>${esc(machineLabel(x.job))}</td><td>${esc(x.name)}</td><td>${partOrderedQty(x)}</td><td>${Number(x.qty)||0}</td><td>${money(x.unitPrice)}</td><td>${money(partTotal(x))}</td><td>${esc(x.supplier||"—")}</td></tr>`).join("");
   const timeRows = r.time.map(x=>`<tr><td>${fmtDate(x.date)}</td><td>${esc(x.job.jobNo)}</td><td>${esc(x.job.assigned||"—")}</td><td>${esc(machineLabel(x.job))}</td><td>${Number(x.hours||0).toFixed(2)}</td></tr>`).join("");
-  $("#reportPreview").innerHTML = `<div class="print-report-head"><div><h2>Monthly Maintenance Report</h2><p>${esc(FULL_MONTHS[selectedMonth])} ${selectedYear} · ${esc(profileContext())}</p></div><span>Generated ${esc(new Date().toLocaleString("en-GB"))}</span></div><div class="report-kpis"><div><span>Jobs raised</span><strong>${r.raised}</strong></div><div><span>Completed</span><strong>${r.completed}</strong></div><div><span>Open now</span><strong>${r.open}</strong></div><div><span>Hours this month</span><strong>${r.hours.toFixed(1)}</strong></div><div><span>Parts spend</span><strong>${money(r.spend)}</strong></div></div><h3>Jobs in / carried through this month</h3><div class="table-wrap"><table><thead><tr><th>Job</th><th>Title</th><th>Asset / Machine</th><th>Engineer</th><th>Status</th><th>Raised</th><th>Completed</th><th>Month hours</th><th>Month parts</th></tr></thead><tbody>${jobsRows||`<tr><td colspan="9">No jobs for this report.</td></tr>`}</tbody></table></div><h3>Time entries</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Engineer</th><th>Asset / Machine</th><th>Hours</th></tr></thead><tbody>${timeRows||`<tr><td colspan="5">No time entries this month.</td></tr>`}</tbody></table></div><h3>Parts used / ordered</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Asset / Machine</th><th>Part</th><th>Ordered</th><th>Used</th><th>Unit price</th><th>Used value</th><th>Supplier</th></tr></thead><tbody>${partsRows||`<tr><td colspan="9">No parts recorded this month.</td></tr>`}</tbody></table></div>`;
+  $("#reportPreview").innerHTML = `<div class="print-report-head"><div><h2>Monthly Maintenance Report</h2><p>${esc(FULL_MONTHS[selectedMonth])} ${selectedYear} · ${esc(profileContext())}</p></div><span>Generated ${esc(new Date().toLocaleString("en-GB"))}</span></div><div class="report-kpis"><div><span>Jobs raised</span><strong>${r.raised}</strong></div><div><span>Completed</span><strong>${r.completed}</strong></div><div><span>Open now</span><strong>${r.open}</strong></div><div><span>Hours this month</span><strong>${r.hours.toFixed(1)}</strong></div><div><span>Parts used</span><strong>${money(r.usedSpend)}</strong></div><div><span>Parts ordered</span><strong>${money(r.orderedSpend)}</strong></div></div><h3>Jobs in / carried through this month</h3><div class="table-wrap"><table><thead><tr><th>Job</th><th>Title</th><th>Asset / Machine</th><th>Engineer</th><th>Status</th><th>Raised</th><th>Completed</th><th>Month hours</th><th>Month parts</th></tr></thead><tbody>${jobsRows||`<tr><td colspan="9">No jobs for this report.</td></tr>`}</tbody></table></div><h3>Time entries</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Engineer</th><th>Asset / Machine</th><th>Hours</th></tr></thead><tbody>${timeRows||`<tr><td colspan="5">No time entries this month.</td></tr>`}</tbody></table></div><h3>Parts used / ordered</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Job</th><th>Asset / Machine</th><th>Part</th><th>Ordered</th><th>Used</th><th>Unit price</th><th>Used value</th><th>Supplier</th></tr></thead><tbody>${partsRows||`<tr><td colspan="9">No parts recorded this month.</td></tr>`}</tbody></table></div>`;
 }
 
 function renderTeam() {
@@ -1121,14 +1174,14 @@ function ensurePurchaseOrderUi(){
   document.getElementById("stockPurchasingBlock")?.remove();
   if(document.getElementById("openOrdersView"))return;
   const style=document.createElement("style");style.id="purchaseOrderStyles";style.textContent=`
-  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.po-search-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px}.po-search-row input{flex:1 1 280px;min-width:0;padding:11px 12px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.po-search-count{font-size:.82rem;color:#667085;white-space:nowrap}
   @media(max-width:900px){.po-line{grid-template-columns:1fr 1fr 90px 1fr}.po-line .po-total-cell{grid-column:1/3}.po-line .po-remove-cell{grid-column:3/5}.po-line .po-remove-cell button{width:100%}.po-line-readonly{grid-template-columns:1fr 1fr 70px 100px}.po-line-readonly span:last-child{grid-column:1/-1;text-align:left}}
   @media(max-width:560px){.po-card{padding:14px}.po-supplier-row{grid-template-columns:1fr}.po-line{grid-template-columns:1fr 1fr}.po-line .po-name-cell,.po-line .po-code-cell{grid-column:1/-1}.po-line .po-total-cell,.po-line .po-remove-cell{grid-column:auto}.po-line-readonly{grid-template-columns:1fr 1fr}.po-actions{display:grid}.po-actions>div{display:grid}.po-actions button{width:100%}}
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const partsBtn=nav.querySelector('[data-view="parts"]');const ref=partsBtn?.nextSibling||nav.querySelector('[data-view="data"]')||null;const open=document.createElement("button");open.type="button";open.className="nav-item";open.dataset.view="openOrders";open.innerHTML=`<span>🧾</span><span>Open Orders</span>`;const ordered=document.createElement("button");ordered.type="button";ordered.className="nav-item";ordered.dataset.view="ordered";ordered.innerHTML=`<span>📦</span><span>Ordered</span>`;nav.insertBefore(open,ref);nav.insertBefore(ordered,ref);}
   const reference=document.getElementById("dataView")||document.getElementById("reportsView");const parent=reference?.parentElement||document.querySelector("main")||document.body;
   const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-supplier-row"><label>Supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
-  const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div id="poOrderedList" class="po-list"></div>`;
+  const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div class="po-search-row"><input id="poOrderedSearch" type="search" placeholder="Search PO, supplier, part or part code…" autocomplete="off"><span class="po-search-count" id="poOrderedSearchCount"></span></div><div id="poOrderedList" class="po-list"></div>`;
   if(reference){parent.insertBefore(openView,reference);parent.insertBefore(orderedView,reference);}else{parent.appendChild(openView);parent.appendChild(orderedView);}
   $("#poNewBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
   $("#poAddSupplierBtn")?.addEventListener("click",addPurchaseOrderSupplier);
@@ -1141,6 +1194,7 @@ function ensurePurchaseOrderUi(){
   $("#poLines")?.addEventListener("click",e=>{const btn=e.target.closest('[data-po-remove-line]');if(!btn)return;btn.closest('.po-line')?.remove();if(!$("#poLines")?.children.length)addPurchaseOrderLine();updatePurchaseOrderTotals();});
   $("#poOpenList")?.addEventListener("click",handleOpenPurchaseOrderClick);
   $("#poOrderedList")?.addEventListener("click",handleOrderedPurchaseOrderClick);
+  $("#poOrderedSearch")?.addEventListener("input",e=>{orderedPurchaseSearchQuery=String(e.target.value||"");renderPurchaseOrders();});
   renderPurchaseOrderBuilder();
 }
 function purchaseOrderDate(value){if(!value)return "—";const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";}
@@ -1184,7 +1238,26 @@ async function deletePurchaseOrder(orderId){if(!confirm("Delete this order? This
 function handleOpenPurchaseOrderClick(e){const edit=e.target.closest('[data-po-edit]');if(edit){editingPurchaseOrderId=edit.dataset.poEdit;renderPurchaseOrderBuilder();switchView("openOrders");window.scrollTo?.({top:0,behavior:"smooth"});return;}const place=e.target.closest('[data-po-place]');if(place){const order=purchaseOrders.find(row=>String(row.id)===String(place.dataset.poPlace));if(!order)return;editingPurchaseOrderId=order.id;renderPurchaseOrderBuilder();submitPurchaseOrder("place");return;}const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
 function handleOrderedPurchaseOrderClick(e){const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
 function purchaseOrderLinesReadOnly(order){return (order.lines||[]).map(row=>`<div class="po-line-readonly"><span><strong>${esc(row.partName)}</strong></span><span>${esc(row.partCode||"No code")}</span><span>× ${esc(row.qty)}</span><span>${money(row.unitPrice)}</span><span>${money((Number(row.qty)||0)*(Number(row.unitPrice)||0))}</span></div>`).join("");}
-function renderPurchaseOrders(){ensurePurchaseOrderUi();const open=purchaseOrders.filter(row=>row.status!=="Ordered").sort((a,b)=>String(b.updatedAt||b.createdAt||"").localeCompare(String(a.updatedAt||a.createdAt||""))),ordered=purchaseOrders.filter(row=>row.status==="Ordered").sort((a,b)=>String(b.orderedAt||"").localeCompare(String(a.orderedAt||"")));if($("#poOpenList"))$("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}">Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;if($("#poOrderedList"))$("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked and cannot be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No placed orders yet.</div>`;const supplier=$("#poSupplierSelect");if(supplier){const current=supplier.value;supplier.innerHTML=purchaseOrderSupplierOptions(current);supplier.value=current;}if($("#poPartNames"))$("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");}
+function renderPurchaseOrders(){
+  ensurePurchaseOrderUi();
+  const open=purchaseOrders.filter(row=>row.status!=="Ordered").sort((a,b)=>String(b.updatedAt||b.createdAt||"").localeCompare(String(a.updatedAt||a.createdAt||"")));
+  const allOrdered=purchaseOrders.filter(row=>row.status==="Ordered").sort((a,b)=>String(b.orderedAt||"").localeCompare(String(a.orderedAt||"")));
+  const query=String(orderedPurchaseSearchQuery||"").trim().toLowerCase();
+  const ordered=query ? allOrdered.filter(order=>{
+    const searchable=[order.orderNo,order.supplier,...(order.lines||[]).flatMap(line=>[line.partName,line.partCode])].join(" ").toLowerCase();
+    return searchable.includes(query);
+  }) : allOrdered;
+
+  if($("#poOpenList")) $("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}">Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;
+
+  if($("#poOrderedSearch") && $("#poOrderedSearch").value!==orderedPurchaseSearchQuery) $("#poOrderedSearch").value=orderedPurchaseSearchQuery;
+  if($("#poOrderedSearchCount")) $("#poOrderedSearchCount").textContent=query?`Showing ${ordered.length} of ${allOrdered.length}`:`${allOrdered.length} order${allOrdered.length===1?"":"s"}`;
+  if($("#poOrderedList")) $("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked and cannot be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">${query?"No ordered purchases match your search.":"No placed orders yet."}</div>`;
+
+  const supplier=$("#poSupplierSelect");
+  if(supplier){const current=supplier.value;supplier.innerHTML=purchaseOrderSupplierOptions(current);supplier.value=current;}
+  if($("#poPartNames")) $("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");
+}
 
 function renderAll() {
   ensureV58Ui();
@@ -1256,7 +1329,7 @@ function downloadExcelReport() {
     excelRow(["Profile",profileContext()]),
     excelRow(["Generated",new Date().toLocaleString("en-GB")]),
     excelRow(["Jobs raised",{value:r.raised,type:"Number"}]), excelRow(["Completed",{value:r.completed,type:"Number"}]), excelRow(["Open now",{value:r.open,type:"Number"}]),
-    excelRow(["Hours this month",{value:r.hours,type:"Number"}]), excelRow([`Parts spend ${appSettings.currency}`,{value:r.spend.toFixed(2),type:"Number"}])
+    excelRow(["Hours this month",{value:r.hours,type:"Number"}]), excelRow([`Parts used ${appSettings.currency}`,{value:r.usedSpend.toFixed(2),type:"Number"}]), excelRow([`Parts ordered ${appSettings.currency}`,{value:r.orderedSpend.toFixed(2),type:"Number"}])
   ];
   const jobsRows=[excelRow(["Job No","Title","Description","Section","Asset ID","Machine","Priority","Status","Date Raised","Target Date","Completion Date","Hours This Month","Lifetime Hours","Assigned To","Pinned",`Parts This Month ${appSettings.currency}`,`Lifetime Parts ${appSettings.currency}`])];
   r.monthJobs.forEach(j=>{const m=machineForJob(j);jobsRows.push(excelRow([j.jobNo,j.title,j.description||"",j.section||inferSection(j.machine),m?.assetId||"",j.machine,j.priority,j.status,j.raised||"",j.target||"",j.completed||"",{value:workHoursThisMonth(j),type:"Number"},{value:jobHours(j),type:"Number"},j.assigned||"",j.pinned?"Yes":"No",{value:spendThisMonth(j).toFixed(2),type:"Number"},{value:jobPartsCost(j).toFixed(2),type:"Number"}]))});
