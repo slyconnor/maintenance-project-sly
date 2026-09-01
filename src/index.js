@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.13";
+const APP_VERSION = "5.9.14";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -1395,6 +1395,20 @@ async function handleApi(request, env, routeOverride = "") {
         requests,
         pendingCount: requests.filter((item) => item.status === "pending" || item.status === "accepting").length
       });
+    }
+
+    if (method === "DELETE" && route === "requests") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const id = Number(new URL(request.url).searchParams.get("id"));
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "Request ID is required." }, 400);
+      const current = await getState(env);
+      const requestRow = await getOperatorRequest(env, id);
+      if (!requestRow) return json({ error: "Operator request not found." }, 404);
+      if (requestRow.status === "accepting") return json({ error: "This request is currently being accepted. Refresh the page and try again." }, 409);
+      await env.DB.prepare("DELETE FROM operator_requests WHERE id = ?").bind(id).run();
+      const requests = await listOperatorRequests(env, current.state);
+      return json({ ok: true, deletedId: id, linkedJobNo: requestRow.linked_job_no || "", requests });
     }
 
     if (method === "POST" && route === "requests/accept") {
