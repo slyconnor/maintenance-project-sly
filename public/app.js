@@ -11,6 +11,7 @@ let archivedSuppliers = [];
 let profiles = [];
 let operatorRequests = [];
 let stockOrders = [];
+let purchaseOrders = [];
 let stockPurchasingTab = "needs";
 let stockTransactions = [];
 let preventiveCategories = [];
@@ -47,6 +48,7 @@ let machineSearchQuery = "";
 let machineSectionFilter = "all";
 let machineStatusFilter = "all";
 let selectedPmCategory = "all";
+let editingPurchaseOrderId = null;
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -125,6 +127,7 @@ function applySharedState(payload) {
   archivedSuppliers = Array.isArray(state.archivedSuppliers) ? state.archivedSuppliers : [];
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
   stockOrders = Array.isArray(state.stockOrders) ? state.stockOrders : [];
+  purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders : [];
   stockTransactions = Array.isArray(state.stockTransactions) ? state.stockTransactions : [];
   preventiveCategories = Array.isArray(state.preventiveCategories) && state.preventiveCategories.length ? state.preventiveCategories : [
     {id:"pmcat-mechanical",name:"Mechanical",active:true},
@@ -730,7 +733,7 @@ function renderTeam() {
 
 function machineUsageCount(machine) { return jobs.filter(j=>jobBelongsToMachine(j,machine)).length; }
 function sectionUsageCount(name) { return machines.filter(m=>m.section===name).length + jobs.filter(j=>j.section===name).length; }
-function supplierUsageCount(name) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.supplier===name).length,0); }
+function supplierUsageCount(name) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.supplier===name).length,0) + purchaseOrders.filter(order=>order.supplier===name).length; }
 function partUsageCount(part) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.name===part.name).length,0); }
 function manageActions(entity, key, archived, used, edit=true) {
   const keyAttr = entity === "machine" || entity === "part" ? `data-id="${esc(key)}"` : `data-key="${esc(key)}"`;
@@ -1062,9 +1065,51 @@ function renderPreventive(){
   const emailBtn=$("#pmEmailNowBtn"),manageBtn=$("#pmManageCategoriesBtn");if(emailBtn)emailBtn.hidden=!signedInIdentity?.admin;if(manageBtn)manageBtn.hidden=!signedInIdentity?.admin;
 }
 
+function ensurePurchaseOrderUi(){
+  document.getElementById("stockPurchasingBlock")?.remove();
+  if(document.getElementById("openOrdersView"))return;
+  const style=document.createElement("style");style.id="purchaseOrderStyles";style.textContent=`
+  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}
+  @media(max-width:900px){.po-line{grid-template-columns:1fr 1fr 90px 1fr}.po-line .po-total-cell{grid-column:1/3}.po-line .po-remove-cell{grid-column:3/5}.po-line .po-remove-cell button{width:100%}.po-line-readonly{grid-template-columns:1fr 1fr 70px 100px}.po-line-readonly span:last-child{grid-column:1/-1;text-align:left}}
+  @media(max-width:560px){.po-card{padding:14px}.po-supplier-row{grid-template-columns:1fr}.po-line{grid-template-columns:1fr 1fr}.po-line .po-name-cell,.po-line .po-code-cell{grid-column:1/-1}.po-line .po-total-cell,.po-line .po-remove-cell{grid-column:auto}.po-line-readonly{grid-template-columns:1fr 1fr}.po-actions{display:grid}.po-actions>div{display:grid}.po-actions button{width:100%}}
+  `;document.head.appendChild(style);
+  const nav=document.getElementById("mainNav");if(nav){const partsBtn=nav.querySelector('[data-view="parts"]');const ref=partsBtn?.nextSibling||nav.querySelector('[data-view="data"]')||null;const open=document.createElement("button");open.type="button";open.className="nav-item";open.dataset.view="openOrders";open.innerHTML=`<span>🧾</span><span>Open Orders</span>`;const ordered=document.createElement("button");ordered.type="button";ordered.className="nav-item";ordered.dataset.view="ordered";ordered.innerHTML=`<span>📦</span><span>Ordered</span>`;nav.insertBefore(open,ref);nav.insertBefore(ordered,ref);}
+  const reference=document.getElementById("dataView")||document.getElementById("reportsView");const parent=reference?.parentElement||document.querySelector("main")||document.body;
+  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-supplier-row"><label>Supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
+  const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div id="poOrderedList" class="po-list"></div>`;
+  if(reference){parent.insertBefore(openView,reference);parent.insertBefore(orderedView,reference);}else{parent.appendChild(openView);parent.appendChild(orderedView);}
+  $("#poNewBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
+  $("#poAddSupplierBtn")?.addEventListener("click",addPurchaseOrderSupplier);
+  $("#poAddLineBtn")?.addEventListener("click",()=>addPurchaseOrderLine());
+  $("#poClearBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
+  $("#poSaveOpenBtn")?.addEventListener("click",()=>submitPurchaseOrder("save"));
+  $("#poPlaceBtn")?.addEventListener("click",()=>submitPurchaseOrder("place"));
+  $("#poLines")?.addEventListener("input",updatePurchaseOrderTotals);
+  $("#poLines")?.addEventListener("change",e=>{const name=e.target.closest('.po-part-name');if(name){const part=activeParts().find(p=>String(p.name).toLowerCase()===String(name.value).trim().toLowerCase());const row=name.closest('.po-line');const code=row?.querySelector('.po-part-code');if(part&&code&&!code.value)code.value=part.partNo||"";}updatePurchaseOrderTotals();});
+  $("#poLines")?.addEventListener("click",e=>{const btn=e.target.closest('[data-po-remove-line]');if(!btn)return;btn.closest('.po-line')?.remove();if(!$("#poLines")?.children.length)addPurchaseOrderLine();updatePurchaseOrderTotals();});
+  $("#poOpenList")?.addEventListener("click",handleOpenPurchaseOrderClick);
+  $("#poOrderedList")?.addEventListener("click",handleOrderedPurchaseOrderClick);
+  renderPurchaseOrderBuilder();
+}
+function purchaseOrderDate(value){if(!value)return "—";const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";}
+function purchaseOrderTotal(order){return (order?.lines||[]).reduce((sum,row)=>sum+(Math.max(1,Number(row.qty)||1)*Math.max(0,Number(row.unitPrice)||0)),0);}
+function purchaseOrderSupplierOptions(selected=""){const values=activeSuppliers().slice().sort((a,b)=>a.localeCompare(b));return `<option value="">Select supplier…</option>${values.map(name=>`<option value="${esc(name)}" ${name===selected?"selected":""}>${esc(name)}</option>`).join("")}`;}
+function addPurchaseOrderLine(data={}){const lines=$("#poLines");if(!lines)return;const row=document.createElement("div");row.className="po-line";row.innerHTML=`<label class="po-name-cell">Part name<input class="po-part-name" list="poPartNames" maxlength="180" value="${esc(data.partName||"")}" placeholder="Bearing 6204" required></label><label class="po-code-cell">Part code<input class="po-part-code" maxlength="120" value="${esc(data.partCode||"")}" placeholder="6204-2RS"></label><label>Qty<input class="po-qty" type="number" min="1" step="1" value="${Math.max(1,Number(data.qty)||1)}"></label><label>Unit price (${currencySymbol()})<input class="po-unit-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label class="po-total-cell">Line total<span class="po-line-total">${money((Number(data.qty)||1)*(Number(data.unitPrice)||0))}</span></label><div class="po-remove-cell"><button type="button" class="btn danger compact" data-po-remove-line>Remove</button></div>`;lines.appendChild(row);updatePurchaseOrderTotals();}
+function collectPurchaseOrderLines(){return $$("#poLines .po-line").map(row=>({partName:String(row.querySelector('.po-part-name')?.value||"").trim(),partCode:String(row.querySelector('.po-part-code')?.value||"").trim(),qty:Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),unitPrice:Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0)})).filter(row=>row.partName);}
+function updatePurchaseOrderTotals(){let grand=0;$$("#poLines .po-line").forEach(row=>{const qty=Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),price=Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0),total=qty*price;grand+=total;const cell=row.querySelector('.po-line-total');if(cell)cell.textContent=money(total);});if($("#poGrandTotal"))$("#poGrandTotal").textContent=money(grand);}
+function renderPurchaseOrderBuilder(){if(!$("#poSupplierSelect"))return;const order=editingPurchaseOrderId?purchaseOrders.find(row=>String(row.id)===String(editingPurchaseOrderId)&&row.status!=="Ordered"):null;if(editingPurchaseOrderId&&!order)editingPurchaseOrderId=null;$("#poSupplierSelect").innerHTML=purchaseOrderSupplierOptions(order?.supplier||"");$("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");$("#poLines").innerHTML="";(order?.lines?.length?order.lines:[{}]).forEach(addPurchaseOrderLine);$("#poBuilderRef").textContent=order?`Editing ${order.orderNo||"open order"}`:"New open order";updatePurchaseOrderTotals();}
+async function addPurchaseOrderSupplier(){const name=prompt("Supplier name:");if(!name?.trim())return;try{const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"supplier",value:name.trim()})});if(payload.state)applySharedState(payload);$("#poSupplierSelect").innerHTML=purchaseOrderSupplierOptions(name.trim());$("#poSupplierSelect").value=name.trim();}catch(error){showSaveError(error);}}
+async function submitPurchaseOrder(action){const supplier=String($("#poSupplierSelect")?.value||"").trim(),lines=collectPurchaseOrderLines();if(!supplier){alert("Choose or add a supplier first.");return;}if(!lines.length){alert("Add at least one part to the order.");return;}const button=action==="place"?$("#poPlaceBtn"):$("#poSaveOpenBtn");const old=button?.textContent;if(button){button.disabled=true;button.textContent=action==="place"?"Placing…":"Saving…";}try{const payload=await saveMutation("/api/purchase-orders",{action,orderId:editingPurchaseOrderId||"",supplier,lines});if(action==="place"){editingPurchaseOrderId=null;renderPurchaseOrderBuilder();switchView("ordered");}else{editingPurchaseOrderId=payload.order?.id||editingPurchaseOrderId;switchView("openOrders");renderPurchaseOrderBuilder();}}catch(error){showSaveError(error);}finally{if(button){button.disabled=false;button.textContent=old;}}}
+async function deletePurchaseOrder(orderId){if(!confirm("Delete this order? This is enabled for testing at the moment."))return;try{const wasEditing=String(editingPurchaseOrderId)===String(orderId);if(wasEditing)editingPurchaseOrderId=null;await saveMutation("/api/purchase-orders",{action:"delete",orderId});if(wasEditing)renderPurchaseOrderBuilder();}catch(error){showSaveError(error);}}
+function handleOpenPurchaseOrderClick(e){const edit=e.target.closest('[data-po-edit]');if(edit){editingPurchaseOrderId=edit.dataset.poEdit;renderPurchaseOrderBuilder();switchView("openOrders");window.scrollTo?.({top:0,behavior:"smooth"});return;}const place=e.target.closest('[data-po-place]');if(place){const order=purchaseOrders.find(row=>String(row.id)===String(place.dataset.poPlace));if(!order)return;editingPurchaseOrderId=order.id;renderPurchaseOrderBuilder();submitPurchaseOrder("place");return;}const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
+function handleOrderedPurchaseOrderClick(e){const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
+function purchaseOrderLinesReadOnly(order){return (order.lines||[]).map(row=>`<div class="po-line-readonly"><span><strong>${esc(row.partName)}</strong></span><span>${esc(row.partCode||"No code")}</span><span>× ${esc(row.qty)}</span><span>${money(row.unitPrice)}</span><span>${money((Number(row.qty)||0)*(Number(row.unitPrice)||0))}</span></div>`).join("");}
+function renderPurchaseOrders(){ensurePurchaseOrderUi();const open=purchaseOrders.filter(row=>row.status!=="Ordered").sort((a,b)=>String(b.updatedAt||b.createdAt||"").localeCompare(String(a.updatedAt||a.createdAt||""))),ordered=purchaseOrders.filter(row=>row.status==="Ordered").sort((a,b)=>String(b.orderedAt||"").localeCompare(String(a.orderedAt||"")));if($("#poOpenList"))$("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}">Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;if($("#poOrderedList"))$("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked and cannot be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No placed orders yet.</div>`;const supplier=$("#poSupplierSelect");if(supplier){const current=supplier.value;supplier.innerHTML=purchaseOrderSupplierOptions(current);supplier.value=current;}if($("#poPartNames"))$("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");}
+
 function renderAll() {
   ensureV58Ui();
   ensurePreventiveUi();
+  ensurePurchaseOrderUi();
   ensureMachineIdentityFields();
   applyUiSettings();
   buildTabs();
@@ -1081,7 +1126,7 @@ function renderAll() {
   renderDowntime();
   renderPreventive();
   renderCurrentDownDashboard();
-  renderStockPurchasing();
+  renderPurchaseOrders();
   renderPickLists();
   bindMonthTabs();
   bindJobEditors();
@@ -1117,6 +1162,7 @@ function switchView(name) {
   if (name==='reports') renderReports();
   if (name==='downtime') renderDowntime();
   if (name==='preventive') renderPreventive();
+  if (name==='openOrders' || name==='ordered') renderPurchaseOrders();
 }
 
 function xmlEsc(v) { return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[c])); }
