@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.4";
+const APP_VERSION = "5.9.8";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -43,6 +43,7 @@ const DEFAULT_STATE = {
   archivedSuppliers: [],
   jobs: [],
   stockOrders: [],
+  purchaseOrders: [],
   stockTransactions: [],
   preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
   preventiveSchedules: [],
@@ -371,6 +372,46 @@ function normalizeMachine(machine) {
   };
 }
 
+function normalizePurchaseOrderLine(line) {
+  const row = line && typeof line === "object" ? line : {};
+  const qty = Math.max(1, Number(row.qty) || 1);
+  const unitPrice = Math.max(0, Number(row.unitPrice) || 0);
+  return {
+    id: String(row.id || crypto.randomUUID()),
+    partName: String(row.partName || "").trim().slice(0, 180),
+    partCode: String(row.partCode || "").trim().slice(0, 120),
+    qty,
+    unitPrice,
+    lineTotal: Math.round(qty * unitPrice * 100) / 100
+  };
+}
+
+function normalizePurchaseOrder(order) {
+  const value = order && typeof order === "object" ? order : {};
+  const lines = (Array.isArray(value.lines) ? value.lines : []).map(normalizePurchaseOrderLine).filter((line) => line.partName);
+  const total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+  return {
+    id: String(value.id || `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
+    orderNo: String(value.orderNo || "").trim().slice(0, 40),
+    supplier: String(value.supplier || "").trim().slice(0, 160),
+    status: String(value.status || "Open") === "Ordered" ? "Ordered" : "Open",
+    lines,
+    total,
+    createdAt: String(value.createdAt || new Date().toISOString()),
+    createdBy: String(value.createdBy || "").trim(),
+    updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString()),
+    orderedAt: String(value.orderedAt || ""),
+    orderedBy: String(value.orderedBy || "").trim()
+  };
+}
+
+function nextPurchaseOrderNumber(state) {
+  const year = new Date().getFullYear();
+  const rx = new RegExp(`^PO-${year}-(\\d+)$`, "i");
+  const nums = (state.purchaseOrders || []).map((row) => Number(String(row.orderNo || "").match(rx)?.[1])).filter(Number.isFinite);
+  return `PO-${year}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
+}
+
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
@@ -385,6 +426,7 @@ function normalizeState(input) {
     archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
+    purchaseOrders: Array.isArray(s.purchaseOrders) ? s.purchaseOrders.map(normalizePurchaseOrder).slice(-1000) : [],
     stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : [],
     preventiveCategories: (Array.isArray(s.preventiveCategories) ? s.preventiveCategories : DEFAULT_PM_CATEGORIES)
       .map(normalizePreventiveCategory)
@@ -1716,6 +1758,78 @@ async function handleApi(request, env, routeOverride = "") {
     }
 
 
+    if (method === "POST" && route === "purchase-orders") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `purchase.order.${action}`, async (state) => {
+        state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
+        const supplier = String(body.supplier || "").trim().slice(0, 160);
+        const rawLines = Array.isArray(body.lines) ? body.lines : [];
+        const lines = rawLines.map(normalizePurchaseOrderLine).filter((line) => line.partName);
+        if (["save", "place"].includes(action)) {
+          if (!supplier) throw new Error("Choose or add a supplier first.");
+          if (!lines.length) throw new Error("Add at least one part to the order.");
+          ensureUniqueString(state.suppliers, supplier);
+        }
+        let order = state.purchaseOrders.find((row) => String(row.id) === String(body.orderId || ""));
+        if (action === "save") {
+          if (order && order.status === "Ordered") throw new Error("Placed orders are read-only.");
+          if (!order) {
+            order = normalizePurchaseOrder({
+              id: `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+              orderNo: nextPurchaseOrderNumber(state),
+              supplier,
+              status: "Open",
+              lines,
+              createdAt: new Date().toISOString(),
+              createdBy: auth.identity.email || ""
+            });
+            state.purchaseOrders.push(order);
+          } else {
+            order.supplier = supplier;
+            order.lines = lines;
+            order.total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+            order.updatedAt = new Date().toISOString();
+          }
+          return { order };
+        }
+        if (action === "place") {
+          if (order && order.status === "Ordered") throw new Error("This order has already been placed.");
+          if (!order) {
+            order = normalizePurchaseOrder({
+              id: `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+              orderNo: nextPurchaseOrderNumber(state),
+              supplier,
+              status: "Open",
+              lines,
+              createdAt: new Date().toISOString(),
+              createdBy: auth.identity.email || ""
+            });
+            state.purchaseOrders.push(order);
+          } else {
+            order.supplier = supplier;
+            order.lines = lines;
+            order.total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+          }
+          order.status = "Ordered";
+          order.orderedAt = new Date().toISOString();
+          order.orderedBy = auth.identity.email || "";
+          order.updatedAt = order.orderedAt;
+          return { order };
+        }
+        if (action === "delete") {
+          if (!order) throw new Error("Order not found.");
+          const idx = state.purchaseOrders.findIndex((row) => String(row.id) === String(order.id));
+          if (idx >= 0) state.purchaseOrders.splice(idx, 1);
+          return { orderId: order.id, deleted: true };
+        }
+        throw new Error("Unknown purchase order action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
     if (method === "POST" && route === "stock/orders") {
       const auth = await requireUser(request, env, { human: true });
       if (!auth.ok) return auth.response;
@@ -1959,6 +2073,7 @@ async function handleApi(request, env, routeOverride = "") {
             state.suppliers = state.suppliers.map((s) => s === oldName ? name : s).sort((a,b)=>a.localeCompare(b));
             state.archivedSuppliers = state.archivedSuppliers.map((s) => s === oldName ? name : s);
             for (const job of state.jobs) for (const part of (job.parts || [])) if (part.supplier === oldName) part.supplier = name;
+            for (const order of (state.purchaseOrders || [])) if (order.supplier === oldName) order.supplier = name;
             return { oldName, name };
           }
           if (action === "archive") {
@@ -1970,8 +2085,8 @@ async function handleApi(request, env, routeOverride = "") {
             return { name: oldName, archived: false };
           }
           if (action === "delete") {
-            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName));
-            if (used) throw new Error("This supplier appears in historical parts records, so it cannot be permanently deleted. Archive it instead.");
+            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName)) || (state.purchaseOrders || []).some((order) => order.supplier === oldName);
+            if (used) throw new Error("This supplier appears in historical parts or purchase-order records, so it cannot be permanently deleted. Archive it instead.");
             state.suppliers = state.suppliers.filter((s) => s !== oldName);
             state.archivedSuppliers = state.archivedSuppliers.filter((s) => s !== oldName);
             return { name: oldName, deleted: true };
