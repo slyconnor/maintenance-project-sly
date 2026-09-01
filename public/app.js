@@ -36,6 +36,7 @@ let selectedMachineId = null;
 let selectedProfileId = "all"; // Cloudflare login proves access; profile choice is only a filter.
 let machineDetailTab = "overview";
 let partRowCounter = 0;
+let orderedPartRowCounter = 0;
 let timeRowCounter = 0;
 let editingJobNo = null;
 let pendingJobFiles = [];
@@ -371,12 +372,24 @@ function currentDownJobs(){return jobs.filter(j=>j.downtimeStopped===true&&j.dow
 function ensureV58Ui(){
   if(document.getElementById("downtimeView"))return;
   const style=document.createElement("style");style.id="v58Styles";style.textContent=`
-  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,.45fr) minmax(140px,.38fr);gap:9px;margin:0 0 10px}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.stock-order-nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stock-order-tab{border:1px solid #cfd6e1;background:#fff;color:#344054;border-radius:999px;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}.stock-order-tab.active{background:#101828;color:#fff;border-color:#101828}.stock-order-tab span{opacity:.72;font-size:.78rem;margin-left:5px}.stock-order-panel[hidden]{display:none}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}.machine-tooling-editor{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:12px;padding:14px;background:var(--card,#fff)}.machine-tooling-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.machine-tooling-head small{display:block;color:#667085;margin-top:3px}.machine-tooling-rows{display:grid;gap:9px}.machine-tooling-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.3fr) auto;gap:8px;align-items:end}.machine-tooling-row label{min-width:0}.machine-tooling-row input{width:100%;min-width:0}.machine-tooling-empty{color:#667085;font-size:.82rem;padding:5px 0}.machine-tooling-overview{margin:14px 0;border:1px solid #e2e7ef;border-radius:12px;padding:14px}.machine-tooling-overview h3{margin:0 0 10px}.machine-tooling-list{display:grid;gap:8px}.machine-tooling-item{padding:9px 10px;border:1px solid #e6eaf0;border-radius:9px}.machine-tooling-item small{display:block;color:#667085;margin-top:3px}
+  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(220px,1fr) minmax(150px,.45fr) minmax(140px,.38fr);gap:9px;margin:0 0 10px}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.stock-order-nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stock-order-tab{border:1px solid #cfd6e1;background:#fff;color:#344054;border-radius:999px;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}.stock-order-tab.active{background:#101828;color:#fff;border-color:#101828}.stock-order-tab span{opacity:.72;font-size:.78rem;margin-left:5px}.stock-order-panel[hidden]{display:none}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}.machine-tooling-editor{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:12px;padding:14px;background:var(--card,#fff)}.machine-tooling-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.machine-tooling-head small{display:block;color:#667085;margin-top:3px}.machine-tooling-rows{display:grid;gap:9px}.machine-tooling-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.3fr) auto;gap:8px;align-items:end}.machine-tooling-row label{min-width:0}.machine-tooling-row input{width:100%;min-width:0}.machine-tooling-empty{color:#667085;font-size:.82rem;padding:5px 0}.machine-tooling-overview{margin:14px 0;border:1px solid #e2e7ef;border-radius:12px;padding:14px}.machine-tooling-overview h3{margin:0 0 10px}.machine-tooling-list{display:grid;gap:8px}.machine-tooling-item{padding:9px 10px;border:1px solid #e6eaf0;border-radius:9px}.machine-tooling-item small{display:block;color:#667085;margin-top:3px}.job-ordered-parts-section{margin:18px 0 22px;padding:14px;border:1px solid #dfe4ec;border-radius:12px;background:var(--card,#fff)}.job-ordered-parts-section h3{margin:0 0 6px}.job-ordered-parts-section>p{margin:0 0 12px;color:#667085;font-size:.86rem}.job-ordered-parts-section .price-note{margin-top:8px}
   @media(max-width:900px){.v58-grid{grid-template-columns:1fr 1fr}.v58-two{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:140px 1fr}.v58-pie{width:140px;height:140px}.v58-form-grid{grid-template-columns:1fr}.machine-list-controls{grid-template-columns:1fr 1fr}.machine-list-controls .machine-search-wrap{grid-column:1/-1}}@media(max-width:520px){.v58-grid{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:1fr}.v58-pie{margin:auto}.machine-list-controls{grid-template-columns:1fr}.machine-list-controls .machine-search-wrap{grid-column:auto}.machine-tooling-head{align-items:flex-start}.machine-tooling-row{grid-template-columns:1fr}.machine-tooling-row button{width:100%}}}
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const b=document.createElement("button");b.type="button";b.className="nav-item";b.dataset.view="downtime";b.innerHTML=`<span>⏱</span><span>Downtime</span>`;const report=nav.querySelector('[data-view="reports"]');nav.insertBefore(b,report||null);}
   const main=document.querySelector("main")||document.body;const reference=document.getElementById("reportsView");const viewParent=reference?.parentNode||main;const view=document.createElement("section");view.id="downtimeView";view.className="view";view.innerHTML=`<div class="view-head"><div><h1>Downtime</h1><p id="downtimeSubtitle">Production downtime by section and machine.</p></div></div><div class="v58-card"><div class="v58-controls"><label>Range<select id="downtimeRangeMode"><option value="selected-month">Selected month</option><option value="this-month">This month</option><option value="last-month">Last month</option><option value="this-year">This year</option><option value="custom">Custom dates</option></select></label><label class="v58-custom-date" hidden>From<input id="downtimeCustomStart" type="date"></label><label class="v58-custom-date" hidden>To<input id="downtimeCustomEnd" type="date"></label><button type="button" class="btn secondary compact" id="downtimeRefreshBtn">Refresh</button></div></div><div class="v58-grid"><div class="v58-kpi"><span>Total downtime</span><strong id="downtimeTotal">0m</strong></div><div class="v58-kpi"><span>Machines currently down</span><strong id="downtimeCurrent">0</strong></div><div class="v58-kpi"><span>Worst section</span><strong id="downtimeWorstSection">—</strong></div><div class="v58-kpi"><span>Worst machine</span><strong id="downtimeWorstMachine">—</strong></div></div><div id="downtimeCurrentCard" class="v58-card v58-down" hidden><h2>Currently down</h2><div id="downtimeCurrentList" class="v58-down-list"></div></div><div class="v58-two"><div class="v58-card"><h2>Downtime by section</h2><div class="v58-pie-wrap"><div id="downtimeSectionPie" class="v58-pie"></div><div id="downtimeSectionLegend"></div></div></div><div class="v58-card"><h2>Downtime by machine</h2><div class="v58-pie-wrap"><div id="downtimeMachinePie" class="v58-pie"></div><div id="downtimeMachineLegend"></div></div></div></div><div class="v58-card"><h2>Downtime detail</h2><div class="table-wrap"><table><thead><tr><th>Machine</th><th>Section</th><th>Job</th><th>Start</th><th>End</th><th>Downtime in range</th><th>Action</th></tr></thead><tbody id="downtimeBody"></tbody></table></div></div>`;if(reference)viewParent.insertBefore(view,reference);else viewParent.appendChild(view);
   const dashboard=document.getElementById("dashboardView");if(dashboard){const card=document.createElement("div");card.id="dashboardCurrentDown";card.className="v58-card v58-alert";card.hidden=true;dashboard.insertBefore(card,dashboard.firstElementChild?.nextSibling||dashboard.firstChild);}
+  const jobFormForOrdered=document.getElementById("jobForm");
+  if(jobFormForOrdered&&!document.getElementById("partsOrderedEditor")){
+    const orderedSection=document.createElement("section");
+    orderedSection.id="jobPartsOrderedSection";
+    orderedSection.className="job-ordered-parts-section";
+    orderedSection.innerHTML=`<h3>Parts ordered (optional)</h3><p>Record parts ordered specifically for this job. These quantities are for the job record only and do not reduce stock.</p><div id="partsOrderedEditor"></div><button type="button" class="btn secondary compact" id="addOrderedPartRowBtn">＋ Add ordered part</button>`;
+    const usedHeading=[...jobFormForOrdered.querySelectorAll("h2,h3,h4")].find(el=>/^Parts used/i.test(String(el.textContent||"").trim()));
+    const usedEditor=document.getElementById("partsEditor");
+    if(usedHeading?.parentNode)usedHeading.parentNode.insertBefore(orderedSection,usedHeading);
+    else if(usedEditor?.parentNode)usedEditor.parentNode.insertBefore(orderedSection,usedEditor);
+    else jobFormForOrdered.appendChild(orderedSection);
+  }
   const parts=document.getElementById("partsView");if(parts){const block=document.createElement("div");block.id="stockPurchasingBlock";block.className="v58-order-card";block.innerHTML=`<div class="v58-card"><div class="history-heading"><div><h2>Purchasing</h2><p>Build orders, place them when ready, then receive stock against placed orders.</p></div></div><div class="stock-order-nav" id="stockOrderNav"><button type="button" class="stock-order-tab" data-stock-order-tab="needs">Needs ordering <span id="needsOrderingCount">0</span></button><button type="button" class="stock-order-tab" data-stock-order-tab="open">Open orders <span id="openOrdersCount">0</span></button><button type="button" class="stock-order-tab" data-stock-order-tab="ordered">Ordered <span id="orderedOrdersCount">0</span></button><button type="button" class="stock-order-tab" data-stock-order-tab="movements">Stock movements</button></div><div class="v58-order-tabs"><div class="stock-order-panel" data-stock-order-panel="needs"><h3>Needs ordering</h3><p class="v58-mini-note">Create an open order here. It will not count as placed until you press <strong>Place order</strong>.</p><div class="table-wrap"><table><thead><tr><th>Part</th><th>Stock</th><th>Minimum</th><th>Already open / ordered</th><th>Preferred supplier</th><th></th></tr></thead><tbody id="needsOrderingBody"></tbody></table></div></div><div class="stock-order-panel" data-stock-order-panel="open"><h3>Open orders</h3><p class="v58-mini-note">Draft orders waiting to be placed.</p><div class="table-wrap"><table><thead><tr><th>Created</th><th>Part</th><th>Supplier</th><th>Qty</th><th>Expected</th><th>Status</th><th></th></tr></thead><tbody id="openOrdersBody"></tbody></table></div></div><div class="stock-order-panel" data-stock-order-panel="ordered"><h3>Ordered</h3><p class="v58-mini-note">Orders that have been placed and are waiting for delivery.</p><div class="table-wrap"><table><thead><tr><th>Placed</th><th>Part</th><th>Supplier</th><th>Ordered</th><th>Received</th><th>Remaining</th><th>Status</th><th></th></tr></thead><tbody id="orderedOrdersBody"></tbody></table></div></div><div class="stock-order-panel" data-stock-order-panel="movements"><h3>Recent stock movements</h3><div class="table-wrap"><table><thead><tr><th>Date</th><th>Part</th><th>Movement</th><th>Quantity</th><th>Balance</th><th>Reference</th></tr></thead><tbody id="stockTransactionsBody"></tbody></table></div></div></div></div>`;parts.appendChild(block);}
   const jobForm=document.getElementById("jobForm");if(jobForm){const box=document.createElement("div");box.className="v58-downtime-editor";box.id="jobDowntimeEditor";box.innerHTML=`<h3>Machine downtime</h3><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="downtimeStopped" id="jobDowntimeStopped"> Machine stopped / production lost</label><div class="v58-form-grid" id="jobDowntimeFields"><label>Downtime started<input type="datetime-local" name="downtimeStart" id="jobDowntimeStart"></label><label>Back in production<input type="datetime-local" name="downtimeEnd" id="jobDowntimeEnd"></label></div><div class="v58-inline-actions"><button type="button" class="btn secondary compact" id="downtimeStartNowBtn">Start now</button><button type="button" class="btn secondary compact" id="downtimeEndNowBtn">Back in production now</button></div><p class="v58-mini-note">Leave the end time blank while the machine is still down. Downtime reports calculate the live duration automatically.</p>`;const anchor=jobForm.querySelector(".dialog-actions,.form-actions,.modal-actions");jobForm.insertBefore(box,anchor||null);}
   const stockForm=document.getElementById("stockForm");if(stockForm){const anchor=stockForm.querySelector(".dialog-actions,.form-actions,.modal-actions");if(!stockForm.elements.partNo){const identity=document.createElement("div");identity.className="v58-form-grid";identity.id="stockPartIdentity";identity.innerHTML=`<label>Part number<input name="partNo" id="stockEditablePartNumber" maxlength="100" placeholder="Optional"></label>`;stockForm.insertBefore(identity,anchor||null);}const extra=document.createElement("div");extra.className="v58-form-grid";extra.id="stockPurchasingDefaults";extra.innerHTML=`<label>Preferred supplier<input name="preferredSupplier" id="stockPreferredSupplier" list="v58SupplierList" placeholder="Optional"></label><label>Default reorder quantity<input name="reorderQty" id="stockReorderQty" type="number" min="1" step="1" value="1"></label><datalist id="v58SupplierList"></datalist>`;stockForm.insertBefore(extra,anchor||null);}
@@ -889,10 +902,22 @@ function updatePartRowStockNote(row) {
 function addPartRow(data={}) {
   partRowCounter += 1;
   const row = document.createElement("div");
-  row.className = "part-entry";
+  row.className = "part-entry part-used-entry";
   row.dataset.partRow = String(partRowCounter);
-  row.innerHTML = `<div class="part-entry-head"><strong>Part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity ordered<input class="part-ordered-qty" type="number" min="0" step="1" value="${data.orderedQty!==undefined&&Number(data.orderedQty)>0?esc(data.orderedQty):""}" placeholder="0" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Ordered quantity is recorded against the job for reference. Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
+  row.innerHTML = `<div class="part-entry-head"><strong>Used part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
   $("#partsEditor").appendChild(row);
+  const selected = partCatalog.find(p=>p.id===data.partId);
+  if (selected) row.querySelector('.part-number').value = selected.partNo || "";
+  updatePartRowStockNote(row);
+}
+
+function addOrderedPartRow(data={}) {
+  orderedPartRowCounter += 1;
+  const row = document.createElement("div");
+  row.className = "part-entry part-ordered-entry";
+  row.dataset.orderedPartRow = String(orderedPartRowCounter);
+  row.innerHTML = `<div class="part-entry-head"><strong>Ordered part ${orderedPartRowCounter}</strong><button type="button" class="remove-ordered-part-btn" title="Remove ordered part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity ordered<input class="part-ordered-qty" type="number" min="0" step="1" value="${data.orderedQty!==undefined?Math.max(0,Number(data.orderedQty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date ordered<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">This records what was ordered for the job. It does <strong>not</strong> change stock. Stock only changes when parts are received through ordering or recorded as used.</div><div class="part-stock-note"></div>`;
+  $("#partsOrderedEditor")?.appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
   if (selected) row.querySelector('.part-number').value = selected.partNo || "";
   updatePartRowStockNote(row);
@@ -902,30 +927,57 @@ function refreshAllPartRowOptions() {
   $$('.part-entry').forEach(row=>{
     const partSel = row.querySelector('.part-select');
     const supplierSel = row.querySelector('.supplier-select');
+    if(!partSel||!supplierSel)return;
     const p = partSel.value, s = supplierSel.value;
     partSel.innerHTML = partOptions(p);
     supplierSel.innerHTML = supplierOptions(s);
   });
 }
 
-function collectPartsFromEditor() {
+function collectUsedPartsFromEditor() {
   const result = [];
-  for (const row of $$('.part-entry')) {
-    const partId = row.querySelector('.part-select').value;
+  for (const row of $$('#partsEditor .part-entry')) {
+    const partId = row.querySelector('.part-select')?.value || "";
+    if (!partId || partId.startsWith('__')) continue;
+    const catalogPart = partCatalog.find(p=>p.id===partId);
+    if (!catalogPart) continue;
+    const qty = Math.max(0, Number(row.querySelector('.part-qty')?.value)||0);
+    if (qty === 0) continue;
+    const priceRaw = row.querySelector('.part-price')?.value ?? "";
+    if (priceRaw === "") { alert(`Enter the current unit price for ${catalogPart.name}.`); row.querySelector('.part-price')?.focus(); return null; }
+    const unitPrice = Math.max(0, Number(priceRaw)||0);
+    const supplier = row.querySelector('.supplier-select')?.value || "";
+    const date = row.querySelector('.part-date')?.value || "";
+    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",orderedQty:0,qty,unitPrice,supplier,date});
+  }
+  return result;
+}
+
+function collectOrderedPartsFromEditor() {
+  const result = [];
+  for (const row of $$('#partsOrderedEditor .part-entry')) {
+    const partId = row.querySelector('.part-select')?.value || "";
     if (!partId || partId.startsWith('__')) continue;
     const catalogPart = partCatalog.find(p=>p.id===partId);
     if (!catalogPart) continue;
     const orderedQty = Math.max(0, Number(row.querySelector('.part-ordered-qty')?.value)||0);
-    const qty = Math.max(0, Number(row.querySelector('.part-qty').value)||0);
-    if (orderedQty === 0 && qty === 0) continue;
-    const priceRaw = row.querySelector('.part-price').value;
-    if (priceRaw === "") { alert(`Enter the current unit price for ${catalogPart.name}.`); row.querySelector('.part-price').focus(); return null; }
+    if (orderedQty === 0) continue;
+    const priceRaw = row.querySelector('.part-price')?.value ?? "";
+    if (priceRaw === "") { alert(`Enter the current unit price for ${catalogPart.name}.`); row.querySelector('.part-price')?.focus(); return null; }
     const unitPrice = Math.max(0, Number(priceRaw)||0);
-    const supplier = row.querySelector('.supplier-select').value;
-    const date = row.querySelector('.part-date').value;
-    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",orderedQty,qty,unitPrice,supplier,date});
+    const supplier = row.querySelector('.supplier-select')?.value || "";
+    const date = row.querySelector('.part-date')?.value || "";
+    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",orderedQty,qty:0,unitPrice,supplier,date});
   }
   return result;
+}
+
+function collectPartsFromEditor() {
+  const ordered = collectOrderedPartsFromEditor();
+  if (ordered===null) return null;
+  const used = collectUsedPartsFromEditor();
+  if (used===null) return null;
+  return [...ordered,...used];
 }
 
 function addTimeRow(data={}) {
@@ -1333,6 +1385,7 @@ async function openJob(jobNo=null) {
   const job=jobNo?jobs.find(j=>j.jobNo===jobNo):null;
   renderSectionSelects();
   $("#partsEditor").innerHTML=""; partRowCounter=0;
+  if($("#partsOrderedEditor")) $("#partsOrderedEditor").innerHTML=""; orderedPartRowCounter=0;
   $("#timeEditor").innerHTML=""; timeRowCounter=0;
   const deleteBtn=$("#deleteJobBtn");
   if (job) {
@@ -1358,8 +1411,12 @@ async function openJob(jobNo=null) {
     renderAssignedSelect(job.assigned||"");
     (job.timeEntries||[]).forEach(t=>addTimeRow(t));
     if (!(job.timeEntries||[]).length) addTimeRow({date:job.raised||defaultFormDate()});
-    (job.parts||[]).forEach(p=>addPartRow({partId:catalogPartId(p),partNo:p.partNo||"",orderedQty:p.orderedQty,qty:p.qty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
-    if (!(job.parts||[]).length) addPartRow({date:job.raised||defaultFormDate()});
+    const orderedParts=(job.parts||[]).filter(p=>partOrderedQty(p)>0);
+    const usedParts=(job.parts||[]).filter(p=>(Number(p.qty)||0)>0);
+    orderedParts.forEach(p=>addOrderedPartRow({partId:catalogPartId(p),partNo:p.partNo||"",orderedQty:p.orderedQty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
+    usedParts.forEach(p=>addPartRow({partId:catalogPartId(p),partNo:p.partNo||"",qty:p.qty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
+    if (!orderedParts.length) addOrderedPartRow({date:job.raised||defaultFormDate()});
+    if (!usedParts.length) addPartRow({date:job.raised||defaultFormDate()});
   } else {
     $("#jobDialogTitle").textContent="Add maintenance job";
     $("#jobDialogSubtitle").textContent="Job number is created automatically but can be changed before saving.";
@@ -1375,6 +1432,7 @@ async function openJob(jobNo=null) {
     form.elements.raised.value=defaultFormDate();
     if($("#jobDowntimeStopped")){ $("#jobDowntimeStopped").checked=false; $("#jobDowntimeStart").value=""; $("#jobDowntimeEnd").value=""; setDowntimeFieldsEnabled(); }
     addTimeRow({date:defaultFormDate()});
+    addOrderedPartRow({date:defaultFormDate()});
     addPartRow({date:defaultFormDate()});
   }
   jobDialog.showModal();
@@ -1421,8 +1479,10 @@ $("#jobMachineSelect").addEventListener("change",async e=>{
 $("#addTimeRowBtn").addEventListener("click",()=>addTimeRow({date:$("#jobForm").elements.raised.value||defaultFormDate()}));
 $("#timeEditor").addEventListener("click",e=>{ const b=e.target.closest('.remove-time-btn'); if(b)b.closest('.time-entry').remove(); });
 $("#addPartRowBtn").addEventListener("click",()=>addPartRow({date:$("#jobForm").elements.raised.value || defaultFormDate()}));
+$("#addOrderedPartRowBtn")?.addEventListener("click",()=>addOrderedPartRow({date:$("#jobForm").elements.raised.value || defaultFormDate()}));
 $("#partsEditor").addEventListener("click",e=>{ const remove=e.target.closest('.remove-part-btn'); if(remove)remove.closest('.part-entry').remove(); });
-$("#partsEditor").addEventListener("change",async e=>{
+$("#partsOrderedEditor")?.addEventListener("click",e=>{ const remove=e.target.closest('.remove-ordered-part-btn'); if(remove)remove.closest('.part-entry').remove(); });
+async function handleJobPartEditorChange(e){
   const row=e.target.closest('.part-entry'); if(!row)return;
   if (e.target.classList.contains('part-select')) {
     if (e.target.value === "__add_part__") {
@@ -1441,7 +1501,9 @@ $("#partsEditor").addEventListener("change",async e=>{
     try { const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false}); const saved=payload.value||name.trim();refreshAllPartRowOptions();row.querySelector('.supplier-select').value=saved; }
     catch(error){e.target.value="";showSaveError(error);}
   }
-});
+}
+$("#partsEditor").addEventListener("change",handleJobPartEditorChange);
+$("#partsOrderedEditor")?.addEventListener("change",handleJobPartEditorChange);
 
 $("#deleteJobBtn").addEventListener("click",async()=>{
   if(!editingJobNo)return;
