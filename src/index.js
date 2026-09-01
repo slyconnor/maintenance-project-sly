@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.1";
+const APP_VERSION = "5.9.4";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -348,6 +348,29 @@ function normalizePreventiveHistory(row) {
   };
 }
 
+function normalizeMachineTooling(value) {
+  const rows = Array.isArray(value) ? value : (typeof value === "string" && value.trim() ? [{ name: value }] : []);
+  return rows.map((item) => {
+    const source = item && typeof item === "object" ? item : { name: item };
+    return {
+      name: String(source.name || source.number || source.tooling || "").trim().slice(0, 160),
+      description: String(source.description || source.notes || "").trim().slice(0, 300)
+    };
+  }).filter((item) => item.name).slice(0, 100);
+}
+
+function normalizeMachine(machine) {
+  const m = machine && typeof machine === "object" ? { ...machine } : {};
+  const manufacturer = String(m.manufacturer || m.make || "").trim().slice(0, 160);
+  return {
+    ...m,
+    assetNumber: String(m.assetNumber || "").trim().slice(0, 100),
+    manufacturer,
+    make: manufacturer,
+    tooling: normalizeMachineTooling(m.tooling)
+  };
+}
+
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
@@ -356,7 +379,7 @@ function normalizeState(input) {
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
     archivedSections: Array.isArray(s.archivedSections) ? s.archivedSections : [],
-    machines: Array.isArray(s.machines) ? s.machines : [],
+    machines: Array.isArray(s.machines) ? s.machines.map(normalizeMachine) : [],
     partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog.map(normalizeCatalogPart) : [normalizeCatalogPart({ id: "p-anvil", name: "Anvil", partNo: "", active: true })],
     suppliers: Array.isArray(s.suppliers) ? s.suppliers : [],
     archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
@@ -1765,6 +1788,7 @@ async function handleApi(request, env, routeOverride = "") {
       machine.section = String(machine.section || "").trim();
       machine.manufacturer = String(machine.manufacturer || machine.make || "").trim().slice(0, 160);
       machine.make = machine.manufacturer;
+      machine.tooling = normalizeMachineTooling(machine.tooling);
       if (!machine.assetId || !machine.name || !machine.section) return json({ error: "Machine number, machine name and section are required." }, 400);
       const outcome = await mutateState(env, auth.identity, "machine.create", async (state) => {
         if (state.machines.some((m) => String(m.assetId).toLowerCase() === machine.assetId.toLowerCase())) throw new Error("That machine number already exists.");
@@ -1835,6 +1859,7 @@ async function handleApi(request, env, routeOverride = "") {
             const name = String(next.name || "").trim();
             const section = String(next.section || "").trim();
             const manufacturer = String(next.manufacturer || next.make || "").trim().slice(0, 160);
+            const tooling = normalizeMachineTooling(next.tooling);
             if (!assetId || !name || !section) throw new Error("Machine number, machine name and section are required.");
             if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That machine number already exists.");
             if (assetNumber && state.machines.some((m) => m.id !== machine.id && String(m.assetNumber || "").toLowerCase() === assetNumber.toLowerCase())) throw new Error("That asset number already exists.");
@@ -1853,7 +1878,8 @@ async function handleApi(request, env, routeOverride = "") {
               purchaseDate: String(next.purchaseDate || "").trim(),
               installDate: String(next.installDate || "").trim(),
               purchaseCost: next.purchaseCost === "" || next.purchaseCost == null ? null : Math.max(0, Number(next.purchaseCost) || 0),
-              notes: String(next.notes || "").trim()
+              notes: String(next.notes || "").trim(),
+              tooling
             });
             for (const job of state.jobs) {
               const linkedById = String(job.machineId || "") === String(machine.id);
