@@ -1760,11 +1760,15 @@ async function handleApi(request, env, routeOverride = "") {
       const body = await bodyJson(request);
       const machine = { ...(body.machine || {}) };
       machine.assetId = String(machine.assetId || "").trim();
+      machine.assetNumber = String(machine.assetNumber || "").trim().slice(0, 100);
       machine.name = String(machine.name || "").trim();
       machine.section = String(machine.section || "").trim();
-      if (!machine.assetId || !machine.name || !machine.section) return json({ error: "Asset ID, machine name and section are required." }, 400);
+      machine.manufacturer = String(machine.manufacturer || machine.make || "").trim().slice(0, 160);
+      machine.make = machine.manufacturer;
+      if (!machine.assetId || !machine.name || !machine.section) return json({ error: "Machine number, machine name and section are required." }, 400);
       const outcome = await mutateState(env, auth.identity, "machine.create", async (state) => {
-        if (state.machines.some((m) => String(m.assetId).toLowerCase() === machine.assetId.toLowerCase())) throw new Error("That asset ID already exists.");
+        if (state.machines.some((m) => String(m.assetId).toLowerCase() === machine.assetId.toLowerCase())) throw new Error("That machine number already exists.");
+        if (machine.assetNumber && state.machines.some((m) => String(m.assetNumber || "").toLowerCase() === machine.assetNumber.toLowerCase())) throw new Error("That asset number already exists.");
         ensureUniqueString(state.sections, machine.section);
         machine.id = machine.id || `m-${slug(machine.assetId)}-${Date.now()}`;
         machine.status = machine.status || "Active";
@@ -1827,18 +1831,23 @@ async function handleApi(request, env, routeOverride = "") {
             const oldSection = machine.section;
             const next = { ...(body.machine || {}) };
             const assetId = String(next.assetId || "").trim();
+            const assetNumber = String(next.assetNumber || "").trim().slice(0, 100);
             const name = String(next.name || "").trim();
             const section = String(next.section || "").trim();
-            if (!assetId || !name || !section) throw new Error("Asset ID, machine name and section are required.");
-            if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That asset ID already exists.");
+            const manufacturer = String(next.manufacturer || next.make || "").trim().slice(0, 160);
+            if (!assetId || !name || !section) throw new Error("Machine number, machine name and section are required.");
+            if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That machine number already exists.");
+            if (assetNumber && state.machines.some((m) => m.id !== machine.id && String(m.assetNumber || "").toLowerCase() === assetNumber.toLowerCase())) throw new Error("That asset number already exists.");
             ensureUniqueString(state.sections, section);
             Object.assign(machine, {
               assetId,
+              assetNumber,
               name,
               section,
               category: String(next.category || section).trim() || section,
               location: String(next.location || "").trim(),
-              make: String(next.make || "").trim(),
+              manufacturer,
+              make: manufacturer,
               model: String(next.model || "").trim(),
               serialNumber: String(next.serialNumber || "").trim(),
               purchaseDate: String(next.purchaseDate || "").trim(),
