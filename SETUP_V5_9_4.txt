@@ -1,0 +1,31 @@
+Maintenance Manager v5.9.4 — Machine Tooling
+
+CHANGED FILES FROM v5.9.3
+- public/app.js
+- src/index.js
+
+WHAT IS NEW
+- Machines can now have zero, one, or many tooling entries.
+- Each tooling entry has a Tooling name / number and an optional description.
+- Use “+ Add tooling” in Add/Edit Machine to add additional tooling rows.
+- Individual tooling rows can be removed before saving.
+- Tooling is shown on the machine Overview page.
+- The Machines search and the global search now search tooling names/numbers and descriptions.
+- Existing machines remain compatible and simply start with no tooling recorded.
+
+DEPLOYMENT
+1. Replace public/app.js with the file in this package.
+2. Replace src/index.js with the file in this package.
+3. Commit/push and allow the normal Cloudflare deployment to complete.
+
+CLOUDFLARE / DATABASE
+- No Cloudflare dashboard changes are required.
+- No D1 migration is required. Tooling is stored with the existing machine record in shared application state.
+
+QUICK TEST
+1. Open Machines and edit a machine.
+2. Press “+ Add tooling” twice.
+3. Enter two tooling names/numbers (for example T-101 and T-102) and optional descriptions.
+4. Save the machine.
+5. Confirm both tooling entries appear on the machine Overview.
+6. Search the Machines list using one of the tooling numbers and confirm the machine is returned.
