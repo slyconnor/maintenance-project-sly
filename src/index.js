@@ -1700,6 +1700,29 @@ async function handleApi(request, env, routeOverride = "") {
           return { id: schedule.id, active: schedule.active };
         }
 
+        if (action === "history-delete") {
+          if (!isAdmin(auth.identity, env)) throw new Error("Only an admin can delete preventive-maintenance history.");
+          const id = String(body.id || "").trim();
+          let index = state.preventiveHistory.findIndex((item) => String(item.id) === id);
+          // Older imported history rows may not have had a persisted id. Fall back to the
+          // visible row details so admins can still remove duplicate/test records safely.
+          if (index < 0) {
+            const scheduleId = String(body.scheduleId || "");
+            const completedAt = String(body.completedAt || "");
+            const dueDate = cleanDateOnly(body.dueDate);
+            const title = String(body.title || "");
+            index = state.preventiveHistory.findIndex((item) =>
+              (!scheduleId || String(item.scheduleId || "") === scheduleId) &&
+              (!completedAt || String(item.completedAt || "") === completedAt) &&
+              (!dueDate || cleanDateOnly(item.dueDate) === dueDate) &&
+              (!title || String(item.title || "") === title)
+            );
+          }
+          if (index < 0) throw new Error("Preventive-maintenance history record not found.");
+          const [deleted] = state.preventiveHistory.splice(index, 1);
+          return { id: deleted.id, deleted: true, title: deleted.title, historyOnly: true };
+        }
+
         if (action === "delete") {
           const id = String(body.id || "").trim();
           const index = state.preventiveSchedules.findIndex((item) => String(item.id) === id);
