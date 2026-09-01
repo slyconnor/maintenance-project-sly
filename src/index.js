@@ -268,7 +268,7 @@ function normalizeCatalogPart(part) {
     name: String(p.name || "").trim(),
     partNo: String(p.partNo || "").trim(),
     active: p.active !== false,
-    stockTracked: p.stockTracked === true,
+    stockTracked: p.stockTracked === true || p.stockTracked === 1 || String(p.stockTracked).toLowerCase() === "true" || String(p.stockTracked) === "1",
     currentStock: Number.isFinite(Number(p.currentStock)) ? Number(p.currentStock) : 0,
     minStock: Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
     binLocation: String(p.binLocation || "").trim(),
@@ -1971,7 +1971,7 @@ async function handleApi(request, env, routeOverride = "") {
             if (state.partCatalog.some((p) => p.id !== part.id && String(p.name).toLowerCase() === name.toLowerCase())) throw new Error("That part name already exists.");
             const wasTracked = part.stockTracked === true;
             const previousStock = Number(part.currentStock) || 0;
-            const stockTracked = body.stockTracked === undefined ? wasTracked : Boolean(body.stockTracked);
+            const stockTracked = body.stockTracked === undefined ? wasTracked : (body.stockTracked === true || body.stockTracked === 1 || String(body.stockTracked).toLowerCase() === "true" || String(body.stockTracked) === "1");
             const currentStock = body.currentStock === undefined ? previousStock : Number(body.currentStock);
             const minStock = body.minStock === undefined ? (Number(part.minStock) || 0) : Number(body.minStock);
             if (!Number.isFinite(currentStock)) throw new Error("Current stock must be a number.");
@@ -2000,8 +2000,13 @@ async function handleApi(request, env, routeOverride = "") {
           if (action === "archive") { part.active = false; return { id: part.id, active: false }; }
           if (action === "reactivate") { part.active = true; return { id: part.id, active: true }; }
           if (action === "delete") {
-            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.name === part.name));
-            if (used) throw new Error("This part appears in historical jobs, so it cannot be permanently deleted. Archive it instead.");
+            const usedInJobs = state.jobs.some((j) => (j.parts || []).some((p) => String(p.partId || "") === String(part.id) || (!p.partId && p.name === part.name)));
+            const hasStockHistory = (state.stockTransactions || []).some((row) => String(row.partId || "") === String(part.id));
+            const hasOrderHistory = (state.stockOrders || []).some((row) => String(row.partId || "") === String(part.id));
+            if (usedInJobs || hasStockHistory || hasOrderHistory) {
+              part.active = false;
+              return { id: part.id, deleted: false, archived: true, retainedHistory: true };
+            }
             state.partCatalog = state.partCatalog.filter((p) => p.id !== part.id);
             return { id: part.id, deleted: true };
           }
