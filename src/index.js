@@ -655,18 +655,20 @@ function validateJob(state, job, originalJobNo = "") {
   out.parts = Array.isArray(out.parts) ? out.parts.map((usage) => {
     const raw = usage && typeof usage === "object" ? { ...usage } : {};
     const matched = catalogPartForUsage(state, raw);
-    const qty = Math.max(1, Number(raw.qty) || 1);
+    const qty = Math.max(0, Number(raw.qty) || 0);
+    const orderedQty = Math.max(0, Number(raw.orderedQty) || 0);
     return {
       ...raw,
       partId: matched?.id || String(raw.partId || "").trim(),
       name: matched?.name || String(raw.name || "").trim(),
       partNo: matched?.partNo || String(raw.partNo || "").trim(),
+      orderedQty,
       qty,
       unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
       supplier: String(raw.supplier || "").trim(),
       date: String(raw.date || "").trim()
     };
-  }) : [];
+  }).filter((usage) => usage.qty > 0 || usage.orderedQty > 0) : [];
 
   if (!out.jobNo || !out.title || !out.section || !out.machine || !out.assigned || !out.raised) {
     throw new Error("Job number, title, section, machine, assigned engineer and date raised are required.");
