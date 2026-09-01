@@ -593,7 +593,7 @@ function ensureMachineListControls() {
   const controls=document.createElement("div");
   controls.id="machineListControls";
   controls.className="machine-list-controls";
-  controls.innerHTML=`<div class="machine-search-wrap"><input id="machineListSearch" type="search" autocomplete="off" placeholder="Search machines…" aria-label="Search machines"></div><select id="machineSectionFilter" aria-label="Filter machines by section"><option value="all">All sections</option></select><select id="machineStatusFilter" aria-label="Filter machines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>`;
+  controls.innerHTML=`<div class="machine-search-wrap"><input id="machineListSearch" type="search" autocomplete="off" placeholder="Search machine no, asset no, name or manufacturer…" aria-label="Search machines"></div><select id="machineSectionFilter" aria-label="Filter machines by section"><option value="all">All sections</option></select><select id="machineStatusFilter" aria-label="Filter machines by status"><option value="all">All statuses</option><option value="active">Active</option><option value="archived">Archived</option></select>`;
   const count=document.createElement("div");
   count.id="machineListCount";
   count.className="machine-list-count";
@@ -620,13 +620,13 @@ function renderMachines() {
     if(machineStatusFilter==="active"&&archived)return false;
     if(machineStatusFilter==="archived"&&!archived)return false;
     if(!query)return true;
-    return [m.assetId,m.name,m.section,m.category,m.location,m.make,m.model,m.serialNumber].some(value=>String(value||"").toLowerCase().includes(query));
+    return [m.assetId,m.assetNumber,m.name,m.section,m.category,m.location,m.manufacturer,m.make,m.model,m.serialNumber].some(value=>String(value||"").toLowerCase().includes(query));
   });
   if(filteredMachines.length&&!filteredMachines.some(m=>m.id===selectedMachineId))selectedMachineId=filteredMachines[0].id;
   if($("#machineListCount"))$("#machineListCount").textContent=`Showing ${filteredMachines.length} of ${machines.length} machine${machines.length===1?"":"s"}`;
   $("#machineList").innerHTML = filteredMachines.length ? filteredMachines.map(m=>{
     const s = machineStats(m);
-    return `<button class="machine-item ${m.id===selectedMachineId?"active":""}" data-machine="${esc(m.id)}"><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${esc(m.section)} · ${esc(m.category)} · ${s.jobs} jobs · ${money(s.spend)} parts</span></button>`;
+    return `<button class="machine-item ${m.id===selectedMachineId?"active":""}" data-machine="${esc(m.id)}"><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${m.assetNumber?`Asset ${esc(m.assetNumber)} · `:""}${esc(m.section)} · ${esc(m.category)} · ${s.jobs} jobs · ${money(s.spend)} parts</span></button>`;
   }).join("") : `<div class="machine-list-empty">No machines match your search or filters.</div>`;
   const m = filteredMachines.find(x=>x.id===selectedMachineId) || filteredMachines[0];
   if (!machines.length) { $("#machineDetail").innerHTML = "<p>No machines added yet.</p>"; return; }
@@ -635,7 +635,7 @@ function renderMachines() {
   const stats = machineStats(m);
   const history = visibleJobs().filter(j=>jobBelongsToMachine(j,m)).sort((a,b)=>b.raised.localeCompare(a.raised));
   const recent = history.slice(0,5);
-  const overviewContent = `<div class="machine-meta"><div class="meta-box"><small>Asset ID</small><strong>${esc(m.assetId)}</strong></div><div class="meta-box"><small>Section</small><strong>${esc(m.section)}</strong></div><div class="meta-box"><small>Location</small><strong>${esc(m.location||"—")}</strong></div><div class="meta-box"><small>Purchase cost</small><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Unknown"}</strong></div><div class="meta-box"><small>Make / Model</small><strong>${esc([m.make,m.model].filter(Boolean).join(" · ")||"—")}</strong></div><div class="meta-box"><small>Serial number</small><strong>${esc(m.serialNumber||"—")}</strong></div><div class="meta-box"><small>Purchase date</small><strong>${fmtDate(m.purchaseDate)}</strong></div><div class="meta-box"><small>Install date</small><strong>${fmtDate(m.installDate)}</strong></div></div>${m.notes?`<div class="machine-notes"><strong>Machine notes</strong><p>${esc(m.notes)}</p></div>`:""}<div class="metric-strip"><div class="mini-metric"><span>Maintenance jobs</span><strong>${stats.jobs}</strong></div><div class="mini-metric"><span>Open jobs</span><strong>${stats.open}</strong></div><div class="mini-metric"><span>Maintenance hours</span><strong>${stats.hours.toFixed(1)}</strong></div><div class="mini-metric"><span>Parts spend</span><strong>${money(stats.spend)}</strong></div></div><div class="machine-overview-note">${selectedProfileId === "all" ? "These figures use the machine’s full recorded maintenance history." : `These figures currently show only ${esc(profileContext())}’s assigned work.`}</div><h3 class="subheading">Recent jobs</h3>${machineHistoryTable(recent, "No jobs recorded for this machine.")}`;
+  const overviewContent = `<div class="machine-meta"><div class="meta-box"><small>Machine number</small><strong>${esc(m.assetId)}</strong></div><div class="meta-box"><small>Asset number</small><strong>${esc(m.assetNumber||"—")}</strong></div><div class="meta-box"><small>Section</small><strong>${esc(m.section)}</strong></div><div class="meta-box"><small>Location</small><strong>${esc(m.location||"—")}</strong></div><div class="meta-box"><small>Purchase cost</small><strong>${m.purchaseCost!=null?money(m.purchaseCost):"Unknown"}</strong></div><div class="meta-box"><small>Manufacturer / Model</small><strong>${esc([m.manufacturer||m.make,m.model].filter(Boolean).join(" · ")||"—")}</strong></div><div class="meta-box"><small>Serial number</small><strong>${esc(m.serialNumber||"—")}</strong></div><div class="meta-box"><small>Purchase date</small><strong>${fmtDate(m.purchaseDate)}</strong></div><div class="meta-box"><small>Install date</small><strong>${fmtDate(m.installDate)}</strong></div></div>${m.notes?`<div class="machine-notes"><strong>Machine notes</strong><p>${esc(m.notes)}</p></div>`:""}<div class="metric-strip"><div class="mini-metric"><span>Maintenance jobs</span><strong>${stats.jobs}</strong></div><div class="mini-metric"><span>Open jobs</span><strong>${stats.open}</strong></div><div class="mini-metric"><span>Maintenance hours</span><strong>${stats.hours.toFixed(1)}</strong></div><div class="mini-metric"><span>Parts spend</span><strong>${money(stats.spend)}</strong></div></div><div class="machine-overview-note">${selectedProfileId === "all" ? "These figures use the machine’s full recorded maintenance history." : `These figures currently show only ${esc(profileContext())}’s assigned work.`}</div><h3 class="subheading">Recent jobs</h3>${machineHistoryTable(recent, "No jobs recorded for this machine.")}`;
   const historyContent = `<div class="history-heading"><div><h3>Job history</h3><p>${history.length} recorded job${history.length===1?"":"s"} for ${esc(profileContext())}.</p></div></div>${machineHistoryTable(history, "No job history for this machine and profile.")}`;
   const filesContent = machineFilesContent(m);
   const qrContent = machineQrContent(m);
@@ -715,7 +715,7 @@ function manageActions(entity, key, archived, used, edit=true) {
   return `<div class="manage-actions">${edit?`<button type="button" class="btn secondary compact" data-master-action="edit" data-entity="${entity}" ${keyAttr}>Edit</button>`:""}<button type="button" class="btn secondary compact" data-master-action="${archived?"reactivate":"archive"}" data-entity="${entity}" ${keyAttr}>${archived?"Reactivate":"Archive"}</button><button type="button" class="btn danger compact" data-master-action="delete" data-entity="${entity}" ${keyAttr} ${used?`disabled title="Used in maintenance history — archive instead"`:""}>Delete</button></div>`;
 }
 function renderManageData() {
-  const machineRows=[...machines].sort((a,b)=>String(a.assetId).localeCompare(String(b.assetId))).map(m=>{const used=machineUsageCount(m);const archived=isMachineArchived(m);return `<div class="manage-row"><div><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${esc(m.section)} · ${esc(m.location||"No location")} · ${used} job${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("machine",m.id,archived,used,true)}</div></div>`;}).join("");
+  const machineRows=[...machines].sort((a,b)=>String(a.assetId).localeCompare(String(b.assetId))).map(m=>{const used=machineUsageCount(m);const archived=isMachineArchived(m);return `<div class="manage-row"><div><strong>${esc(m.assetId)} · ${esc(m.name)}</strong><span>${m.assetNumber?`Asset ${esc(m.assetNumber)} · `:""}${esc(m.manufacturer||m.make||"Manufacturer not set")} · ${esc(m.section)} · ${esc(m.location||"No location")} · ${used} job${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("machine",m.id,archived,used,true)}</div></div>`;}).join("");
   $("#manageMachinesList").innerHTML=machineRows||`<p class="empty-note">No machines yet.</p>`;
   $("#manageSectionsList").innerHTML=[...sections].sort().map(name=>{const used=sectionUsageCount(name);const archived=isSectionArchived(name);return `<div class="manage-row"><div><strong>${esc(name)}</strong><span>${used} linked machine/job reference${used===1?"":"s"}</span></div><div class="manage-row-right"><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("section",name,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No sections yet.</p>`;
   $("#managePartsList").innerHTML=[...partCatalog].sort((a,b)=>a.name.localeCompare(b.name)).map(part=>{const used=partUsageCount(part);const archived=part.active===false;const stock=stockStatus(part);const stockText=part.stockTracked===true?`Stock ${stockNumber(part.currentStock)} · min ${stockNumber(part.minStock)}${part.binLocation?` · ${part.binLocation}`:""}`:"Stock not tracked";return `<div class="manage-row"><div><strong>${esc(part.name)}</strong><span>${esc(part.partNo||"No part number")} · ${used} historical use${used===1?"":"s"} · ${esc(stockText)}</span></div><div class="manage-row-right"><span class="status-chip ${stock.className}">${esc(stock.label)}</span><span class="status-chip ${archived?"archived":"active"}">${archived?"Archived":"Active"}</span>${manageActions("part",part.id,archived,used,true)}</div></div>`;}).join("")||`<p class="empty-note">No saved parts yet.</p>`;
@@ -800,15 +800,22 @@ async function addSectionInteractive(selectEl, onAdded) {
 }
 
 async function quickAddMachine(section) {
-  const assetRaw = prompt(`Asset / machine ID for the new machine in ${section} (for example RM-124):`);
+  const assetRaw = prompt(`Machine number / ID for the new machine in ${section} (for example 101 or RM-124):`);
   if (!assetRaw?.trim()) return null;
   const assetId = assetRaw.trim();
-  if (machines.some(m=>String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That asset ID already exists."); return null; }
+  if (machines.some(m=>String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That machine number already exists."); return null; }
   const name = prompt(`Machine / equipment name for ${assetId}:`);
   if (!name?.trim()) return null;
   const clean = name.trim();
+  const assetNumberRaw = prompt(`Asset number for ${assetId} (optional):`,"");
+  if (assetNumberRaw===null) return null;
+  const assetNumber=assetNumberRaw.trim();
+  if(assetNumber&&machines.some(m=>String(m.assetNumber||"").toLowerCase()===assetNumber.toLowerCase())){alert("That asset number already exists.");return null;}
+  const manufacturerRaw=prompt(`Manufacturer for ${assetId} (optional):`,"");
+  if(manufacturerRaw===null)return null;
+  const manufacturer=manufacturerRaw.trim();
   try {
-    const machine = {assetId,name:clean,section,category:section,location:"",purchaseCost:null,status:"Active"};
+    const machine = {assetId,assetNumber,name:clean,section,category:section,location:"",purchaseCost:null,manufacturer,make:manufacturer,status:"Active"};
     const payload = await saveMutation("/api/machines", {machine}, {render:false});
     selectedMachineId = payload.machineId || machines.find(m=>m.assetId===assetId)?.id || null;
     renderMachines();
@@ -1025,6 +1032,7 @@ function renderPreventive(){
 function renderAll() {
   ensureV58Ui();
   ensurePreventiveUi();
+  ensureMachineIdentityFields();
   applyUiSettings();
   buildTabs();
   renderProfileSelector();
@@ -1119,7 +1127,7 @@ function localSearchResults(query) {
     }
   }
   for(const m of machines){
-    if(includes(m.assetId,m.name,m.section,m.category,m.location,m.make,m.model,m.serialNumber,m.notes)){
+    if(includes(m.assetId,m.assetNumber,m.name,m.section,m.category,m.location,m.manufacturer,m.make,m.model,m.serialNumber,m.notes)){
       results.push({kind:"machine",id:m.id,icon:"▣",title:`${m.assetId} · ${m.name}`,meta:`${m.section}${m.location?` · ${m.location}`:""}`});
       if(results.filter(x=>x.kind==="machine").length>=5)break;
     }
@@ -1422,6 +1430,30 @@ $("#jobForm").addEventListener("submit",async e=>{
 });
 
 // Add / edit machine form. All authenticated maintenance users can maintain machine details.
+function relabelMachineInput(input,labelText){
+  const label=input?.closest("label");if(!label)return;
+  const textNode=[...label.childNodes].find(node=>node.nodeType===3&&String(node.textContent||"").trim());
+  if(textNode)textNode.textContent=labelText;
+}
+function ensureMachineIdentityFields(){
+  const form=$("#machineForm");if(!form)return;
+  const machineNo=form.elements.assetId;
+  if(machineNo){
+    relabelMachineInput(machineNo,"Machine number / ID");
+    if(!form.elements.assetNumber){
+      const existingLabel=machineNo.closest("label");
+      const label=document.createElement("label");
+      if(existingLabel?.className)label.className=existingLabel.className;
+      label.dataset.v593AssetNumber="1";
+      label.append(document.createTextNode("Asset number"));
+      const input=document.createElement("input");input.name="assetNumber";input.maxLength=100;input.placeholder="Optional asset tag / number";if(machineNo.className)input.className=machineNo.className;
+      label.appendChild(input);
+      if(existingLabel?.parentNode)existingLabel.parentNode.insertBefore(label,existingLabel.nextSibling);else form.insertBefore(label,form.querySelector(".dialog-actions,.form-actions,.modal-actions")||null);
+    }
+  }
+  const make=form.elements.make;if(make)relabelMachineInput(make,"Manufacturer");
+}
+ensureMachineIdentityFields();
 const machineDialog = $("#machineDialog");
 function openMachineDialog(preselect="", machineId="") {
   const form=$("#machineForm");
@@ -1433,12 +1465,13 @@ function openMachineDialog(preselect="", machineId="") {
     $("#machineDialogTitle").textContent=`Edit ${existing.assetId} · ${existing.name}`;
     $("#machineDialogSubtitle").textContent="Changes are shared immediately. Renaming the machine also updates linked job history.";
     form.elements.assetId.value=existing.assetId||"";
+    if(form.elements.assetNumber)form.elements.assetNumber.value=existing.assetNumber||"";
     form.elements.name.value=existing.name||"";
     form.elements.section.value=existing.section||"";
     form.elements.category.value=existing.category||existing.section||"";
     form.elements.location.value=existing.location||"";
     form.elements.purchaseCost.value=existing.purchaseCost??"";
-    form.elements.make.value=existing.make||"";
+    form.elements.make.value=existing.manufacturer||existing.make||"";
     form.elements.model.value=existing.model||"";
     form.elements.serialNumber.value=existing.serialNumber||"";
     form.elements.purchaseDate.value=existing.purchaseDate||"";
@@ -1464,9 +1497,10 @@ $("#machineForm").addEventListener("submit",async e=>{
   const o = Object.fromEntries(new FormData(e.currentTarget).entries());
   if (!o.section || o.section.startsWith('__')) { alert("Select a section."); return; }
   const id=String(o.machineId||"");
-  const assetId=String(o.assetId||"").trim(),name=String(o.name||"").trim();
-  if (machines.some(m=>m.id!==id && String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That asset ID already exists."); return; }
-  const machine = {assetId,name,section:o.section,category:o.category,location:o.location,purchaseCost:o.purchaseCost===""?null:Number(o.purchaseCost),make:o.make,model:o.model,serialNumber:o.serialNumber,purchaseDate:o.purchaseDate,installDate:o.installDate,notes:o.notes};
+  const assetId=String(o.assetId||"").trim(),assetNumber=String(o.assetNumber||"").trim(),name=String(o.name||"").trim(),manufacturer=String(o.make||"").trim();
+  if (machines.some(m=>m.id!==id && String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That machine number already exists."); return; }
+  if (assetNumber && machines.some(m=>m.id!==id && String(m.assetNumber||"").toLowerCase()===assetNumber.toLowerCase())) { alert("That asset number already exists."); return; }
+  const machine = {assetId,assetNumber,name,section:o.section,category:o.category,location:o.location,purchaseCost:o.purchaseCost===""?null:Number(o.purchaseCost),manufacturer,make:manufacturer,model:o.model,serialNumber:o.serialNumber,purchaseDate:o.purchaseDate,installDate:o.installDate,notes:o.notes};
   const submit=$("#machineSaveBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
     if(id){
