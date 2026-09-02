@@ -1855,38 +1855,65 @@ async function buildPurchaseRequisitionPdf(order){
   const lines=(order?.lines||[]).filter(line=>String(line?.partName||"").trim());
   const chunks=[];for(let i=0;i<Math.max(1,lines.length);i+=9)chunks.push(lines.slice(i,i+9));if(!chunks.length)chunks.push([]);
   const output=await PDFLib.PDFDocument.create();
+  const templateDoc=await PDFLib.PDFDocument.load(templateBytes.slice(0),{ignoreEncryption:true});
+  const font=await output.embedFont(PDFLib.StandardFonts.Helvetica);
   const overallTotal=purchaseOrderTotal(order);
+  const black=PDFLib.rgb(0,0,0),white=PDFLib.rgb(1,1,1);
+  const fitSize=(text,maxWidth,preferred=8,min=5.5)=>{let size=preferred;const value=String(text??"");while(size>min&&font.widthOfTextAtSize(value,size)>maxWidth)size-=0.25;return size;};
+  const drawBox=(page,text,box,preferred=8,align="left")=>{
+    const value=String(text??"").trim();if(!value)return;
+    const [x0,y0,x1,y1]=box,pad=3,width=Math.max(1,x1-x0-pad*2),height=y1-y0;
+    const size=fitSize(value,width,preferred);let x=x0+pad;
+    const measured=Math.min(width,font.widthOfTextAtSize(value,size));
+    if(align==="right")x=x1-pad-measured;else if(align==="center")x=x0+(x1-x0-measured)/2;
+    const y=y0+Math.max(1,(height-size)/2)+1;
+    page.drawText(value,{x,y,size,font,color:black,maxWidth:width});
+  };
+  const wrap=(text,width,size)=>{
+    const words=String(text||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);const rows=[];let row="";
+    for(const word of words){const test=row?`${row} ${word}`:word;if(font.widthOfTextAtSize(test,size)<=width)row=test;else{if(row)rows.push(row);row=word;}}
+    if(row)rows.push(row);return rows;
+  };
+  const drawNotes=(page,text)=>{
+    const value=String(text||"").trim();if(!value)return;const box=[103.655,240.266,383.109,300.63],pad=3,size=7,lineHeight=8.5;
+    const rows=wrap(value,box[2]-box[0]-pad*2,size).slice(0,6);let y=box[3]-size-4;
+    for(const row of rows){page.drawText(row,{x:box[0]+pad,y,size,font,color:black,maxWidth:box[2]-box[0]-pad*2});y-=lineHeight;}
+  };
+  const rowBoxes={
+    desc:[[64.56,463.2,324.48,480.48],[64.56,445.92,324.48,462],[64.56,428.64,324.48,444.72],[64.56,411.36,324.48,427.44],[64.56,392.88,324.48,410.16],[64.56,375.6,324.48,391.68],[64.56,357.12,324.48,374.4],[64.56,338.88,324.48,355.92],[64.56,320.4,324.48,337.68]],
+    qty:[[326.04,463.2,384,480.48],[326.04,445.92,384,462],[326.04,428.64,384,444.72],[326.04,411.36,384,427.44],[326.04,392.88,384,410.16],[326.04,375.6,384,391.68],[326.04,357.12,384,374.4],[326.04,338.88,384,355.92],[326.04,320.4,384,337.68]],
+    unit:[[385.56,463.2,460.56,480.48],[385.56,445.92,460.56,462],[385.56,428.64,460.56,444.72],[385.56,411.36,460.56,427.44],[385.56,392.88,460.56,410.16],[385.56,375.6,460.56,391.68],[385.56,357.12,460.56,374.4],[385.56,338.88,460.56,355.92],[385.56,320.4,460.56,337.68]],
+    ext:[[462.12,463.2,547.68,480.48],[462.12,445.92,547.68,462],[462.12,428.64,547.68,444.72],[462.12,411.36,547.68,427.44],[462.12,392.88,547.68,410.16],[462.12,375.6,547.68,391.68],[462.12,357.12,547.68,374.4],[462.12,338.88,547.68,355.92],[462.12,320.4,547.68,337.68]]
+  };
   for(let pageIndex=0;pageIndex<chunks.length;pageIndex++){
-    const doc=await PDFLib.PDFDocument.load(templateBytes.slice(0));
-    const form=doc.getForm();
-    const font=await doc.embedFont(PDFLib.StandardFonts.Helvetica);
-    const setText=(name,value,size=8)=>{try{const field=form.getTextField(name);field.setText(String(value??""));try{field.setFontSize(size);}catch{}}catch{}};
-    const setChoice=(name,value)=>{try{const field=form.getDropdown(name);const selected=String(value||"").trim();if(!selected)return;const options=field.getOptions();if(!options.includes(selected))field.addOptions([selected]);field.select(selected);}catch{}};
-    setText("Div",order?.div||"");setText("Dept",order?.dept||"");setText("Account",order?.account||"");setText("IPP1",order?.epp||"");setText("Job Number1",order?.jobNumber||"");
-    setText("Nominated SupplierRow1",order?.supplier||"",7);setText("New Acc YNRow1",order?.newAccount||"");
-    setChoice("Department1",order?.department||"Maintenance");setChoice("Currency",purchaseRequisitionCurrency(order?.currency));
-    setText("Requisition raised by",order?.requestedBy||"",8);setText("Date goods neededRequisition raised by",purchaseRequisitionDate(order?.dateQuoteNeeded),8);
-    setText("Notes",pageIndex===chunks.length-1?(order?.notes||""):"Continued on following page",7);
+    const [page]=await output.copyPages(templateDoc,[0]);output.addPage(page);
+    // GL Code "1" is printed into the original artwork, so cover it before writing the saved GL code.
+    page.drawRectangle({x:67.5,y:593.5,width:18,height:23,color:white});
+    drawBox(page,order?.glCode||"",[67.5,593.5,85.5,617.5],9);
+    drawBox(page,order?.div||"",[87.24,593.28,120.72,617.76],8);
+    drawBox(page,order?.dept||"",[122.412,593.377,155.892,617.857],8);
+    drawBox(page,order?.account||"",[158.27,593.377,226.271,617.857],8);
+    drawBox(page,order?.department||"Maintenance",[230.081,593.948,375.691,617.802],8);
+    drawBox(page,order?.epp||"",[377.88,593.28,439.68,617.76],8);
+    drawBox(page,order?.jobNumber||"",[441.72,593.28,544.56,617.76],8);
+    drawBox(page,order?.supplier||"",[67.8,522,361.68,546.48],7);
+    drawBox(page,order?.newAccount||"",[363.72,522,446.64,546.48],8,"center");
     const chunk=chunks[pageIndex];
-    for(let row=1;row<=9;row++){
-      const line=chunk[row-1];
-      setText(`Item Description inc catalogue code where knownRow${row}`,line?purchaseRequisitionDescription(line):"",7);
-      setText(`QuantityRow${row}`,line?String(Math.max(1,Number(line.qty)||1)):"",8);
-      setText(`Unit PriceRow${row}`,line?Number(line.unitPrice||0).toFixed(2):"",8);
-      setText(`Ext PriceRow${row}`,line?(Math.max(1,Number(line.qty)||1)*Math.max(0,Number(line.unitPrice)||0)).toFixed(2):"",8);
+    for(let row=0;row<9;row++){
+      const line=chunk[row];if(!line)continue;const qty=Math.max(1,Number(line.qty)||1),unit=Math.max(0,Number(line.unitPrice)||0);
+      drawBox(page,purchaseRequisitionDescription(line),rowBoxes.desc[row],7);
+      drawBox(page,String(qty),rowBoxes.qty[row],8,"center");
+      drawBox(page,unit.toFixed(2),rowBoxes.unit[row],8,"right");
+      drawBox(page,(qty*unit).toFixed(2),rowBoxes.ext[row],8,"right");
     }
-    setText("Unit PriceRow10","");setText("Ext PriceRow10","");
-    setText("Ext PriceTOTAL",pageIndex===chunks.length-1?overallTotal.toFixed(2):"",9);
-    const page=doc.getPages()[0];
-    // The supplied form prints GL Code "1" as static artwork rather than a fillable field.
-    // Cover that cell and draw the saved GL Code so the PDF always matches the order.
-    page.drawRectangle({x:67.5,y:593.5,width:18,height:23,color:PDFLib.rgb(1,1,1)});
-    page.drawText(String(order?.glCode||""),{x:70,y:601,size:9,font,color:PDFLib.rgb(0,0,0),maxWidth:14});
-    try{form.updateFieldAppearances(font);}catch{}
-    form.flatten();
-    const [copied]=await output.copyPages(doc,[0]);output.addPage(copied);
+    drawBox(page,purchaseRequisitionCurrency(order?.currency),[388.965,267.121,456.714,287.121],7);
+    if(pageIndex===chunks.length-1)drawBox(page,overallTotal.toFixed(2),[462.72,263.52,547.08,300.12],9,"right");
+    drawNotes(page,pageIndex===chunks.length-1?(order?.notes||""):"Continued on following page");
+    drawBox(page,order?.requestedBy||"",[196.92,208.8,405.48,235.8],8);
+    drawBox(page,purchaseRequisitionDate(order?.dateQuoteNeeded),[407.28,208.8,533.16,221.88],8);
   }
-  return output.save();
+  // Disable PDF object streams for maximum compatibility with older/strict Acrobat installations.
+  return output.save({useObjectStreams:false,addDefaultPage:false});
 }
 async function downloadPurchaseRequisition(orderId){
   const order=purchaseOrders.find(row=>String(row.id)===String(orderId));if(!order)return;
