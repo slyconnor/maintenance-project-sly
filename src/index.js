@@ -67,7 +67,7 @@ const DEFAULT_STATE = {
   sections: ["Smokeshield"],
   archivedSections: [],
   machines: [],
-  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true, stockTracked: false, currentStock: 0, minStock: 0, binLocation: "", preferredSupplier: "", reorderQty: 1 }],
+  partCatalog: [{ id: "p-anvil", name: "Anvil", partNo: "", active: true, stockTracked: false, currentStock: 0, minStock: null, binLocation: "", preferredSupplier: "", reorderQty: 1 }],
   suppliers: [],
   archivedSuppliers: [],
   jobs: [],
@@ -311,7 +311,7 @@ function normalizeCatalogPart(part) {
     active: p.active !== false,
     stockTracked: p.stockTracked === true || p.stockTracked === 1 || String(p.stockTracked).toLowerCase() === "true" || String(p.stockTracked) === "1",
     currentStock: Number.isFinite(Number(p.currentStock)) ? Number(p.currentStock) : 0,
-    minStock: Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
+    minStock: (p.minStock === null || p.minStock === undefined || String(p.minStock).trim() === "") ? null : Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
     binLocation: String(p.binLocation || "").trim(),
     preferredSupplier: String(p.preferredSupplier || "").trim(),
     suppliers: [...new Set((Array.isArray(p.suppliers) ? p.suppliers : (String(p.preferredSupplier || "").trim() ? [p.preferredSupplier] : [])).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50),
@@ -1012,7 +1012,8 @@ function lowStockTransitions(beforeStock, state) {
     const before = Number(beforeStock.get(part.id));
     if (!Number.isFinite(before)) continue;
     const after = Number(part.currentStock) || 0;
-    const min = Math.max(0, Number(part.minStock) || 0);
+    if (part.minStock === null || part.minStock === undefined || String(part.minStock).trim() === "" || !Number.isFinite(Number(part.minStock))) continue;
+    const min = Math.max(0, Number(part.minStock));
     if (before > min && after <= min) {
       alerts.push({ id: part.id, name: part.name || "Part", partNo: part.partNo || "", currentStock: after, minStock: min, binLocation: part.binLocation || "" });
     }
@@ -2061,7 +2062,7 @@ async function handleApi(request, env, routeOverride = "") {
             if (!catalogPart && manualPart.partNo) catalogPart = state.partCatalog.find((part) => String(part.partNo || "").trim().toLowerCase() === manualPart.partNo.toLowerCase());
             if (!catalogPart) catalogPart = state.partCatalog.find((part) => String(part.name || "").trim().toLowerCase() === manualPart.name.toLowerCase());
             if (!catalogPart && manualPart.addToInventory) {
-              catalogPart = normalizeCatalogPart({ id: `p-${slug(manualPart.partNo || manualPart.name)}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`, name: manualPart.name, partNo: manualPart.partNo, active: true, stockTracked: false, currentStock: 0, minStock: 0, suppliers: manualPart.suppliers, preferredSupplier: manualPart.suppliers?.[0] || "" });
+              catalogPart = normalizeCatalogPart({ id: `p-${slug(manualPart.partNo || manualPart.name)}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`, name: manualPart.name, partNo: manualPart.partNo, active: true, stockTracked: true, currentStock: 0, minStock: null, suppliers: manualPart.suppliers, preferredSupplier: manualPart.suppliers?.[0] || "" });
               state.partCatalog.push(catalogPart);
             } else if (catalogPart && manualPart.addToInventory) {
               catalogPart.active = true;
@@ -2337,7 +2338,9 @@ async function handleApi(request, env, routeOverride = "") {
           if (!part) {
             const catalogSuppliers = [...new Set((Array.isArray(body.suppliers) ? body.suppliers : []).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50);
             for (const supplier of catalogSuppliers) ensureUniqueString(state.suppliers, supplier);
-            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true, suppliers: catalogSuppliers, preferredSupplier: catalogSuppliers[0] || "" });
+            const requestedTracked = body.stockTracked === true || body.stockTracked === 1 || String(body.stockTracked).toLowerCase() === "true" || String(body.stockTracked) === "1";
+            const requestedMin = body.minStock === null || body.minStock === undefined || String(body.minStock).trim() === "" ? null : Math.max(0, Number(body.minStock) || 0);
+            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true, stockTracked: requestedTracked, currentStock: 0, minStock: requestedMin, suppliers: catalogSuppliers, preferredSupplier: catalogSuppliers[0] || "" });
             state.partCatalog.push(part);
           } else {
             part.active = true;
@@ -2486,14 +2489,17 @@ async function handleApi(request, env, routeOverride = "") {
             const previousStock = Number(part.currentStock) || 0;
             const stockTracked = body.stockTracked === undefined ? wasTracked : (body.stockTracked === true || body.stockTracked === 1 || String(body.stockTracked).toLowerCase() === "true" || String(body.stockTracked) === "1");
             const currentStock = body.currentStock === undefined ? previousStock : Number(body.currentStock);
-            const minStock = body.minStock === undefined ? (Number(part.minStock) || 0) : Number(body.minStock);
+            let minStock = part.minStock === null || part.minStock === undefined || String(part.minStock).trim() === "" ? null : Number(part.minStock);
+            if (body.minStock !== undefined) {
+              minStock = body.minStock === null || String(body.minStock).trim() === "" ? null : Number(body.minStock);
+            }
             if (!Number.isFinite(currentStock)) throw new Error("Current stock must be a number.");
-            if (!Number.isFinite(minStock) || minStock < 0) throw new Error("Minimum stock must be zero or more.");
+            if (minStock !== null && (!Number.isFinite(minStock) || minStock < 0)) throw new Error("Minimum stock must be blank or zero or more.");
             part.name = name;
             part.partNo = partNo;
             part.stockTracked = stockTracked;
             part.currentStock = currentStock;
-            part.minStock = Math.max(0, minStock);
+            part.minStock = minStock === null ? null : Math.max(0, minStock);
             part.binLocation = body.binLocation === undefined ? String(part.binLocation || "").trim() : String(body.binLocation || "").trim();
             part.preferredSupplier = body.preferredSupplier === undefined ? String(part.preferredSupplier || "").trim() : String(body.preferredSupplier || "").trim();
             part.reorderQty = body.reorderQty === undefined ? Math.max(1, Number(part.reorderQty) || 1) : Math.max(1, Number(body.reorderQty) || 1);
