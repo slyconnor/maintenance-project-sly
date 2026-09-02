@@ -415,6 +415,16 @@ function normalizeMachine(machine) {
 function normalizeProject(project) {
   const value = project && typeof project === "object" ? project : {};
   const status = ["Active", "Completed", "Archived"].includes(String(value.status || "")) ? String(value.status) : "Active";
+  const manualParts = Array.isArray(value.manualParts) ? value.manualParts.map((part) => {
+    const row = part && typeof part === "object" ? part : {};
+    return {
+      id: String(row.id || crypto.randomUUID()),
+      name: String(row.name || "").trim().slice(0, 180),
+      partNo: String(row.partNo || "").trim().slice(0, 100),
+      qty: Math.max(0, Number(row.qty) || 0),
+      unitPrice: Math.max(0, Number(row.unitPrice) || 0)
+    };
+  }).filter((part) => part.name && part.qty > 0).slice(0, 500) : [];
   return {
     id: String(value.id || `project-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
     code: String(value.code || "").trim().slice(0, 80),
@@ -422,6 +432,7 @@ function normalizeProject(project) {
     status,
     budget: Math.max(0, Number(value.budget) || 0),
     notes: String(value.notes || "").trim().slice(0, 2000),
+    manualParts,
     createdAt: String(value.createdAt || new Date().toISOString()),
     updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString())
   };
@@ -784,11 +795,14 @@ function validateJob(state, job, originalJobNo = "") {
       unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
       supplier: String(raw.supplier || "").trim(),
       date: String(raw.date || "").trim(),
-      projectId: String(raw.projectId || "").trim()
+      projectId: String(raw.projectId || "").trim(),
+      projectQty: Math.min(qty, Math.max(0, Number(raw.projectQty) || 0))
     };
   }).filter((usage) => usage.qty > 0 || usage.orderedQty > 0) : [];
   for (const usage of out.parts) {
     if (usage.projectId && !(state.projects || []).some((project) => String(project.id) === String(usage.projectId))) usage.projectId = "";
+    if (!usage.projectId) usage.projectQty = 0;
+    else if (!(Number(usage.projectQty) > 0)) usage.projectQty = Math.max(0, Number(usage.qty) || 0);
   }
 
   if (!out.jobNo || !out.title || !out.section || !out.machine || !out.assigned || !out.raised) {
@@ -2051,7 +2065,9 @@ async function handleApi(request, env, routeOverride = "") {
           state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
           state.jobs = Array.isArray(state.jobs) ? state.jobs : [];
           const selectedOrders = new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((value) => String(value)));
-          const selectedUsage = new Set((Array.isArray(body.partUsageRefs) ? body.partUsageRefs : []).map((value) => String(value)));
+          const allocationRows = Array.isArray(body.partUsageAllocations) ? body.partUsageAllocations : [];
+          const allocationMap = new Map(allocationRows.map((row) => [String(row?.ref || ""), Math.max(0, Number(row?.qty) || 0)]).filter(([ref, qty]) => ref && qty > 0));
+          const legacyUsage = new Set((Array.isArray(body.partUsageRefs) ? body.partUsageRefs : []).map((value) => String(value)));
 
           for (const order of state.purchaseOrders) {
             if (String(order.status || "") !== "Ordered") continue;
@@ -2069,9 +2085,15 @@ async function handleApi(request, env, routeOverride = "") {
               const key = `${String(job.jobNo || "")}::${usageIndex}`;
               const inherited = !String(usage.projectId || "") && String(job.projectId || "") === id;
               if (inherited) { linkedParts += 1; return; }
-              const selected = selectedUsage.has(key);
-              if (selected) usage.projectId = id;
-              else if (String(usage.projectId || "") === id) usage.projectId = "";
+              const requestedQty = allocationMap.has(key) ? allocationMap.get(key) : (legacyUsage.has(key) ? Math.max(0, Number(usage.qty) || 0) : 0);
+              const selected = requestedQty > 0;
+              if (selected) {
+                usage.projectId = id;
+                usage.projectQty = Math.min(Math.max(0, Number(usage.qty) || 0), requestedQty);
+              } else if (String(usage.projectId || "") === id) {
+                usage.projectId = "";
+                usage.projectQty = 0;
+              }
               if (String(usage.projectId || "") === id) linkedParts += 1;
             });
           }
