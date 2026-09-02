@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.1";
+const APP_VERSION = "5.10.8";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -31,8 +31,37 @@ const DEFAULT_PM_CATEGORIES = [
   { id: "pmcat-tooling", name: "Tooling", active: true }
 ];
 
+const DEFAULT_PURCHASE_ORDER_OPTIONS = {
+  glCode: [],
+  div: [],
+  dept: [],
+  account: [],
+  department: ["Maintenance"],
+  epp: [],
+  currency: ["GBP", "EUR", "USD", "CAD", "AUD"],
+  requestedBy: [],
+  jobNumber: []
+};
+
+function normalizePurchaseOrderOptions(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const cleanList = (field) => {
+    const base = Array.isArray(DEFAULT_PURCHASE_ORDER_OPTIONS[field]) ? DEFAULT_PURCHASE_ORDER_OPTIONS[field] : [];
+    const incoming = Array.isArray(source[field]) ? source[field] : [];
+    const out = [];
+    for (const raw of [...base, ...incoming]) {
+      let value = String(raw || "").trim();
+      if (field === "currency") value = value.toUpperCase().slice(0, 8);
+      else value = value.slice(0, 180);
+      if (value && !out.some((item) => item.toLowerCase() === value.toLowerCase())) out.push(value);
+    }
+    return out.slice(-250);
+  };
+  return Object.fromEntries(Object.keys(DEFAULT_PURCHASE_ORDER_OPTIONS).map((field) => [field, cleanList(field)]));
+}
+
 const DEFAULT_STATE = {
-  version: 5.9,
+  version: 5.10,
   settings: { ...DEFAULT_SETTINGS },
   profiles: [],
   sections: ["Smokeshield"],
@@ -43,6 +72,9 @@ const DEFAULT_STATE = {
   archivedSuppliers: [],
   jobs: [],
   stockOrders: [],
+  purchaseOrders: [],
+  purchaseOrderOptions: normalizePurchaseOrderOptions(DEFAULT_PURCHASE_ORDER_OPTIONS),
+  projects: [],
   stockTransactions: [],
   preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
   preventiveSchedules: [],
@@ -75,6 +107,15 @@ function cleanFilename(value) {
     .replace(/[\u0000-\u001f\u007f]/g, "")
     .trim();
   return (name || "file").slice(0, 180);
+}
+
+function escapeSvgText(value) {
+  return String(value ?? "")
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&apos;");
 }
 
 function contentDispositionFilename(filename) {
@@ -268,11 +309,12 @@ function normalizeCatalogPart(part) {
     name: String(p.name || "").trim(),
     partNo: String(p.partNo || "").trim(),
     active: p.active !== false,
-    stockTracked: p.stockTracked === true,
+    stockTracked: p.stockTracked === true || p.stockTracked === 1 || String(p.stockTracked).toLowerCase() === "true" || String(p.stockTracked) === "1",
     currentStock: Number.isFinite(Number(p.currentStock)) ? Number(p.currentStock) : 0,
     minStock: Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
     binLocation: String(p.binLocation || "").trim(),
     preferredSupplier: String(p.preferredSupplier || "").trim(),
+    suppliers: [...new Set((Array.isArray(p.suppliers) ? p.suppliers : (String(p.preferredSupplier || "").trim() ? [p.preferredSupplier] : [])).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50),
     reorderQty: Math.max(1, Number.isFinite(Number(p.reorderQty)) ? Number(p.reorderQty) : 1)
   };
 }
@@ -348,20 +390,129 @@ function normalizePreventiveHistory(row) {
   };
 }
 
+function normalizeMachineTooling(value) {
+  const rows = Array.isArray(value) ? value : (typeof value === "string" && value.trim() ? [{ name: value }] : []);
+  return rows.map((item) => {
+    const source = item && typeof item === "object" ? item : { name: item };
+    return {
+      name: String(source.name || source.number || source.tooling || "").trim().slice(0, 160),
+      description: String(source.description || source.notes || "").trim().slice(0, 300)
+    };
+  }).filter((item) => item.name).slice(0, 100);
+}
+
+function normalizeMachine(machine) {
+  const m = machine && typeof machine === "object" ? { ...machine } : {};
+  const manufacturer = String(m.manufacturer || m.make || "").trim().slice(0, 160);
+  return {
+    ...m,
+    assetNumber: String(m.assetNumber || "").trim().slice(0, 100),
+    manufacturer,
+    make: manufacturer,
+    tooling: normalizeMachineTooling(m.tooling)
+  };
+}
+
+function normalizeProject(project) {
+  const value = project && typeof project === "object" ? project : {};
+  const status = ["Active", "Completed", "Archived"].includes(String(value.status || "")) ? String(value.status) : "Active";
+  const manualParts = Array.isArray(value.manualParts) ? value.manualParts.map((part) => {
+    const row = part && typeof part === "object" ? part : {};
+    return {
+      id: String(row.id || crypto.randomUUID()),
+      name: String(row.name || "").trim().slice(0, 180),
+      partNo: String(row.partNo || "").trim().slice(0, 100),
+      qty: Math.max(0, Number(row.qty) || 0),
+      unitPrice: Math.max(0, Number(row.unitPrice) || 0),
+      suppliers: [...new Set((Array.isArray(row.suppliers) ? row.suppliers : []).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50),
+      addToInventory: row.addToInventory === true || row.addToInventory === 1 || String(row.addToInventory).toLowerCase() === "true",
+      catalogPartId: String(row.catalogPartId || "").trim()
+    };
+  }).filter((part) => part.name && part.qty > 0).slice(0, 500) : [];
+  return {
+    id: String(value.id || `project-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
+    code: String(value.code || "").trim().slice(0, 80),
+    name: String(value.name || "").trim().slice(0, 180),
+    status,
+    budget: Math.max(0, Number(value.budget) || 0),
+    notes: String(value.notes || "").trim().slice(0, 2000),
+    manualParts,
+    createdAt: String(value.createdAt || new Date().toISOString()),
+    updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString())
+  };
+}
+
+function normalizePurchaseOrderLine(line) {
+  const row = line && typeof line === "object" ? line : {};
+  const qty = Math.max(1, Number(row.qty) || 1);
+  const unitPrice = Math.max(0, Number(row.unitPrice) || 0);
+  return {
+    id: String(row.id || crypto.randomUUID()),
+    partName: String(row.partName || "").trim().slice(0, 180),
+    partCode: String(row.partCode || "").trim().slice(0, 120),
+    qty,
+    unitPrice,
+    lineTotal: Math.round(qty * unitPrice * 100) / 100
+  };
+}
+
+function normalizePurchaseOrder(order) {
+  const value = order && typeof order === "object" ? order : {};
+  const lines = (Array.isArray(value.lines) ? value.lines : []).map(normalizePurchaseOrderLine).filter((line) => line.partName);
+  const total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+  const currency = String(value.currency || "GBP").trim().toUpperCase().slice(0, 8) || "GBP";
+  return {
+    id: String(value.id || `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
+    orderNo: String(value.orderNo || "").trim().slice(0, 40),
+    supplier: String(value.supplier || "").trim().slice(0, 160),
+    projectId: String(value.projectId || "").trim(),
+    glCode: String(value.glCode || "").trim().slice(0, 80),
+    div: String(value.div || "").trim().slice(0, 80),
+    dept: String(value.dept || "").trim().slice(0, 80),
+    account: String(value.account || "").trim().slice(0, 80),
+    department: String(value.department || "Maintenance").trim().slice(0, 120) || "Maintenance",
+    epp: String(value.epp || "").trim().slice(0, 120),
+    jobNumber: String(value.jobNumber || "").trim().slice(0, 120),
+    newAccount: ["Yes", "No"].includes(String(value.newAccount || "")) ? String(value.newAccount) : "",
+    currency,
+    requestedBy: String(value.requestedBy || "").trim().slice(0, 180),
+    dateQuoteNeeded: cleanDateOnly(value.dateQuoteNeeded),
+    notes: String(value.notes || "").trim().slice(0, 2000),
+    status: String(value.status || "Open") === "Ordered" ? "Ordered" : "Open",
+    lines,
+    total,
+    createdAt: String(value.createdAt || new Date().toISOString()),
+    createdBy: String(value.createdBy || "").trim(),
+    updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString()),
+    orderedAt: String(value.orderedAt || ""),
+    orderedBy: String(value.orderedBy || "").trim()
+  };
+}
+
+function nextPurchaseOrderNumber(state) {
+  const year = new Date().getFullYear();
+  const rx = new RegExp(`^PO-${year}-(\\d+)$`, "i");
+  const nums = (state.purchaseOrders || []).map((row) => Number(String(row.orderNo || "").match(rx)?.[1])).filter(Number.isFinite);
+  return `PO-${year}-${String((nums.length ? Math.max(...nums) : 0) + 1).padStart(4, "0")}`;
+}
+
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.9,
+    version: 5.10,
     settings: normalizeSettings(s.settings),
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
     archivedSections: Array.isArray(s.archivedSections) ? s.archivedSections : [],
-    machines: Array.isArray(s.machines) ? s.machines : [],
+    machines: Array.isArray(s.machines) ? s.machines.map(normalizeMachine) : [],
     partCatalog: Array.isArray(s.partCatalog) ? s.partCatalog.map(normalizeCatalogPart) : [normalizeCatalogPart({ id: "p-anvil", name: "Anvil", partNo: "", active: true })],
     suppliers: Array.isArray(s.suppliers) ? s.suppliers : [],
     archivedSuppliers: Array.isArray(s.archivedSuppliers) ? s.archivedSuppliers : [],
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
+    purchaseOrders: Array.isArray(s.purchaseOrders) ? s.purchaseOrders.map(normalizePurchaseOrder).slice(-1000) : [],
+    purchaseOrderOptions: normalizePurchaseOrderOptions(s.purchaseOrderOptions),
+    projects: Array.isArray(s.projects) ? s.projects.map(normalizeProject).filter((item, index, rows) => item.name && rows.findIndex((other) => String(other.id) === String(item.id)) === index).slice(-1000) : [],
     stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : [],
     preventiveCategories: (Array.isArray(s.preventiveCategories) ? s.preventiveCategories : DEFAULT_PM_CATEGORIES)
       .map(normalizePreventiveCategory)
@@ -628,22 +779,35 @@ function validateJob(state, job, originalJobNo = "") {
   out.machineId = String(out.machineId || "").trim();
   out.machine = String(out.machine || "").trim();
   out.assigned = String(out.assigned || "").trim();
+  out.projectId = String(out.projectId || "").trim();
+  if (out.projectId && !(state.projects || []).some((project) => String(project.id) === out.projectId)) {
+    throw new Error("The selected project could not be found.");
+  }
   out.timeEntries = Array.isArray(out.timeEntries) ? out.timeEntries : [];
   out.parts = Array.isArray(out.parts) ? out.parts.map((usage) => {
     const raw = usage && typeof usage === "object" ? { ...usage } : {};
     const matched = catalogPartForUsage(state, raw);
-    const qty = Math.max(1, Number(raw.qty) || 1);
+    const qty = Math.max(0, Number(raw.qty) || 0);
+    const orderedQty = Math.max(0, Number(raw.orderedQty) || 0);
     return {
       ...raw,
       partId: matched?.id || String(raw.partId || "").trim(),
       name: matched?.name || String(raw.name || "").trim(),
       partNo: matched?.partNo || String(raw.partNo || "").trim(),
+      orderedQty,
       qty,
       unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
       supplier: String(raw.supplier || "").trim(),
-      date: String(raw.date || "").trim()
+      date: String(raw.date || "").trim(),
+      projectId: String(raw.projectId || "").trim(),
+      projectQty: Math.min(qty, Math.max(0, Number(raw.projectQty) || 0))
     };
-  }) : [];
+  }).filter((usage) => usage.qty > 0 || usage.orderedQty > 0) : [];
+  for (const usage of out.parts) {
+    if (usage.projectId && !(state.projects || []).some((project) => String(project.id) === String(usage.projectId))) usage.projectId = "";
+    if (!usage.projectId) usage.projectQty = 0;
+    else if (!(Number(usage.projectQty) > 0)) usage.projectQty = Math.max(0, Number(usage.qty) || 0);
+  }
 
   if (!out.jobNo || !out.title || !out.section || !out.machine || !out.assigned || !out.raised) {
     throw new Error("Job number, title, section, machine, assigned engineer and date raised are required.");
@@ -731,6 +895,23 @@ async function logAttachmentAudit(env, identity, action, detail) {
     await env.DB.prepare("INSERT INTO audit_log (created_at, actor_email, action, detail_json) VALUES (datetime('now'), ?, ?, ?)")
       .bind(identity?.email || "unknown", action, JSON.stringify(detail || {})).run();
   } catch (_) {}
+}
+
+async function deleteAllTrackedAttachments(env) {
+  await ensureSchema(env);
+  const result = await env.DB.prepare("SELECT object_key FROM attachments").all();
+  const rows = result.results || [];
+  let deletedObjects = 0;
+  if (env.ATTACHMENTS) {
+    for (const row of rows) {
+      try {
+        await env.ATTACHMENTS.delete(row.object_key);
+        deletedObjects += 1;
+      } catch (_) {}
+    }
+  }
+  await env.DB.prepare("DELETE FROM attachments").run();
+  return { attachmentRows: rows.length, deletedObjects };
 }
 
 function requestReference(id) {
@@ -1321,6 +1502,20 @@ async function handleApi(request, env, routeOverride = "") {
       });
     }
 
+    if (method === "DELETE" && route === "requests") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const id = Number(new URL(request.url).searchParams.get("id"));
+      if (!Number.isInteger(id) || id <= 0) return json({ error: "Request ID is required." }, 400);
+      const current = await getState(env);
+      const requestRow = await getOperatorRequest(env, id);
+      if (!requestRow) return json({ error: "Operator request not found." }, 404);
+      if (requestRow.status === "accepting") return json({ error: "This request is currently being accepted. Refresh the page and try again." }, 409);
+      await env.DB.prepare("DELETE FROM operator_requests WHERE id = ?").bind(id).run();
+      const requests = await listOperatorRequests(env, current.state);
+      return json({ ok: true, deletedId: id, linkedJobNo: requestRow.linked_job_no || "", requests });
+    }
+
     if (method === "POST" && route === "requests/accept") {
       const auth = await requireUser(request, env, { human: true });
       if (!auth.ok) return auth.response;
@@ -1439,9 +1634,23 @@ async function handleApi(request, env, routeOverride = "") {
           if (qr.isDark(row, col)) path += `M${col + quiet} ${row + quiet}h1v1h-1z`;
         }
       }
-      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${size}" width="640" height="640" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d="${path}" fill="black"/></svg>`;
+      const includeLabel = url.searchParams.get("label") === "1";
+      const machineLabel = [machine.assetId, machine.name].filter(Boolean).join(" · ") || "Machine";
+      const locationLabel = machine.location || machine.section || "";
+      const labelHeight = includeLabel ? 10 : 0;
+      const totalHeight = size + labelHeight;
+      const pixelHeight = Math.round(640 * totalHeight / size);
+      const mainFont = Math.max(1.8, Math.min(3, (size - 4) / Math.max(1, machineLabel.length * 0.56)));
+      const subFont = Math.max(1.5, Math.min(2.3, (size - 4) / Math.max(1, locationLabel.length * 0.56)));
+      const labelSvg = includeLabel
+        ? `<text x="${size / 2}" y="${size + 4}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${mainFont.toFixed(2)}" font-weight="700" fill="black">${escapeSvgText(machineLabel)}</text>${locationLabel ? `<text x="${size / 2}" y="${size + 7.2}" text-anchor="middle" font-family="Arial,Helvetica,sans-serif" font-size="${subFont.toFixed(2)}" fill="black">${escapeSvgText(locationLabel)}</text>` : ""}`
+        : "";
+      const svg = `<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 ${size} ${totalHeight}" width="640" height="${pixelHeight}" shape-rendering="crispEdges"><rect width="100%" height="100%" fill="white"/><path d="${path}" fill="black"/>${labelSvg}</svg>`;
       const headers = new Headers({ "content-type": "image/svg+xml; charset=utf-8", "cache-control": "private, no-store", "x-content-type-options": "nosniff" });
-      if (url.searchParams.get("download") === "1") headers.set("content-disposition", `attachment; ${contentDispositionFilename(`${machine.assetId || "machine"}-qr.svg`)}`);
+      if (url.searchParams.get("download") === "1") {
+        const fileLabel = [machine.assetId, machine.name].filter(Boolean).join(" - ") || "machine";
+        headers.set("content-disposition", `attachment; ${contentDispositionFilename(`${fileLabel}-qr.svg`)}`);
+      }
       return new Response(svg, { status: 200, headers });
     }
 
@@ -1596,6 +1805,29 @@ async function handleApi(request, env, routeOverride = "") {
           return { id: schedule.id, active: schedule.active };
         }
 
+        if (action === "history-delete") {
+          if (!isAdmin(auth.identity, env)) throw new Error("Only an admin can delete preventive-maintenance history.");
+          const id = String(body.id || "").trim();
+          let index = state.preventiveHistory.findIndex((item) => String(item.id) === id);
+          // Older imported history rows may not have had a persisted id. Fall back to the
+          // visible row details so admins can still remove duplicate/test records safely.
+          if (index < 0) {
+            const scheduleId = String(body.scheduleId || "");
+            const completedAt = String(body.completedAt || "");
+            const dueDate = cleanDateOnly(body.dueDate);
+            const title = String(body.title || "");
+            index = state.preventiveHistory.findIndex((item) =>
+              (!scheduleId || String(item.scheduleId || "") === scheduleId) &&
+              (!completedAt || String(item.completedAt || "") === completedAt) &&
+              (!dueDate || cleanDateOnly(item.dueDate) === dueDate) &&
+              (!title || String(item.title || "") === title)
+            );
+          }
+          if (index < 0) throw new Error("Preventive-maintenance history record not found.");
+          const [deleted] = state.preventiveHistory.splice(index, 1);
+          return { id: deleted.id, deleted: true, title: deleted.title, historyOnly: true };
+        }
+
         if (action === "delete") {
           const id = String(body.id || "").trim();
           const index = state.preventiveSchedules.findIndex((item) => String(item.id) === id);
@@ -1691,6 +1923,275 @@ async function handleApi(request, env, routeOverride = "") {
     }
 
 
+    if (method === "POST" && route === "purchase-orders") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `purchase.order.${action}`, async (state) => {
+        state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
+        state.purchaseOrderOptions = normalizePurchaseOrderOptions(state.purchaseOrderOptions);
+        state.projects = Array.isArray(state.projects) ? state.projects.map(normalizeProject) : [];
+        const supplier = String(body.supplier || "").trim().slice(0, 160);
+        const rawLines = Array.isArray(body.lines) ? body.lines : [];
+        const lines = rawLines.map(normalizePurchaseOrderLine).filter((line) => line.partName);
+        const projectId = String(body.projectId || "").trim();
+        if (projectId && !state.projects.some((project) => String(project.id) === projectId)) throw new Error("The selected project could not be found.");
+        const details = {
+          projectId,
+          glCode: String(body.glCode || "").trim().slice(0, 80),
+          div: String(body.div || "").trim().slice(0, 80),
+          dept: String(body.dept || "").trim().slice(0, 80),
+          account: String(body.account || "").trim().slice(0, 80),
+          department: String(body.department || "Maintenance").trim().slice(0, 120) || "Maintenance",
+          epp: String(body.epp || "").trim().slice(0, 120),
+          jobNumber: String(body.jobNumber || "").trim().slice(0, 120),
+          newAccount: ["Yes", "No"].includes(String(body.newAccount || "")) ? String(body.newAccount) : "",
+          currency: String(body.currency || normalizeSettings(state.settings).currency || "GBP").trim().toUpperCase().slice(0, 8) || "GBP",
+          requestedBy: String(body.requestedBy || auth.identity.email || "").trim().slice(0, 180),
+          dateQuoteNeeded: cleanDateOnly(body.dateQuoteNeeded),
+          notes: String(body.notes || "").trim().slice(0, 2000)
+        };
+        const rememberedFields = ["glCode", "div", "dept", "account", "department", "epp", "currency", "requestedBy", "jobNumber"];
+        for (const field of rememberedFields) {
+          const value = String(details[field] || "").trim();
+          if (value) ensureUniqueString(state.purchaseOrderOptions[field], value);
+        }
+        if (["save", "place"].includes(action)) {
+          if (!supplier) throw new Error("Choose or add a supplier first.");
+          if (!lines.length) throw new Error("Add at least one part to the order.");
+          if (action === "place" && !details.glCode) throw new Error("Enter the GL Code before placing the order.");
+          if (action === "place" && !details.div) throw new Error("Enter the Div before placing the order.");
+          if (action === "place" && !details.dept) throw new Error("Enter the Dept before placing the order.");
+          if (action === "place" && (!details.account || ["Yes", "No"].includes(details.account))) throw new Error("Enter the Account before placing the order.");
+          if (action === "place" && !details.department) throw new Error("Enter the Department before placing the order.");
+          if (action === "place" && !details.dateQuoteNeeded) throw new Error("Enter the Date quote needed before placing the order.");
+          if (action === "place" && !details.requestedBy) throw new Error("Enter who raised the requisition before placing the order.");
+          ensureUniqueString(state.suppliers, supplier);
+        }
+        let order = state.purchaseOrders.find((row) => String(row.id) === String(body.orderId || ""));
+        const applyDetails = (target) => {
+          target.supplier = supplier;
+          target.lines = lines;
+          target.total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+          Object.assign(target, details);
+        };
+        if (action === "save") {
+          if (order && order.status === "Ordered") throw new Error("Placed orders are read-only.");
+          if (!order) {
+            order = normalizePurchaseOrder({
+              id: `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+              orderNo: nextPurchaseOrderNumber(state),
+              supplier,
+              status: "Open",
+              lines,
+              ...details,
+              createdAt: new Date().toISOString(),
+              createdBy: auth.identity.email || ""
+            });
+            state.purchaseOrders.push(order);
+          } else {
+            applyDetails(order);
+            order.updatedAt = new Date().toISOString();
+          }
+          return { order };
+        }
+        if (action === "place") {
+          if (order && order.status === "Ordered") throw new Error("This order has already been placed.");
+          if (!order) {
+            order = normalizePurchaseOrder({
+              id: `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
+              orderNo: nextPurchaseOrderNumber(state),
+              supplier,
+              status: "Open",
+              lines,
+              ...details,
+              createdAt: new Date().toISOString(),
+              createdBy: auth.identity.email || ""
+            });
+            state.purchaseOrders.push(order);
+          } else {
+            applyDetails(order);
+          }
+          order.status = "Ordered";
+          order.orderedAt = new Date().toISOString();
+          order.orderedBy = auth.identity.email || "";
+          order.updatedAt = order.orderedAt;
+          return { order };
+        }
+        if (action === "setproject") {
+          if (!order) throw new Error("Order not found.");
+          order.projectId = projectId;
+          order.updatedAt = new Date().toISOString();
+          return { order };
+        }
+        if (action === "delete") {
+          if (!order) throw new Error("Order not found.");
+          const idx = state.purchaseOrders.findIndex((row) => String(row.id) === String(order.id));
+          if (idx >= 0) state.purchaseOrders.splice(idx, 1);
+          return { orderId: order.id, deleted: true };
+        }
+        throw new Error("Unknown purchase order action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
+    if (method === "POST" && route === "projects") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "save").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `project.${action}`, async (state) => {
+        state.projects = Array.isArray(state.projects) ? state.projects.map(normalizeProject) : [];
+        if (action === "save") {
+          const raw = body.project && typeof body.project === "object" ? body.project : {};
+          const existing = state.projects.find((project) => String(project.id) === String(raw.id || ""));
+          const incoming = normalizeProject({ ...raw, id: existing?.id || raw.id || undefined });
+          if (!incoming.name) throw new Error("Enter a project name.");
+          state.partCatalog = Array.isArray(state.partCatalog) ? state.partCatalog.map(normalizeCatalogPart) : [];
+          state.suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
+          for (const manualPart of incoming.manualParts || []) {
+            for (const supplier of manualPart.suppliers || []) ensureUniqueString(state.suppliers, supplier);
+            if (!manualPart.addToInventory && !manualPart.catalogPartId) continue;
+            let catalogPart = manualPart.catalogPartId ? state.partCatalog.find((part) => String(part.id) === String(manualPart.catalogPartId)) : null;
+            if (!catalogPart && manualPart.partNo) catalogPart = state.partCatalog.find((part) => String(part.partNo || "").trim().toLowerCase() === manualPart.partNo.toLowerCase());
+            if (!catalogPart) catalogPart = state.partCatalog.find((part) => String(part.name || "").trim().toLowerCase() === manualPart.name.toLowerCase());
+            if (!catalogPart && manualPart.addToInventory) {
+              catalogPart = normalizeCatalogPart({ id: `p-${slug(manualPart.partNo || manualPart.name)}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`, name: manualPart.name, partNo: manualPart.partNo, active: true, stockTracked: false, currentStock: 0, minStock: 0, suppliers: manualPart.suppliers, preferredSupplier: manualPart.suppliers?.[0] || "" });
+              state.partCatalog.push(catalogPart);
+            } else if (catalogPart && manualPart.addToInventory) {
+              catalogPart.active = true;
+              if (!catalogPart.partNo && manualPart.partNo) catalogPart.partNo = manualPart.partNo;
+              catalogPart.suppliers = [...new Set([...(catalogPart.suppliers || []), ...(manualPart.suppliers || [])])].slice(0, 50);
+              if (!catalogPart.preferredSupplier && catalogPart.suppliers.length) catalogPart.preferredSupplier = catalogPart.suppliers[0];
+            }
+            if (catalogPart) manualPart.catalogPartId = String(catalogPart.id);
+          }
+          if (incoming.code && state.projects.some((project) => String(project.id) !== String(incoming.id) && String(project.code || "").toLowerCase() === incoming.code.toLowerCase())) {
+            throw new Error("That project code already exists.");
+          }
+          const idx = existing ? state.projects.findIndex((project) => String(project.id) === String(existing.id)) : -1;
+          if (idx >= 0) {
+            incoming.createdAt = state.projects[idx].createdAt || incoming.createdAt;
+            incoming.updatedAt = new Date().toISOString();
+            state.projects[idx] = incoming;
+          } else {
+            incoming.updatedAt = incoming.createdAt = new Date().toISOString();
+            state.projects.push(incoming);
+          }
+          return { project: incoming };
+        }
+        if (action === "setlinks") {
+          const id = String(body.id || "").trim();
+          const project = state.projects.find((row) => String(row.id) === id);
+          if (!project) throw new Error("Project not found.");
+          state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
+          state.jobs = Array.isArray(state.jobs) ? state.jobs : [];
+          const selectedOrders = new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((value) => String(value)));
+          const allocationRows = Array.isArray(body.partUsageAllocations) ? body.partUsageAllocations : [];
+          const allocationMap = new Map(allocationRows.map((row) => [String(row?.ref || ""), Math.max(0, Number(row?.qty) || 0)]).filter(([ref, qty]) => ref && qty > 0));
+          const legacyUsage = new Set((Array.isArray(body.partUsageRefs) ? body.partUsageRefs : []).map((value) => String(value)));
+
+          for (const order of state.purchaseOrders) {
+            if (String(order.status || "") !== "Ordered") continue;
+            const selected = selectedOrders.has(String(order.id));
+            if (selected) order.projectId = id;
+            else if (String(order.projectId || "") === id) order.projectId = "";
+            order.updatedAt = new Date().toISOString();
+          }
+
+          let linkedParts = 0;
+          for (const job of state.jobs) {
+            if (!Array.isArray(job.parts)) continue;
+            job.parts.forEach((usage, usageIndex) => {
+              if ((Number(usage?.qty) || 0) <= 0) return;
+              const key = `${String(job.jobNo || "")}::${usageIndex}`;
+              const inherited = !String(usage.projectId || "") && String(job.projectId || "") === id;
+              if (inherited) { linkedParts += 1; return; }
+              const requestedQty = allocationMap.has(key) ? allocationMap.get(key) : (legacyUsage.has(key) ? Math.max(0, Number(usage.qty) || 0) : 0);
+              const selected = requestedQty > 0;
+              if (selected) {
+                usage.projectId = id;
+                usage.projectQty = Math.min(Math.max(0, Number(usage.qty) || 0), requestedQty);
+              } else if (String(usage.projectId || "") === id) {
+                usage.projectId = "";
+                usage.projectQty = 0;
+              }
+              if (String(usage.projectId || "") === id) linkedParts += 1;
+            });
+          }
+          const linkedOrders = state.purchaseOrders.filter((order) => String(order.projectId || "") === id && String(order.status || "") === "Ordered").length;
+          return { id, linkedOrders, linkedParts };
+        }
+        if (action === "delete") {
+          const id = String(body.id || "").trim();
+          const linkedJobs = (state.jobs || []).filter((job) => String(job.projectId || "") === id).length;
+          const linkedOrders = (state.purchaseOrders || []).filter((order) => String(order.projectId || "") === id).length;
+          const linkedParts = (state.jobs || []).reduce((count, job) => count + (Array.isArray(job.parts) ? job.parts.filter((usage) => (Number(usage?.qty) || 0) > 0 && String(usage.projectId || "") === id).length : 0), 0);
+          if (linkedJobs || linkedOrders || linkedParts) throw new Error(`This project is linked to ${linkedJobs} job${linkedJobs === 1 ? "" : "s"}, ${linkedOrders} purchase order${linkedOrders === 1 ? "" : "s"} and ${linkedParts} parts-used record${linkedParts === 1 ? "" : "s"}. Archive it instead of deleting it.`);
+          const idx = state.projects.findIndex((project) => String(project.id) === id);
+          if (idx < 0) throw new Error("Project not found.");
+          state.projects.splice(idx, 1);
+          return { id, deleted: true };
+        }
+        throw new Error("Unknown project action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
+    if (method === "POST" && route === "parts-usage") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `parts.usage.${action}`, async (state) => {
+        const jobNo = String(body.jobNo || "").trim();
+        const jobIndex = state.jobs.findIndex((job) => String(job.jobNo) === jobNo);
+        if (jobIndex < 0) throw new Error("Job not found.");
+        const job = state.jobs[jobIndex];
+        const usageIndex = Number.parseInt(body.usageIndex, 10);
+        if (!Number.isInteger(usageIndex) || usageIndex < 0 || usageIndex >= (job.parts || []).length) throw new Error("Part usage record not found.");
+        const existing = job.parts[usageIndex];
+        if ((Number(existing.qty) || 0) <= 0) throw new Error("That row is not a parts-used record.");
+        const oldJob = structuredClone(job);
+        if (action === "edit") {
+          const qty = Number(body.qty);
+          const unitPrice = Number(body.unitPrice);
+          if (!Number.isFinite(qty) || qty < 0) throw new Error("Quantity used must be zero or more.");
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("Unit price must be zero or more.");
+          existing.qty = qty;
+          existing.unitPrice = unitPrice;
+          existing.supplier = String(body.supplier || "").trim().slice(0, 160);
+          existing.date = cleanDateOnly(body.date);
+          if (!existing.date) throw new Error("Choose the date the part was used.");
+          if (existing.supplier) ensureUniqueString(state.suppliers, existing.supplier);
+          if (qty <= 0) {
+            if ((Number(existing.orderedQty) || 0) > 0) existing.qty = 0;
+            else job.parts.splice(usageIndex, 1);
+          }
+        } else if (action === "delete") {
+          if ((Number(existing.orderedQty) || 0) > 0) existing.qty = 0;
+          else job.parts.splice(usageIndex, 1);
+        } else {
+          throw new Error("Unknown parts usage action.");
+        }
+        const movements = applyJobStockChanges(state, oldJob, job);
+        for (const movement of movements) {
+          pushStockTransaction(state, {
+            partId: movement.part.id,
+            type: movement.qty < 0 ? "job-use" : "job-return",
+            qty: movement.qty,
+            balanceAfter: movement.part.currentStock,
+            jobNo: job.jobNo,
+            note: action === "delete" ? "Stock corrected after deleting parts usage history" : "Stock corrected after editing parts usage history",
+            actor: auth.identity.email || ""
+          });
+        }
+        return { jobNo, usageIndex, deleted: action === "delete" };
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
     if (method === "POST" && route === "stock/orders") {
       const auth = await requireUser(request, env, { human: true });
       if (!auth.ok) return auth.response;
@@ -1709,6 +2210,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (supplier) ensureUniqueString(state.suppliers, supplier);
           part.preferredSupplier = supplier || String(part.preferredSupplier || "");
           part.reorderQty = Math.max(1, Number(body.reorderQty || part.reorderQty || orderedQty) || 1);
+          const createdAt = new Date().toISOString();
           const order = {
             id: `ord-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`,
             partId: part.id,
@@ -1717,11 +2219,13 @@ async function handleApi(request, env, routeOverride = "") {
             supplier,
             orderedQty,
             receivedQty: 0,
-            orderedAt: new Date().toISOString(),
+            createdAt,
+            createdBy: auth.identity.email || "",
+            orderedAt: "",
             expectedDate: String(body.expectedDate || "").trim(),
             note: String(body.note || "").trim().slice(0, 300),
-            status: "Ordered",
-            orderedBy: auth.identity.email || ""
+            status: "Open",
+            orderedBy: ""
           };
           state.stockOrders.push(order);
           return { order };
@@ -1730,7 +2234,21 @@ async function handleApi(request, env, routeOverride = "") {
         if (!order) throw new Error("Stock order not found.");
         const part = (state.partCatalog || []).find((p) => String(p.id) === String(order.partId));
         if (!part) throw new Error("The ordered part no longer exists.");
+        if (action === "place") {
+          if (String(order.status) !== "Open") throw new Error("Only an open order can be placed.");
+          order.status = "Ordered";
+          order.orderedAt = new Date().toISOString();
+          order.orderedBy = auth.identity.email || "";
+          return { order };
+        }
+        if (action === "delete") {
+          if ((Number(order.receivedQty) || 0) > 0) throw new Error("Orders with received stock cannot be deleted.");
+          const idx = state.stockOrders.findIndex((row) => String(row.id) === String(order.id));
+          if (idx >= 0) state.stockOrders.splice(idx, 1);
+          return { orderId: order.id, deleted: true };
+        }
         if (action === "receive") {
+          if (String(order.status) === "Open") throw new Error("Place the order before receiving stock.");
           if (["Received", "Cancelled"].includes(String(order.status))) throw new Error("This order is already closed.");
           const remaining = orderRemaining(order);
           const qty = body.qty === undefined || body.qty === "" ? remaining : Number(body.qty);
@@ -1760,11 +2278,16 @@ async function handleApi(request, env, routeOverride = "") {
       const body = await bodyJson(request);
       const machine = { ...(body.machine || {}) };
       machine.assetId = String(machine.assetId || "").trim();
+      machine.assetNumber = String(machine.assetNumber || "").trim().slice(0, 100);
       machine.name = String(machine.name || "").trim();
       machine.section = String(machine.section || "").trim();
-      if (!machine.assetId || !machine.name || !machine.section) return json({ error: "Asset ID, machine name and section are required." }, 400);
+      machine.manufacturer = String(machine.manufacturer || machine.make || "").trim().slice(0, 160);
+      machine.make = machine.manufacturer;
+      machine.tooling = normalizeMachineTooling(machine.tooling);
+      if (!machine.assetId || !machine.name || !machine.section) return json({ error: "Machine number, machine name and section are required." }, 400);
       const outcome = await mutateState(env, auth.identity, "machine.create", async (state) => {
-        if (state.machines.some((m) => String(m.assetId).toLowerCase() === machine.assetId.toLowerCase())) throw new Error("That asset ID already exists.");
+        if (state.machines.some((m) => String(m.assetId).toLowerCase() === machine.assetId.toLowerCase())) throw new Error("That machine number already exists.");
+        if (machine.assetNumber && state.machines.some((m) => String(m.assetNumber || "").toLowerCase() === machine.assetNumber.toLowerCase())) throw new Error("That asset number already exists.");
         ensureUniqueString(state.sections, machine.section);
         machine.id = machine.id || `m-${slug(machine.assetId)}-${Date.now()}`;
         machine.status = machine.status || "Active";
@@ -1792,12 +2315,25 @@ async function handleApi(request, env, routeOverride = "") {
           state.archivedSuppliers = (state.archivedSuppliers || []).filter((s) => s !== value);
           return { value };
         }
+        if (type === "purchaseOrderOption") {
+          const field = String(body.field || "").trim();
+          if (!Object.prototype.hasOwnProperty.call(DEFAULT_PURCHASE_ORDER_OPTIONS, field)) throw new Error("Unknown purchase order field.");
+          state.purchaseOrderOptions = normalizePurchaseOrderOptions(state.purchaseOrderOptions);
+          let value = String(body.value || "").trim();
+          if (field === "currency") value = value.toUpperCase().slice(0, 8);
+          else value = value.slice(0, 180);
+          if (!value) throw new Error("Enter a value to add.");
+          ensureUniqueString(state.purchaseOrderOptions[field], value);
+          return { field, value };
+        }
         if (type === "part") {
           const name = String(body.name || "").trim();
           if (!name) throw new Error("Part name is required.");
           let part = state.partCatalog.find((p) => String(p.name).toLowerCase() === name.toLowerCase());
           if (!part) {
-            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true });
+            const catalogSuppliers = [...new Set((Array.isArray(body.suppliers) ? body.suppliers : []).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50);
+            for (const supplier of catalogSuppliers) ensureUniqueString(state.suppliers, supplier);
+            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true, suppliers: catalogSuppliers, preferredSupplier: catalogSuppliers[0] || "" });
             state.partCatalog.push(part);
           } else {
             part.active = true;
@@ -1827,24 +2363,31 @@ async function handleApi(request, env, routeOverride = "") {
             const oldSection = machine.section;
             const next = { ...(body.machine || {}) };
             const assetId = String(next.assetId || "").trim();
+            const assetNumber = String(next.assetNumber || "").trim().slice(0, 100);
             const name = String(next.name || "").trim();
             const section = String(next.section || "").trim();
-            if (!assetId || !name || !section) throw new Error("Asset ID, machine name and section are required.");
-            if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That asset ID already exists.");
+            const manufacturer = String(next.manufacturer || next.make || "").trim().slice(0, 160);
+            const tooling = normalizeMachineTooling(next.tooling);
+            if (!assetId || !name || !section) throw new Error("Machine number, machine name and section are required.");
+            if (state.machines.some((m) => m.id !== machine.id && String(m.assetId).toLowerCase() === assetId.toLowerCase())) throw new Error("That machine number already exists.");
+            if (assetNumber && state.machines.some((m) => m.id !== machine.id && String(m.assetNumber || "").toLowerCase() === assetNumber.toLowerCase())) throw new Error("That asset number already exists.");
             ensureUniqueString(state.sections, section);
             Object.assign(machine, {
               assetId,
+              assetNumber,
               name,
               section,
               category: String(next.category || section).trim() || section,
               location: String(next.location || "").trim(),
-              make: String(next.make || "").trim(),
+              manufacturer,
+              make: manufacturer,
               model: String(next.model || "").trim(),
               serialNumber: String(next.serialNumber || "").trim(),
               purchaseDate: String(next.purchaseDate || "").trim(),
               installDate: String(next.installDate || "").trim(),
               purchaseCost: next.purchaseCost === "" || next.purchaseCost == null ? null : Math.max(0, Number(next.purchaseCost) || 0),
-              notes: String(next.notes || "").trim()
+              notes: String(next.notes || "").trim(),
+              tooling
             });
             for (const job of state.jobs) {
               const linkedById = String(job.machineId || "") === String(machine.id);
@@ -1905,6 +2448,7 @@ async function handleApi(request, env, routeOverride = "") {
             state.suppliers = state.suppliers.map((s) => s === oldName ? name : s).sort((a,b)=>a.localeCompare(b));
             state.archivedSuppliers = state.archivedSuppliers.map((s) => s === oldName ? name : s);
             for (const job of state.jobs) for (const part of (job.parts || [])) if (part.supplier === oldName) part.supplier = name;
+            for (const order of (state.purchaseOrders || [])) if (order.supplier === oldName) order.supplier = name;
             return { oldName, name };
           }
           if (action === "archive") {
@@ -1916,8 +2460,8 @@ async function handleApi(request, env, routeOverride = "") {
             return { name: oldName, archived: false };
           }
           if (action === "delete") {
-            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName));
-            if (used) throw new Error("This supplier appears in historical parts records, so it cannot be permanently deleted. Archive it instead.");
+            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName)) || (state.purchaseOrders || []).some((order) => order.supplier === oldName);
+            if (used) throw new Error("This supplier appears in historical parts or purchase-order records, so it cannot be permanently deleted. Archive it instead.");
             state.suppliers = state.suppliers.filter((s) => s !== oldName);
             state.archivedSuppliers = state.archivedSuppliers.filter((s) => s !== oldName);
             return { name: oldName, deleted: true };
@@ -1936,7 +2480,7 @@ async function handleApi(request, env, routeOverride = "") {
             if (state.partCatalog.some((p) => p.id !== part.id && String(p.name).toLowerCase() === name.toLowerCase())) throw new Error("That part name already exists.");
             const wasTracked = part.stockTracked === true;
             const previousStock = Number(part.currentStock) || 0;
-            const stockTracked = body.stockTracked === undefined ? wasTracked : Boolean(body.stockTracked);
+            const stockTracked = body.stockTracked === undefined ? wasTracked : (body.stockTracked === true || body.stockTracked === 1 || String(body.stockTracked).toLowerCase() === "true" || String(body.stockTracked) === "1");
             const currentStock = body.currentStock === undefined ? previousStock : Number(body.currentStock);
             const minStock = body.minStock === undefined ? (Number(part.minStock) || 0) : Number(body.minStock);
             if (!Number.isFinite(currentStock)) throw new Error("Current stock must be a number.");
@@ -1965,8 +2509,13 @@ async function handleApi(request, env, routeOverride = "") {
           if (action === "archive") { part.active = false; return { id: part.id, active: false }; }
           if (action === "reactivate") { part.active = true; return { id: part.id, active: true }; }
           if (action === "delete") {
-            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.name === part.name));
-            if (used) throw new Error("This part appears in historical jobs, so it cannot be permanently deleted. Archive it instead.");
+            const usedInJobs = state.jobs.some((j) => (j.parts || []).some((p) => String(p.partId || "") === String(part.id) || (!p.partId && p.name === part.name)));
+            const hasStockHistory = (state.stockTransactions || []).some((row) => String(row.partId || "") === String(part.id));
+            const hasOrderHistory = (state.stockOrders || []).some((row) => String(row.partId || "") === String(part.id));
+            if (usedInJobs || hasStockHistory || hasOrderHistory) {
+              part.active = false;
+              return { id: part.id, deleted: false, archived: true, retainedHistory: true };
+            }
             state.partCatalog = state.partCatalog.filter((p) => p.id !== part.id);
             return { id: part.id, deleted: true };
           }
@@ -2046,6 +2595,60 @@ async function handleApi(request, env, routeOverride = "") {
       });
       const accessSync = await syncAccessPolicy(env, outcome.state);
       return json({ ok: true, profiles: outcome.state.profiles, jobs: outcome.state.jobs, revision: outcome.revision, accessSync });
+    }
+
+    if (route === "admin/reset-data" && method === "POST") {
+      const auth = await requireUser(request, env, { admin: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      if (String(body.confirmation || "") !== "DELETE ALL DATA") return json({ error: 'Type "DELETE ALL DATA" exactly to confirm the reset.' }, 400);
+      const outcome = await mutateState(env, auth.identity, "admin.reset-maintenance-data", async (state) => {
+        const preservedSettings = normalizeSettings(state.settings);
+        const preservedProfiles = Array.isArray(state.profiles) ? state.profiles : [];
+        const fresh = normalizeState({
+          ...DEFAULT_STATE,
+          settings: preservedSettings,
+          profiles: preservedProfiles,
+          sections: [],
+          archivedSections: [],
+          machines: [],
+          partCatalog: [],
+          suppliers: [],
+          archivedSuppliers: [],
+          jobs: [],
+          stockOrders: [],
+          purchaseOrders: [],
+          purchaseOrderOptions: normalizePurchaseOrderOptions(DEFAULT_PURCHASE_ORDER_OPTIONS),
+          projects: [],
+          stockTransactions: [],
+          preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
+          preventiveSchedules: [],
+          preventiveHistory: [],
+          pmDigestLog: []
+        });
+        Object.keys(state).forEach((key) => { delete state[key]; });
+        Object.assign(state, fresh);
+        return { reset: true, preservedProfiles: preservedProfiles.length };
+      });
+      let operatorRequestsDeleted = 0;
+      try {
+        const result = await env.DB.prepare("DELETE FROM operator_requests").run();
+        operatorRequestsDeleted = Number(result.meta?.changes || 0);
+        try { await env.DB.prepare("DELETE FROM sqlite_sequence WHERE name = 'operator_requests'").run(); } catch (_) {}
+      } catch (_) {}
+      let attachments = { attachmentRows: 0, deletedObjects: 0 };
+      try { attachments = await deleteAllTrackedAttachments(env); } catch (_) {}
+      return json({
+        ok: true,
+        revision: outcome.revision,
+        state: outcome.state,
+        reset: {
+          ...outcome.result,
+          operatorRequestsDeleted,
+          attachmentsDeleted: attachments.deletedObjects,
+          attachmentRowsDeleted: attachments.attachmentRows
+        }
+      });
     }
 
     if (route === "admin/settings" && method === "POST") {
@@ -2166,6 +2769,7 @@ export default {
       const adminApi = url.searchParams.get("api");
       if (adminApi === "profiles") return withVersion(await handleApi(request, env, "admin/profiles"));
       if (adminApi === "settings") return withVersion(await handleApi(request, env, "admin/settings"));
+      if (adminApi === "reset-data") return withVersion(await handleApi(request, env, "admin/reset-data"));
       if (adminApi === "test-email") return withVersion(await handleApi(request, env, "admin/test-email"));
       if (adminApi === "sync-access") return withVersion(await handleApi(request, env, "admin/sync-access"));
 
