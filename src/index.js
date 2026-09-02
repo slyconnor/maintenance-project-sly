@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.10.8";
+const APP_VERSION = "5.10.18";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -429,7 +429,8 @@ function normalizeProject(project) {
       unitPrice: Math.max(0, Number(row.unitPrice) || 0),
       suppliers: [...new Set((Array.isArray(row.suppliers) ? row.suppliers : []).map((supplier) => String(supplier || "").trim()).filter(Boolean))].slice(0, 50),
       addToInventory: row.addToInventory === true || row.addToInventory === 1 || String(row.addToInventory).toLowerCase() === "true",
-      catalogPartId: String(row.catalogPartId || "").trim()
+      catalogPartId: String(row.catalogPartId || "").trim(),
+      stockAppliedQty: Math.max(0, Math.min(Math.max(0, Number(row.usedQty ?? row.qty) || 0), Number(row.stockAppliedQty) || 0))
     };
   }).filter((part) => part.name && (part.orderedQty > 0 || part.usedQty > 0)).slice(0, 500);
   return {
@@ -734,6 +735,95 @@ function restoreJobStock(state, job) {
   return movements;
 }
 
+function catalogPartForProjectPart(state, row) {
+  const catalogPartId = String(row?.catalogPartId || "").trim();
+  if (catalogPartId) {
+    const byId = (state.partCatalog || []).find((part) => String(part.id) === catalogPartId);
+    if (byId) return byId;
+  }
+  const partNo = String(row?.partNo || "").trim().toLowerCase();
+  if (partNo) {
+    const byNumber = (state.partCatalog || []).find((part) => String(part.partNo || "").trim().toLowerCase() === partNo);
+    if (byNumber) return byNumber;
+  }
+  const name = String(row?.name || "").trim().toLowerCase();
+  return name ? (state.partCatalog || []).find((part) => String(part.name || "").trim().toLowerCase() === name) || null : null;
+}
+
+function aggregateProjectStockUsage(state, project) {
+  const map = new Map();
+  for (const row of project?.projectParts || []) {
+    const qty = usageQty(row?.usedQty ?? row?.qty);
+    if (qty <= 0) continue;
+    const part = catalogPartForProjectPart(state, row);
+    if (!part) continue;
+    const rawApplied = Number(row.stockAppliedQty);
+    const applied = Number.isFinite(rawApplied) ? Math.max(0, Math.min(qty, rawApplied)) : 0;
+    const current = map.get(part.id) || { part, qty: 0, applied: 0 };
+    current.qty += qty;
+    current.applied += applied;
+    map.set(part.id, current);
+  }
+  return map;
+}
+
+function distributeProjectAppliedStock(state, project, appliedByPart) {
+  const remaining = new Map(appliedByPart);
+  for (const row of project?.projectParts || []) {
+    const qty = usageQty(row?.usedQty ?? row?.qty);
+    const part = catalogPartForProjectPart(state, row);
+    if (!part || !part.stockTracked || qty <= 0) {
+      row.stockAppliedQty = 0;
+      continue;
+    }
+    const left = Math.max(0, Number(remaining.get(part.id)) || 0);
+    const applied = Math.min(qty, left);
+    row.stockAppliedQty = applied;
+    remaining.set(part.id, left - applied);
+  }
+}
+
+function applyProjectStockChanges(state, oldProject, newProject) {
+  const movements = [];
+  const oldUsage = aggregateProjectStockUsage(state, oldProject);
+  const newUsage = aggregateProjectStockUsage(state, newProject);
+  const keys = new Set([...oldUsage.keys(), ...newUsage.keys()]);
+  const desiredApplied = new Map();
+
+  for (const partId of keys) {
+    const oldRec = oldUsage.get(partId) || { qty: 0, applied: 0, part: null };
+    const newRec = newUsage.get(partId) || { qty: 0, applied: 0, part: oldRec.part };
+    const part = newRec.part || oldRec.part || (state.partCatalog || []).find((item) => String(item.id) === String(partId));
+    if (!part || !part.stockTracked) {
+      desiredApplied.set(partId, 0);
+      continue;
+    }
+
+    // Direct project "parts used" entries represent actual inventory consumption.
+    // stockAppliedQty records what has already been deducted so edits/removals only
+    // apply the difference and never double-deduct the same usage.
+    const nextApplied = Math.max(0, newRec.qty);
+    const stockDelta = nextApplied - Math.max(0, oldRec.applied);
+    part.currentStock = (Number(part.currentStock) || 0) - stockDelta;
+    if (stockDelta !== 0) movements.push({ part, qty: -stockDelta });
+    desiredApplied.set(partId, nextApplied);
+  }
+
+  distributeProjectAppliedStock(state, newProject, desiredApplied);
+  return movements;
+}
+
+function restoreProjectStock(state, project) {
+  const movements = [];
+  const usage = aggregateProjectStockUsage(state, project);
+  for (const { part, applied } of usage.values()) {
+    if (!part || !part.stockTracked || applied <= 0) continue;
+    part.currentStock = (Number(part.currentStock) || 0) + applied;
+    movements.push({ part, qty: applied });
+  }
+  return movements;
+}
+
 function resetHistoricalStockBaseline(state, part) {
   for (const job of state.jobs || []) {
     for (const usage of job.parts || []) {
@@ -762,6 +852,7 @@ function pushStockTransaction(state, tx) {
     balanceAfter: Number.isFinite(Number(tx.balanceAfter)) ? Number(tx.balanceAfter) : null,
     jobNo: String(tx.jobNo || ""),
     orderId: String(tx.orderId || ""),
+    projectId: String(tx.projectId || ""),
     supplier: String(tx.supplier || ""),
     note: String(tx.note || "").slice(0, 300),
     actor: String(tx.actor || "").slice(0, 180)
@@ -1872,7 +1963,7 @@ async function handleApi(request, env, routeOverride = "") {
         for (const p of job.parts || []) {
           const name = String(p.name || "").trim();
           if (name && !state.partCatalog.some((x) => String(x.name).toLowerCase() === name.toLowerCase())) {
-            state.partCatalog.push(normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(p.partNo || "").trim(), active: true }));
+            state.partCatalog.push(normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(p.partNo || "").trim(), active: true, stockTracked: true, currentStock: 0, minStock: null }));
           }
           if (p.supplier) ensureUniqueString(state.suppliers, p.supplier);
         }
@@ -2075,6 +2166,23 @@ async function handleApi(request, env, routeOverride = "") {
           if (incoming.code && state.projects.some((project) => String(project.id) !== String(incoming.id) && String(project.code || "").toLowerCase() === incoming.code.toLowerCase())) {
             throw new Error("That project code already exists.");
           }
+
+          // Preserve the server-managed applied quantity for existing direct usage rows.
+          // The browser is not allowed to decide how much stock was already deducted.
+          if (existing) {
+            for (const row of incoming.projectParts || []) {
+              if ((Number(row.usedQty) || 0) <= 0 || !row.catalogPartId) continue;
+              const prior = (existing.projectParts || []).find((item) =>
+                String(item.id || "") === String(row.id || "") &&
+                (Number(item.usedQty) || 0) > 0 &&
+                String(item.catalogPartId || "") === String(row.catalogPartId || "")
+              );
+              row.stockAppliedQty = prior ? Math.max(0, Math.min(Number(row.usedQty) || 0, Number(prior.stockAppliedQty) || 0)) : 0;
+            }
+          }
+
+          const beforeStock = new Map((state.partCatalog || []).filter((part) => part.stockTracked).map((part) => [part.id, Number(part.currentStock) || 0]));
+          const stockMovements = applyProjectStockChanges(state, existing || null, incoming);
           const idx = existing ? state.projects.findIndex((project) => String(project.id) === String(existing.id)) : -1;
           if (idx >= 0) {
             incoming.createdAt = state.projects[idx].createdAt || incoming.createdAt;
@@ -2084,7 +2192,18 @@ async function handleApi(request, env, routeOverride = "") {
             incoming.updatedAt = incoming.createdAt = new Date().toISOString();
             state.projects.push(incoming);
           }
-          return { project: incoming };
+          for (const movement of stockMovements) {
+            pushStockTransaction(state, {
+              partId: movement.part.id,
+              type: movement.qty < 0 ? "project-use" : "project-return",
+              qty: movement.qty,
+              balanceAfter: movement.part.currentStock,
+              projectId: incoming.id,
+              note: movement.qty < 0 ? `Used on project ${incoming.code || incoming.name}` : `Returned after project edit: ${incoming.code || incoming.name}`,
+              actor: auth.identity.email || ""
+            });
+          }
+          return { project: incoming, lowStockAlerts: lowStockTransitions(beforeStock, state) };
         }
         if (action === "setlinks") {
           const id = String(body.id || "").trim();
@@ -2136,12 +2255,26 @@ async function handleApi(request, env, routeOverride = "") {
           if (linkedJobs || linkedOrders || linkedParts) throw new Error(`This project is linked to ${linkedJobs} job${linkedJobs === 1 ? "" : "s"}, ${linkedOrders} purchase order${linkedOrders === 1 ? "" : "s"} and ${linkedParts} parts-used record${linkedParts === 1 ? "" : "s"}. Archive it instead of deleting it.`);
           const idx = state.projects.findIndex((project) => String(project.id) === id);
           if (idx < 0) throw new Error("Project not found.");
+          const project = state.projects[idx];
+          const movements = restoreProjectStock(state, project);
+          for (const movement of movements) {
+            pushStockTransaction(state, {
+              partId: movement.part.id,
+              type: "project-return",
+              qty: movement.qty,
+              balanceAfter: movement.part.currentStock,
+              projectId: project.id,
+              note: `Stock returned because project was deleted: ${project.code || project.name}`,
+              actor: auth.identity.email || ""
+            });
+          }
           state.projects.splice(idx, 1);
           return { id, deleted: true };
         }
         throw new Error("Unknown project action.");
       });
-      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+      const notification = await sendLowStockNotification(env, outcome.state, outcome.result?.lowStockAlerts || [], new URL(request.url).origin);
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, notification, ...outcome.result });
     }
 
     if (method === "POST" && route === "parts-usage") {
