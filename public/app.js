@@ -1816,7 +1816,14 @@ async function assignPurchaseOrderProject(orderId){
   try{await saveMutation("/api/purchase-orders",{action:"setProject",orderId,projectId});renderPurchaseOrders();renderProjects();}
   catch(error){showSaveError(error);}
 }
-function handleOrderedPurchaseOrderClick(e){const download=e.target.closest('[data-po-download]');if(download){downloadPurchaseRequisition(download.dataset.poDownload);return;}const assign=e.target.closest('[data-po-project-save]');if(assign){assignPurchaseOrderProject(assign.dataset.poProjectSave);return;}const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
+async function assignPurchaseOrderGoodsDate(orderId){
+  const input=[...document.querySelectorAll("[data-po-goods-date]")].find(el=>String(el.dataset.poGoodsDate)===String(orderId));
+  const dateQuoteNeeded=String(input?.value||"").trim();
+  if(!dateQuoteNeeded){alert("Choose the Date goods needed first.");input?.focus();return;}
+  try{await saveMutation("/api/purchase-orders",{action:"setGoodsDate",orderId,dateQuoteNeeded});renderPurchaseOrders();}
+  catch(error){showSaveError(error);}
+}
+function handleOrderedPurchaseOrderClick(e){const download=e.target.closest('[data-po-download]');if(download){downloadPurchaseRequisition(download.dataset.poDownload);return;}const dateSave=e.target.closest('[data-po-goods-date-save]');if(dateSave){assignPurchaseOrderGoodsDate(dateSave.dataset.poGoodsDateSave);return;}const assign=e.target.closest('[data-po-project-save]');if(assign){assignPurchaseOrderProject(assign.dataset.poProjectSave);return;}const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
 let purchaseRequisitionPdfLibPromise=null;
 let purchaseRequisitionTemplatePromise=null;
 function loadPurchaseRequisitionPdfLib(){
@@ -1836,7 +1843,7 @@ function loadPurchaseRequisitionTemplate(){
 }
 function purchaseRequisitionDate(value){
   const text=String(value||"").trim();if(!text)return "";
-  const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(text);return match?`${match[3]}/${match[2]}/${match[1]}`:text;
+  const match=/^(\d{4})-(\d{2})-(\d{2})$/.exec(text);return match?`${match[3]}/${match[2]}/${match[1].slice(-2)}`:text;
 }
 function purchaseRequisitionCurrency(value){
   const currency=String(value||"GBP").trim();const upper=currency.toUpperCase();
@@ -1853,71 +1860,74 @@ function purchaseRequisitionDescription(line){
 async function buildPurchaseRequisitionPdf(order){
   const PDFLib=await loadPurchaseRequisitionPdfLib();
   const templateBytes=await loadPurchaseRequisitionTemplate();
-  const lines=(order?.lines||[]).filter(line=>String(line?.partName||"").trim());
-  const chunks=[];for(let i=0;i<Math.max(1,lines.length);i+=9)chunks.push(lines.slice(i,i+9));if(!chunks.length)chunks.push([]);
-  const output=await PDFLib.PDFDocument.create();
-  const templateDoc=await PDFLib.PDFDocument.load(templateBytes.slice(0),{ignoreEncryption:true});
-  const font=await output.embedFont(PDFLib.StandardFonts.Helvetica);
-  const overallTotal=purchaseOrderTotal(order);
-  const black=PDFLib.rgb(0,0,0),white=PDFLib.rgb(1,1,1);
-  const fitSize=(text,maxWidth,preferred=8,min=5.5)=>{let size=preferred;const value=String(text??"");while(size>min&&font.widthOfTextAtSize(value,size)>maxWidth)size-=0.25;return size;};
-  const coverBox=(page,box,inset=1.15)=>{const [x0,y0,x1,y1]=box;page.drawRectangle({x:x0+inset,y:y0+inset,width:Math.max(1,x1-x0-inset*2),height:Math.max(1,y1-y0-inset*2),color:white});};
-  const drawBox=(page,text,box,preferred=8,align="left",cover=false)=>{
-    const value=String(text??"").trim();if(cover)coverBox(page,box);if(!value)return;
-    const [x0,y0,x1,y1]=box,pad=3,width=Math.max(1,x1-x0-pad*2),height=y1-y0;
-    const size=fitSize(value,width,preferred);let x=x0+pad;
-    const measured=Math.min(width,font.widthOfTextAtSize(value,size));
-    if(align==="right")x=x1-pad-measured;else if(align==="center")x=x0+(x1-x0-measured)/2;
-    const y=y0+Math.max(1,(height-size)/2)+1;
-    page.drawText(value,{x,y,size,font,color:black,maxWidth:width});
+  const doc=await PDFLib.PDFDocument.load(templateBytes.slice(0),{ignoreEncryption:true});
+  const form=doc.getForm();
+  const font=await doc.embedFont(PDFLib.StandardFonts.Helvetica);
+  const page=doc.getPages()[0];
+  const lines=(order?.lines||[]).filter(line=>String(line?.partName||"").trim()).slice(0,9);
+  const setText=(name,value,size=10)=>{
+    try{
+      const field=form.getTextField(name);
+      field.setText(String(value??""));
+      try{field.setFontSize(size);}catch{}
+    }catch{}
   };
-  const wrap=(text,width,size)=>{
-    const words=String(text||"").replace(/\s+/g," ").trim().split(" ").filter(Boolean);const rows=[];let row="";
-    for(const word of words){const test=row?`${row} ${word}`:word;if(font.widthOfTextAtSize(test,size)<=width)row=test;else{if(row)rows.push(row);row=word;}}
-    if(row)rows.push(row);return rows;
+  const setChoice=(name,value,size=10)=>{
+    try{
+      const field=form.getDropdown(name),selected=String(value||"").trim();
+      if(!selected)return;
+      const options=field.getOptions();
+      if(!options.includes(selected))field.addOptions([selected]);
+      field.select(selected);
+      try{field.setFontSize(size);}catch{}
+    }catch{}
   };
-  const drawNotes=(page,text)=>{
-    const value=String(text||"").trim();if(!value)return;const box=[103.655,240.266,383.109,300.63],pad=3,size=7,lineHeight=8.5;
-    const rows=wrap(value,box[2]-box[0]-pad*2,size).slice(0,6);let y=box[3]-size-4;
-    for(const row of rows){page.drawText(row,{x:box[0]+pad,y,size,font,color:black,maxWidth:box[2]-box[0]-pad*2});y-=lineHeight;}
-  };
-  const boxes={
-    gl:[67.5,593.5,85.5,617.5],div:[87.24,593.28,120.72,617.76],dept:[122.412,593.377,155.892,617.857],account:[158.27,593.377,226.271,617.857],department:[230.081,593.948,375.691,617.802],ipp:[377.88,593.28,439.68,617.76],job:[441.72,593.28,544.56,617.76],supplier:[67.8,522,361.68,546.48],newAccount:[363.72,522,446.64,546.48],samF016:[448.68,522,544.56,546.48],currency:[388.965,267.121,456.714,287.121],total:[462.72,263.52,547.08,300.12],raised:[196.92,208.8,405.48,235.8],goodsDate:[407.28,208.8,533.16,221.88]
-  };
-  const rowBoxes={
-    desc:[[64.56,463.2,324.48,480.48],[64.56,445.92,324.48,462],[64.56,428.64,324.48,444.72],[64.56,411.36,324.48,427.44],[64.56,392.88,324.48,410.16],[64.56,375.6,324.48,391.68],[64.56,357.12,324.48,374.4],[64.56,338.88,324.48,355.92],[64.56,320.4,324.48,337.68]],
-    qty:[[326.04,463.2,384,480.48],[326.04,445.92,384,462],[326.04,428.64,384,444.72],[326.04,411.36,384,427.44],[326.04,392.88,384,410.16],[326.04,375.6,384,391.68],[326.04,357.12,384,374.4],[326.04,338.88,384,355.92],[326.04,320.4,384,337.68]],
-    unit:[[385.56,463.2,460.56,480.48],[385.56,445.92,460.56,462],[385.56,428.64,460.56,444.72],[385.56,411.36,460.56,427.44],[385.56,392.88,460.56,410.16],[385.56,375.6,460.56,391.68],[385.56,357.12,460.56,374.4],[385.56,338.88,460.56,355.92],[385.56,320.4,460.56,337.68]],
-    ext:[[462.12,463.2,547.68,480.48],[462.12,445.92,547.68,462],[462.12,428.64,547.68,444.72],[462.12,411.36,547.68,427.44],[462.12,392.88,547.68,410.16],[462.12,375.6,547.68,391.68],[462.12,357.12,547.68,374.4],[462.12,338.88,547.68,355.92],[462.12,320.4,547.68,337.68]]
-  };
-  for(let pageIndex=0;pageIndex<chunks.length;pageIndex++){
-    const [page]=await output.copyPages(templateDoc,[0]);output.addPage(page);
-    // The template is an exact flattened copy of the original requisition. Clear only the original field values, preserving borders/artwork.
-    drawBox(page,order?.glCode||"",boxes.gl,9,"left",true);
-    drawBox(page,order?.div||"",boxes.div,8,"left",true);
-    drawBox(page,order?.dept||"",boxes.dept,8,"left",true);
-    drawBox(page,order?.account||"",boxes.account,8,"left",true);
-    drawBox(page,order?.department||"Maintenance",boxes.department,8,"left",true);
-    drawBox(page,order?.epp||"",boxes.ipp,8,"left",true);
-    drawBox(page,order?.jobNumber||"",boxes.job,8,"left",true);
-    drawBox(page,order?.supplier||"",boxes.supplier,7,"left",true);
-    drawBox(page,order?.newAccount||"",boxes.newAccount,8,"center",true);
-    drawBox(page,order?.samF016Attached||"",boxes.samF016,8,"center",true);
-    const chunk=chunks[pageIndex];
-    for(let row=0;row<9;row++){
-      const line=chunk[row];if(!line)continue;const qty=Math.max(1,Number(line.qty)||1),unit=Math.max(0,Number(line.unitPrice)||0);
-      drawBox(page,purchaseRequisitionDescription(line),rowBoxes.desc[row],7,"left",true);
-      drawBox(page,String(qty),rowBoxes.qty[row],8,"center",true);
-      drawBox(page,unit.toFixed(2),rowBoxes.unit[row],8,"right",true);
-      drawBox(page,(qty*unit).toFixed(2),rowBoxes.ext[row],8,"right",true);
-    }
-    drawBox(page,purchaseRequisitionCurrency(order?.currency),boxes.currency,7,"left",true);
-    if(pageIndex===chunks.length-1)drawBox(page,overallTotal.toFixed(2),boxes.total,9,"right",true);else drawBox(page,"",boxes.total,9,"right",true);
-    drawNotes(page,pageIndex===chunks.length-1?(order?.notes||""):"Continued on following page");
-    drawBox(page,order?.requestedBy||"",boxes.raised,8,"left",true);
-    drawBox(page,purchaseRequisitionDate(order?.dateQuoteNeeded),boxes.goodsDate,8,"left",true);
+  // The supplied requisition contains a printed GL Code value of 1 rather than an AcroForm field.
+  // For the normal GL Code 1 we leave the original artwork untouched. If another code is used,
+  // add a small editable field over that cell so the saved value is still correct and editable.
+  const glCode=String(order?.glCode||"").trim();
+  if(glCode && glCode!=="1"){
+    try{
+      let glField;try{glField=form.getTextField("GL Code");}catch{glField=form.createTextField("GL Code");glField.addToPage(page,{x:67.6,y:593.5,width:18,height:24,borderWidth:0,backgroundColor:PDFLib.rgb(1,1,1),textColor:PDFLib.rgb(0,0,0),font});}
+      glField.setText(glCode);try{glField.setFontSize(10);}catch{}
+    }catch{}
   }
-  return output.save({useObjectStreams:false,addDefaultPage:false});
+  setText("Div",order?.div||"",10);
+  setText("Dept",order?.dept||"",10);
+  setText("Account",order?.account||"",10);
+  setChoice("Department1",order?.department||"Maintenance",10);
+  setText("IPP1",order?.epp||"",10);
+  setText("Job Number1",order?.jobNumber||"",10);
+  setText("Nominated SupplierRow1",order?.supplier||"",10);
+  const yn=value=>String(value||"")==="Yes"?"Y":String(value||"")==="No"?"N":String(value||"");
+  setText("New Acc YNRow1",yn(order?.newAccount),10);
+  setText("RAMF016 attached YNRow1",yn(order?.samF016Attached),10);
+  for(let row=1;row<=9;row++){
+    const line=lines[row-1];
+    const qty=line?Math.max(1,Number(line.qty)||1):0;
+    const unit=line?Math.max(0,Number(line.unitPrice)||0):0;
+    setText(`Item Description inc catalogue code where knownRow${row}`,line?purchaseRequisitionDescription(line):"",10);
+    setText(`QuantityRow${row}`,line?String(qty):"",10);
+    setText(`Unit PriceRow${row}`,line?unit.toFixed(2):"",10);
+    setText(`Ext PriceRow${row}`,line?(qty*unit).toFixed(2):"0.00",10);
+  }
+  // Keep the original carriage row editable/calculating exactly as supplied.
+  setText("Unit PriceRow10","",10);
+  setText("Ext PriceRow10","0.00",10);
+  setText("Ext PriceTOTAL",purchaseOrderTotal(order).toFixed(2),10);
+  setChoice("Currency",purchaseRequisitionCurrency(order?.currency),10);
+  setText("Notes",order?.notes||"",10);
+  setText("Requisition raised by",order?.requestedBy||"",10);
+  setText("Date goods neededRequisition raised by",purchaseRequisitionDate(order?.dateQuoteNeeded),10);
+  // Preserve the original AcroForm instead of flattening it. Acrobat will render the fields using
+  // their original default appearance/font/format actions, keeping the PDF editable like the old form.
+  try{
+    const acroRef=doc.catalog.get(PDFLib.PDFName.of("AcroForm"));
+    const acro=doc.context.lookup(acroRef);
+    const trueValue=PDFLib.PDFBool?.True||PDFLib.PDFBool?.of?.(true);
+    if(acro?.set&&trueValue)acro.set(PDFLib.PDFName.of("NeedAppearances"),trueValue);
+  }catch{}
+  return doc.save({useObjectStreams:false,addDefaultPage:false,updateFieldAppearances:false});
 }
 async function downloadPurchaseRequisition(orderId){
   const order=purchaseOrders.find(row=>String(row.id)===String(orderId));if(!order)return;
@@ -1943,7 +1953,7 @@ function renderPurchaseOrders(){
 
   if($("#poOrderedSearch") && $("#poOrderedSearch").value!==orderedPurchaseSearchQuery) $("#poOrderedSearch").value=orderedPurchaseSearchQuery;
   if($("#poOrderedSearchCount")) $("#poOrderedSearchCount").textContent=query?`Showing ${ordered.length} of ${allOrdered.length}`:`${allOrdered.length} order${allOrdered.length===1?"":"s"}`;
-  if($("#poOrderedList")) $("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked. Its project assignment can still be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderMetaReadOnly(order)}${purchaseOrderLinesReadOnly(order)}<div class="po-project-assignment"><label>Add ordered parts to project<select data-po-project-select="${esc(order.id)}">${projectOptions(order.projectId||"",{includeArchived:false})}</select></label><button type="button" class="btn secondary compact" data-po-project-save="${esc(order.id)}">Save project</button><small>All parts and costs on this purchase order will count against the selected project.</small></div><div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-download="${esc(order.id)}">Download PDF</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">${query?"No ordered purchases match your search.":"No placed orders yet."}</div>`;
+  if($("#poOrderedList")) $("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked. Its project assignment and Date goods needed can still be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderMetaReadOnly(order)}${purchaseOrderLinesReadOnly(order)}<div class="po-project-assignment"><label>Date goods needed<input type="date" data-po-goods-date="${esc(order.id)}" value="${esc(order.dateQuoteNeeded||"")}"></label><button type="button" class="btn secondary compact" data-po-goods-date-save="${esc(order.id)}">Save date</button><small>This date is used on the downloaded Purchase Requisition PDF.</small></div><div class="po-project-assignment"><label>Add ordered parts to project<select data-po-project-select="${esc(order.id)}">${projectOptions(order.projectId||"",{includeArchived:false})}</select></label><button type="button" class="btn secondary compact" data-po-project-save="${esc(order.id)}">Save project</button><small>All parts and costs on this purchase order will count against the selected project.</small></div><div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-download="${esc(order.id)}">Download PDF</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">${query?"No ordered purchases match your search.":"No placed orders yet."}</div>`;
 
   const supplier=$("#poSupplierSelect");
   if(supplier){const current=supplier.value;supplier.innerHTML=purchaseOrderSupplierOptions(current);supplier.value=current;}

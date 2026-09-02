@@ -2120,6 +2120,14 @@ async function handleApi(request, env, routeOverride = "") {
           order.updatedAt = order.orderedAt;
           return { order };
         }
+        if (action === "setgoodsdate") {
+          if (!order) throw new Error("Order not found.");
+          const dateQuoteNeeded = cleanDateOnly(body.dateQuoteNeeded);
+          if (!dateQuoteNeeded) throw new Error("Choose the Date goods needed first.");
+          order.dateQuoteNeeded = dateQuoteNeeded;
+          order.updatedAt = new Date().toISOString();
+          return { order };
+        }
         if (action === "setproject") {
           if (!order) throw new Error("Order not found.");
           order.projectId = projectId;
