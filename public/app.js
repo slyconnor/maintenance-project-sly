@@ -1553,7 +1553,7 @@ function ensurePurchaseOrderUi(){
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const partsBtn=nav.querySelector('[data-view="parts"]');const ref=partsBtn?.nextSibling||nav.querySelector('[data-view="data"]')||null;const open=document.createElement("button");open.type="button";open.className="nav-item";open.dataset.view="openOrders";open.innerHTML=`<span>🧾</span><span>Open Orders</span>`;const ordered=document.createElement("button");ordered.type="button";ordered.className="nav-item";ordered.dataset.view="ordered";ordered.innerHTML=`<span>📦</span><span>Ordered</span>`;nav.insertBefore(open,ref);nav.insertBefore(ordered,ref);}
   const reference=document.getElementById("dataView")||document.getElementById("reportsView");const parent=reference?.parentElement||document.querySelector("main")||document.body;
-  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label><span class="po-field-title">GL Code <span class="po-required">*</span></span><select id="poGlCode" data-po-option-field="glCode"></select></label><label><span class="po-field-title">Div <span class="po-required">*</span></span><select id="poDiv" data-po-option-field="div"></select></label><label><span class="po-field-title">Dept <span class="po-required">*</span></span><select id="poDept" data-po-option-field="dept"></select></label><label><span class="po-field-title">Account <span class="po-required">*</span></span><select id="poAccount" data-po-option-field="account"></select></label><label><span class="po-field-title">Department <span class="po-required">*</span></span><select id="poDepartment" data-po-option-field="department"></select></label><label><span class="po-field-title">IPP</span><select id="poEpp" data-po-option-field="epp"></select></label><label><span class="po-field-title">Job Number</span><select id="poJobNumber"></select></label><label><span class="po-field-title">Project</span><select id="poProjectSelect"></select></label><label><span class="po-field-title">Currency</span><select id="poCurrency" data-po-option-field="currency"></select></label><label><span class="po-field-title">New Account</span><select id="poNewAccount"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">Requisition raised by <span class="po-required">*</span></span><select id="poRequestedBy" data-po-option-field="requestedBy"></select></label><label><span class="po-field-title">Date quote needed <span class="po-required">*</span></span><input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
+  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label><span class="po-field-title">GL Code <span class="po-required">*</span></span><select id="poGlCode" data-po-option-field="glCode"></select></label><label><span class="po-field-title">Div <span class="po-required">*</span></span><select id="poDiv" data-po-option-field="div"></select></label><label><span class="po-field-title">Dept <span class="po-required">*</span></span><select id="poDept" data-po-option-field="dept"></select></label><label><span class="po-field-title">Account <span class="po-required">*</span></span><select id="poAccount" data-po-option-field="account"></select></label><label><span class="po-field-title">Department <span class="po-required">*</span></span><select id="poDepartment" data-po-option-field="department"></select></label><label><span class="po-field-title">IPP</span><select id="poEpp" data-po-option-field="epp"></select></label><label><span class="po-field-title">Job Number</span><select id="poJobNumber"></select></label><label><span class="po-field-title">Project</span><select id="poProjectSelect"></select></label><label><span class="po-field-title">Currency</span><select id="poCurrency" data-po-option-field="currency"></select></label><label><span class="po-field-title">New Account</span><select id="poNewAccount"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">SAM-F-016 attached</span><select id="poSamF016Attached"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">Requisition raised by <span class="po-required">*</span></span><select id="poRequestedBy" data-po-option-field="requestedBy"></select></label><label><span class="po-field-title">Date goods needed <span class="po-required">*</span></span><input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
   const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div class="po-search-row"><input id="poOrderedSearch" type="search" placeholder="Search PO, supplier, part or part code…" autocomplete="off"><span class="po-search-count" id="poOrderedSearchCount"></span></div><div id="poOrderedList" class="po-list"></div>`;
   if(reference){parent.insertBefore(openView,reference);parent.insertBefore(orderedView,reference);}else{parent.appendChild(openView);parent.appendChild(orderedView);}
   $("#poNewBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
@@ -1649,7 +1649,7 @@ function purchaseOrderPlaceMissing(meta=purchaseOrderMeta(),lines=collectPurchas
   if(!meta.div)missing.push("Div");
   if(!meta.dept)missing.push("Dept");
   if(!meta.account)missing.push("Account");
-  if(!meta.dateQuoteNeeded)missing.push("Date quote needed");
+  if(!meta.dateQuoteNeeded)missing.push("Date goods needed");
   if(!supplier)missing.push("Supplier");
   if(!meta.requestedBy)missing.push("Raised by");
   if(!lines.length)missing.push("Part");
@@ -1662,7 +1662,7 @@ function purchaseOrderObjectPlaceMissing(order){
   if(!String(order?.div||"").trim())missing.push("Div");
   if(!String(order?.dept||"").trim())missing.push("Dept");
   if(!String(order?.account||"").trim()||["Yes","No"].includes(String(order?.account||"").trim()))missing.push("Account");
-  if(!String(order?.dateQuoteNeeded||"").trim())missing.push("Date quote needed");
+  if(!String(order?.dateQuoteNeeded||"").trim())missing.push("Date goods needed");
   if(!String(order?.supplier||"").trim())missing.push("Supplier");
   if(!String(order?.requestedBy||"").trim())missing.push("Raised by");
   if(!lines.length)missing.push("Part");
@@ -1738,6 +1738,7 @@ function purchaseOrderMeta(){
     jobNumber:String($("#poJobNumber")?.value||"").trim().replace(/^__add_job__$/,"").trim(),
     projectId:String($("#poProjectSelect")?.value||"").trim().replace(/^__add_project__$/,"").trim(),
     newAccount:String($("#poNewAccount")?.value||"").trim(),
+    samF016Attached:String($("#poSamF016Attached")?.value||"").trim(),
     currency:String($("#poCurrency")?.value||appSettings.currency||"GBP").replace(/^__add__$/,appSettings.currency||"GBP"),
     requestedBy:String($("#poRequestedBy")?.value||"").trim().replace(/^__add__$/,"").trim(),
     dateQuoteNeeded:String($("#poDateQuoteNeeded")?.value||""),
@@ -1750,23 +1751,23 @@ function setPurchaseOrderMeta(order){
   const selectedNewAccount=order?.newAccount||(["Yes","No"].includes(legacyAccount)?legacyAccount:"");
   const selectedAccount=legacyAccount&&!['Yes','No'].includes(legacyAccount)?legacyAccount:defaults.account;
   const values={
-    poGlCode:order?.glCode??defaults.glCode,poDiv:order?.div??defaults.div,poDept:order?.dept??defaults.dept,poAccount:selectedAccount,poNewAccount:selectedNewAccount,
+    poGlCode:order?.glCode??defaults.glCode,poDiv:order?.div??defaults.div,poDept:order?.dept??defaults.dept,poAccount:selectedAccount,poNewAccount:selectedNewAccount,poSamF016Attached:order?.samF016Attached||"",
     poDepartment:order?.department??defaults.department,poEpp:order?.epp??defaults.epp,
     poCurrency:order?.currency??defaults.currency,
     poRequestedBy:(String(order?.requestedBy||"").includes("@")?purchaseOrderRequesterName():String(order?.requestedBy||"").trim())||purchaseOrderRequesterName(),
     poDateQuoteNeeded:order?.dateQuoteNeeded||"",poNotes:order?.notes||""
   };
   refreshPurchaseOrderSelects(values);
-  ["poNewAccount","poDateQuoteNeeded","poNotes"].forEach(id=>{const el=$("#"+id);if(el)el.value=values[id]||"";});
+  ["poNewAccount","poSamF016Attached","poDateQuoteNeeded","poNotes"].forEach(id=>{const el=$("#"+id);if(el)el.value=values[id]||"";});
   const jobSelect=$("#poJobNumber");if(jobSelect){jobSelect.innerHTML=purchaseOrderJobOptions(order?.jobNumber||"");jobSelect.value=String(order?.jobNumber||"");}
   const project=$("#poProjectSelect");if(project){project.innerHTML=projectOptionsWithAdd(order?.projectId||"",{includeArchived:true});project.value=String(order?.projectId||"");}
 }
 function purchaseOrderMetaReadOnly(order){
   const rows=[
     ["GL Code",order.glCode],["Div",order.div],["Dept",order.dept],["Account",(["Yes","No"].includes(String(order.account||""))?"":order.account)],
-    ["Department",order.department||"Maintenance"],["IPP",order.epp],["Job Number",order.jobNumber],["New Account",order.newAccount||(["Yes","No"].includes(String(order.account||""))?order.account:"")],
+    ["Department",order.department||"Maintenance"],["IPP",order.epp],["Job Number",order.jobNumber],["New Account",order.newAccount||(["Yes","No"].includes(String(order.account||""))?order.account:"")],["SAM-F-016 attached",order.samF016Attached],
     ["Project",projectLabel(order.projectId)],["Currency",order.currency||appSettings.currency],
-    ["Raised by",order.requestedBy],["Quote needed",order.dateQuoteNeeded?fmtDate(order.dateQuoteNeeded):""]
+    ["Raised by",order.requestedBy],["Goods needed",order.dateQuoteNeeded?fmtDate(order.dateQuoteNeeded):""]
   ].filter(([,value])=>String(value||"").trim());
   return `<div class="po-requisition-meta">${rows.map(([label,value])=>`<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join("")}</div>${order.notes?`<div class="po-readonly-note"><strong>Notes:</strong> ${esc(order.notes)}</div>`:""}`;
 }
@@ -1792,7 +1793,7 @@ async function submitPurchaseOrder(action){
     const missing=purchaseOrderPlaceMissing(meta,lines,supplier);
     if(missing.length){
       alert(`Complete the required order information before placing: ${missing.join(", ")}.`);
-      const focusMap={"GL Code":"#poGlCode","Div":"#poDiv","Dept":"#poDept","Account":"#poAccount","Date quote needed":"#poDateQuoteNeeded","Supplier":"#poSupplierSelect","Raised by":"#poRequestedBy","Part":"#poLines .po-part-name"};
+      const focusMap={"GL Code":"#poGlCode","Div":"#poDiv","Dept":"#poDept","Account":"#poAccount","Date goods needed":"#poDateQuoteNeeded","Supplier":"#poSupplierSelect","Raised by":"#poRequestedBy","Part":"#poLines .po-part-name"};
       document.querySelector(focusMap[missing[0]]||"")?.focus();
       updatePurchaseOrderPlaceState();
       return;
@@ -1860,8 +1861,9 @@ async function buildPurchaseRequisitionPdf(order){
   const overallTotal=purchaseOrderTotal(order);
   const black=PDFLib.rgb(0,0,0),white=PDFLib.rgb(1,1,1);
   const fitSize=(text,maxWidth,preferred=8,min=5.5)=>{let size=preferred;const value=String(text??"");while(size>min&&font.widthOfTextAtSize(value,size)>maxWidth)size-=0.25;return size;};
-  const drawBox=(page,text,box,preferred=8,align="left")=>{
-    const value=String(text??"").trim();if(!value)return;
+  const coverBox=(page,box,inset=1.15)=>{const [x0,y0,x1,y1]=box;page.drawRectangle({x:x0+inset,y:y0+inset,width:Math.max(1,x1-x0-inset*2),height:Math.max(1,y1-y0-inset*2),color:white});};
+  const drawBox=(page,text,box,preferred=8,align="left",cover=false)=>{
+    const value=String(text??"").trim();if(cover)coverBox(page,box);if(!value)return;
     const [x0,y0,x1,y1]=box,pad=3,width=Math.max(1,x1-x0-pad*2),height=y1-y0;
     const size=fitSize(value,width,preferred);let x=x0+pad;
     const measured=Math.min(width,font.widthOfTextAtSize(value,size));
@@ -1879,6 +1881,9 @@ async function buildPurchaseRequisitionPdf(order){
     const rows=wrap(value,box[2]-box[0]-pad*2,size).slice(0,6);let y=box[3]-size-4;
     for(const row of rows){page.drawText(row,{x:box[0]+pad,y,size,font,color:black,maxWidth:box[2]-box[0]-pad*2});y-=lineHeight;}
   };
+  const boxes={
+    gl:[67.5,593.5,85.5,617.5],div:[87.24,593.28,120.72,617.76],dept:[122.412,593.377,155.892,617.857],account:[158.27,593.377,226.271,617.857],department:[230.081,593.948,375.691,617.802],ipp:[377.88,593.28,439.68,617.76],job:[441.72,593.28,544.56,617.76],supplier:[67.8,522,361.68,546.48],newAccount:[363.72,522,446.64,546.48],samF016:[448.68,522,544.56,546.48],currency:[388.965,267.121,456.714,287.121],total:[462.72,263.52,547.08,300.12],raised:[196.92,208.8,405.48,235.8],goodsDate:[407.28,208.8,533.16,221.88]
+  };
   const rowBoxes={
     desc:[[64.56,463.2,324.48,480.48],[64.56,445.92,324.48,462],[64.56,428.64,324.48,444.72],[64.56,411.36,324.48,427.44],[64.56,392.88,324.48,410.16],[64.56,375.6,324.48,391.68],[64.56,357.12,324.48,374.4],[64.56,338.88,324.48,355.92],[64.56,320.4,324.48,337.68]],
     qty:[[326.04,463.2,384,480.48],[326.04,445.92,384,462],[326.04,428.64,384,444.72],[326.04,411.36,384,427.44],[326.04,392.88,384,410.16],[326.04,375.6,384,391.68],[326.04,357.12,384,374.4],[326.04,338.88,384,355.92],[326.04,320.4,384,337.68]],
@@ -1887,32 +1892,31 @@ async function buildPurchaseRequisitionPdf(order){
   };
   for(let pageIndex=0;pageIndex<chunks.length;pageIndex++){
     const [page]=await output.copyPages(templateDoc,[0]);output.addPage(page);
-    // GL Code "1" is printed into the original artwork, so cover it before writing the saved GL code.
-    page.drawRectangle({x:67.5,y:593.5,width:18,height:23,color:white});
-    drawBox(page,order?.glCode||"",[67.5,593.5,85.5,617.5],9);
-    drawBox(page,order?.div||"",[87.24,593.28,120.72,617.76],8);
-    drawBox(page,order?.dept||"",[122.412,593.377,155.892,617.857],8);
-    drawBox(page,order?.account||"",[158.27,593.377,226.271,617.857],8);
-    drawBox(page,order?.department||"Maintenance",[230.081,593.948,375.691,617.802],8);
-    drawBox(page,order?.epp||"",[377.88,593.28,439.68,617.76],8);
-    drawBox(page,order?.jobNumber||"",[441.72,593.28,544.56,617.76],8);
-    drawBox(page,order?.supplier||"",[67.8,522,361.68,546.48],7);
-    drawBox(page,order?.newAccount||"",[363.72,522,446.64,546.48],8,"center");
+    // The template is an exact flattened copy of the original requisition. Clear only the original field values, preserving borders/artwork.
+    drawBox(page,order?.glCode||"",boxes.gl,9,"left",true);
+    drawBox(page,order?.div||"",boxes.div,8,"left",true);
+    drawBox(page,order?.dept||"",boxes.dept,8,"left",true);
+    drawBox(page,order?.account||"",boxes.account,8,"left",true);
+    drawBox(page,order?.department||"Maintenance",boxes.department,8,"left",true);
+    drawBox(page,order?.epp||"",boxes.ipp,8,"left",true);
+    drawBox(page,order?.jobNumber||"",boxes.job,8,"left",true);
+    drawBox(page,order?.supplier||"",boxes.supplier,7,"left",true);
+    drawBox(page,order?.newAccount||"",boxes.newAccount,8,"center",true);
+    drawBox(page,order?.samF016Attached||"",boxes.samF016,8,"center",true);
     const chunk=chunks[pageIndex];
     for(let row=0;row<9;row++){
       const line=chunk[row];if(!line)continue;const qty=Math.max(1,Number(line.qty)||1),unit=Math.max(0,Number(line.unitPrice)||0);
-      drawBox(page,purchaseRequisitionDescription(line),rowBoxes.desc[row],7);
-      drawBox(page,String(qty),rowBoxes.qty[row],8,"center");
-      drawBox(page,unit.toFixed(2),rowBoxes.unit[row],8,"right");
-      drawBox(page,(qty*unit).toFixed(2),rowBoxes.ext[row],8,"right");
+      drawBox(page,purchaseRequisitionDescription(line),rowBoxes.desc[row],7,"left",true);
+      drawBox(page,String(qty),rowBoxes.qty[row],8,"center",true);
+      drawBox(page,unit.toFixed(2),rowBoxes.unit[row],8,"right",true);
+      drawBox(page,(qty*unit).toFixed(2),rowBoxes.ext[row],8,"right",true);
     }
-    drawBox(page,purchaseRequisitionCurrency(order?.currency),[388.965,267.121,456.714,287.121],7);
-    if(pageIndex===chunks.length-1)drawBox(page,overallTotal.toFixed(2),[462.72,263.52,547.08,300.12],9,"right");
+    drawBox(page,purchaseRequisitionCurrency(order?.currency),boxes.currency,7,"left",true);
+    if(pageIndex===chunks.length-1)drawBox(page,overallTotal.toFixed(2),boxes.total,9,"right",true);else drawBox(page,"",boxes.total,9,"right",true);
     drawNotes(page,pageIndex===chunks.length-1?(order?.notes||""):"Continued on following page");
-    drawBox(page,order?.requestedBy||"",[196.92,208.8,405.48,235.8],8);
-    drawBox(page,purchaseRequisitionDate(order?.dateQuoteNeeded),[407.28,208.8,533.16,221.88],8);
+    drawBox(page,order?.requestedBy||"",boxes.raised,8,"left",true);
+    drawBox(page,purchaseRequisitionDate(order?.dateQuoteNeeded),boxes.goodsDate,8,"left",true);
   }
-  // Disable PDF object streams for maximum compatibility with older/strict Acrobat installations.
   return output.save({useObjectStreams:false,addDefaultPage:false});
 }
 async function downloadPurchaseRequisition(orderId){

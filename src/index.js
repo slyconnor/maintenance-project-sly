@@ -482,6 +482,7 @@ function normalizePurchaseOrder(order) {
     epp: String(value.epp || "").trim().slice(0, 120),
     jobNumber: String(value.jobNumber || "").trim().slice(0, 120),
     newAccount: ["Yes", "No"].includes(String(value.newAccount || "")) ? String(value.newAccount) : "",
+    samF016Attached: ["Yes", "No"].includes(String(value.samF016Attached || "")) ? String(value.samF016Attached) : "",
     currency,
     requestedBy: String(value.requestedBy || "").trim().slice(0, 180),
     dateQuoteNeeded: cleanDateOnly(value.dateQuoteNeeded),
@@ -2046,6 +2047,7 @@ async function handleApi(request, env, routeOverride = "") {
           epp: String(body.epp || "").trim().slice(0, 120),
           jobNumber: String(body.jobNumber || "").trim().slice(0, 120),
           newAccount: ["Yes", "No"].includes(String(body.newAccount || "")) ? String(body.newAccount) : "",
+          samF016Attached: ["Yes", "No"].includes(String(body.samF016Attached || "")) ? String(body.samF016Attached) : "",
           currency: String(body.currency || normalizeSettings(state.settings).currency || "GBP").trim().toUpperCase().slice(0, 8) || "GBP",
           requestedBy: String(body.requestedBy || auth.identity.email || "").trim().slice(0, 180),
           dateQuoteNeeded: cleanDateOnly(body.dateQuoteNeeded),
@@ -2064,7 +2066,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (action === "place" && !details.dept) throw new Error("Enter the Dept before placing the order.");
           if (action === "place" && (!details.account || ["Yes", "No"].includes(details.account))) throw new Error("Enter the Account before placing the order.");
           if (action === "place" && !details.department) throw new Error("Enter the Department before placing the order.");
-          if (action === "place" && !details.dateQuoteNeeded) throw new Error("Enter the Date quote needed before placing the order.");
+          if (action === "place" && !details.dateQuoteNeeded) throw new Error("Enter the Date goods needed before placing the order.");
           if (action === "place" && !details.requestedBy) throw new Error("Enter who raised the requisition before placing the order.");
           ensureUniqueString(state.suppliers, supplier);
         }
