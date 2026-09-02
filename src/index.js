@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.10.0";
+const APP_VERSION = "5.10.8";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -31,6 +31,35 @@ const DEFAULT_PM_CATEGORIES = [
   { id: "pmcat-tooling", name: "Tooling", active: true }
 ];
 
+const DEFAULT_PURCHASE_ORDER_OPTIONS = {
+  glCode: [],
+  div: [],
+  dept: [],
+  account: [],
+  department: ["Maintenance"],
+  epp: [],
+  currency: ["GBP", "EUR", "USD", "CAD", "AUD"],
+  requestedBy: [],
+  jobNumber: []
+};
+
+function normalizePurchaseOrderOptions(input) {
+  const source = input && typeof input === "object" ? input : {};
+  const cleanList = (field) => {
+    const base = Array.isArray(DEFAULT_PURCHASE_ORDER_OPTIONS[field]) ? DEFAULT_PURCHASE_ORDER_OPTIONS[field] : [];
+    const incoming = Array.isArray(source[field]) ? source[field] : [];
+    const out = [];
+    for (const raw of [...base, ...incoming]) {
+      let value = String(raw || "").trim();
+      if (field === "currency") value = value.toUpperCase().slice(0, 8);
+      else value = value.slice(0, 180);
+      if (value && !out.some((item) => item.toLowerCase() === value.toLowerCase())) out.push(value);
+    }
+    return out.slice(-250);
+  };
+  return Object.fromEntries(Object.keys(DEFAULT_PURCHASE_ORDER_OPTIONS).map((field) => [field, cleanList(field)]));
+}
+
 const DEFAULT_STATE = {
   version: 5.10,
   settings: { ...DEFAULT_SETTINGS },
@@ -44,6 +73,7 @@ const DEFAULT_STATE = {
   jobs: [],
   stockOrders: [],
   purchaseOrders: [],
+  purchaseOrderOptions: normalizePurchaseOrderOptions(DEFAULT_PURCHASE_ORDER_OPTIONS),
   projects: [],
   stockTransactions: [],
   preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
@@ -415,9 +445,7 @@ function normalizePurchaseOrder(order) {
   const value = order && typeof order === "object" ? order : {};
   const lines = (Array.isArray(value.lines) ? value.lines : []).map(normalizePurchaseOrderLine).filter((line) => line.partName);
   const total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
-  const currency = ["GBP", "EUR", "USD", "CAD", "AUD"].includes(String(value.currency || "").toUpperCase())
-    ? String(value.currency).toUpperCase()
-    : "GBP";
+  const currency = String(value.currency || "GBP").trim().toUpperCase().slice(0, 8) || "GBP";
   return {
     id: String(value.id || `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
     orderNo: String(value.orderNo || "").trim().slice(0, 40),
@@ -468,6 +496,7 @@ function normalizeState(input) {
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
     purchaseOrders: Array.isArray(s.purchaseOrders) ? s.purchaseOrders.map(normalizePurchaseOrder).slice(-1000) : [],
+    purchaseOrderOptions: normalizePurchaseOrderOptions(s.purchaseOrderOptions),
     projects: Array.isArray(s.projects) ? s.projects.map(normalizeProject).filter((item, index, rows) => item.name && rows.findIndex((other) => String(other.id) === String(item.id)) === index).slice(-1000) : [],
     stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : [],
     preventiveCategories: (Array.isArray(s.preventiveCategories) ? s.preventiveCategories : DEFAULT_PM_CATEGORIES)
@@ -1883,6 +1912,7 @@ async function handleApi(request, env, routeOverride = "") {
       const action = String(body.action || "").toLowerCase();
       const outcome = await mutateState(env, auth.identity, `purchase.order.${action}`, async (state) => {
         state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
+        state.purchaseOrderOptions = normalizePurchaseOrderOptions(state.purchaseOrderOptions);
         state.projects = Array.isArray(state.projects) ? state.projects.map(normalizeProject) : [];
         const supplier = String(body.supplier || "").trim().slice(0, 160);
         const rawLines = Array.isArray(body.lines) ? body.lines : [];
@@ -1899,11 +1929,16 @@ async function handleApi(request, env, routeOverride = "") {
           epp: String(body.epp || "").trim().slice(0, 120),
           jobNumber: String(body.jobNumber || "").trim().slice(0, 120),
           newAccount: ["Yes", "No"].includes(String(body.newAccount || "")) ? String(body.newAccount) : "",
-          currency: ["GBP", "EUR", "USD", "CAD", "AUD"].includes(String(body.currency || "").toUpperCase()) ? String(body.currency).toUpperCase() : normalizeSettings(state.settings).currency,
+          currency: String(body.currency || normalizeSettings(state.settings).currency || "GBP").trim().toUpperCase().slice(0, 8) || "GBP",
           requestedBy: String(body.requestedBy || auth.identity.email || "").trim().slice(0, 180),
           dateQuoteNeeded: cleanDateOnly(body.dateQuoteNeeded),
           notes: String(body.notes || "").trim().slice(0, 2000)
         };
+        const rememberedFields = ["glCode", "div", "dept", "account", "department", "epp", "currency", "requestedBy", "jobNumber"];
+        for (const field of rememberedFields) {
+          const value = String(details[field] || "").trim();
+          if (value) ensureUniqueString(state.purchaseOrderOptions[field], value);
+        }
         if (["save", "place"].includes(action)) {
           if (!supplier) throw new Error("Choose or add a supplier first.");
           if (!lines.length) throw new Error("Add at least one part to the order.");
@@ -2235,6 +2270,17 @@ async function handleApi(request, env, routeOverride = "") {
           state.archivedSuppliers = (state.archivedSuppliers || []).filter((s) => s !== value);
           return { value };
         }
+        if (type === "purchaseOrderOption") {
+          const field = String(body.field || "").trim();
+          if (!Object.prototype.hasOwnProperty.call(DEFAULT_PURCHASE_ORDER_OPTIONS, field)) throw new Error("Unknown purchase order field.");
+          state.purchaseOrderOptions = normalizePurchaseOrderOptions(state.purchaseOrderOptions);
+          let value = String(body.value || "").trim();
+          if (field === "currency") value = value.toUpperCase().slice(0, 8);
+          else value = value.slice(0, 180);
+          if (!value) throw new Error("Enter a value to add.");
+          ensureUniqueString(state.purchaseOrderOptions[field], value);
+          return { field, value };
+        }
         if (type === "part") {
           const name = String(body.name || "").trim();
           if (!name) throw new Error("Part name is required.");
@@ -2525,6 +2571,7 @@ async function handleApi(request, env, routeOverride = "") {
           jobs: [],
           stockOrders: [],
           purchaseOrders: [],
+          purchaseOrderOptions: normalizePurchaseOrderOptions(DEFAULT_PURCHASE_ORDER_OPTIONS),
           projects: [],
           stockTransactions: [],
           preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),

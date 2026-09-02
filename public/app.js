@@ -12,6 +12,7 @@ let profiles = [];
 let operatorRequests = [];
 let stockOrders = [];
 let purchaseOrders = [];
+let purchaseOrderOptions = {};
 let projects = [];
 let stockPurchasingTab = "needs";
 let stockTransactions = [];
@@ -138,6 +139,7 @@ function applySharedState(payload) {
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
   stockOrders = Array.isArray(state.stockOrders) ? state.stockOrders : [];
   purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders : [];
+  purchaseOrderOptions = state.purchaseOrderOptions && typeof state.purchaseOrderOptions === "object" ? state.purchaseOrderOptions : {};
   projects = Array.isArray(state.projects) ? state.projects : [];
   stockTransactions = Array.isArray(state.stockTransactions) ? state.stockTransactions : [];
   preventiveCategories = Array.isArray(state.preventiveCategories) && state.preventiveCategories.length ? state.preventiveCategories : [
@@ -1443,30 +1445,33 @@ function renderProjects(){
   renderPie($("#projectCostPie"),$("#projectCostLegend"),pieRows,money);
   $("#projectsBody").innerHTML=stats.length?stats.sort((a,b)=>String(a.project.status).localeCompare(String(b.project.status))||String(a.project.code||a.project.name).localeCompare(String(b.project.code||b.project.name))).map(({project,jobs:jobCount,orders,ordered,used})=>`<tr><td><strong>${esc(project.code?`${project.code} · ${project.name}`:project.name)}</strong>${project.notes?`<br><small>${esc(project.notes.length>90?project.notes.slice(0,87)+"…":project.notes)}</small>`:""}</td><td>${esc(project.status||"Active")}</td><td>${jobCount}</td><td>${orders}</td><td>${money(ordered)}</td><td>${money(used)}</td><td>${project.budget?money(project.budget):"—"}</td><td><div class="project-actions"><button type="button" class="btn secondary compact" data-project-edit="${esc(project.id)}">Edit</button></div></td></tr>`).join(""):`<tr><td colspan="8">No projects yet.</td></tr>`;
   renderJobProjectSelect($("#jobProjectSelect")?.value||"");
-  const poProject=$("#poProjectSelect");if(poProject){const current=poProject.value;poProject.innerHTML=projectOptions(current,{includeArchived:true});poProject.value=current;}
+  const poProject=$("#poProjectSelect");if(poProject){const current=poProject.value;poProject.innerHTML=projectOptionsWithAdd(current,{includeArchived:true});poProject.value=current;}
 }
 
 function ensurePurchaseOrderUi(){
   document.getElementById("stockPurchasingBlock")?.remove();
   if(document.getElementById("openOrdersView"))return;
   const style=document.createElement("style");style.id="purchaseOrderStyles";style.textContent=`
-  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.po-project-assignment{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:8px;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f5}.po-project-assignment label{display:grid;gap:5px;font-size:.8rem;font-weight:700}.po-project-assignment select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff;font:inherit}.po-project-assignment small{grid-column:1/-1;color:#667085}.po-search-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px}.po-search-row input{flex:1 1 280px;min-width:0;padding:11px 12px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.po-search-count{font-size:.82rem;color:#667085;white-space:nowrap}.po-requisition-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,190px));justify-content:start;gap:8px;margin-bottom:14px}.po-requisition-grid label,.po-notes{display:grid;gap:4px;font-size:.78rem;font-weight:700}.po-requisition-grid label{grid-template-rows:18px 38px;align-content:start}.po-field-title{height:18px;display:flex;align-items:baseline;gap:3px;white-space:nowrap}.po-requisition-grid input,.po-requisition-grid select,.po-notes textarea{width:100%;box-sizing:border-box;padding:8px 9px;border:1px solid #cfd6e1;border-radius:8px;background:#fff;font:inherit}.po-requisition-grid input,.po-requisition-grid select{height:38px;min-height:38px}.po-requisition-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0;padding:10px;background:#f8fafc;border:1px solid #eef1f5;border-radius:10px}.po-requisition-meta div{min-width:0}.po-requisition-meta small{display:block;color:#667085}.po-requisition-meta strong{overflow-wrap:anywhere}.po-notes{margin:12px 0}.po-required{color:#b42318}
+  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr);gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.po-project-assignment{display:grid;grid-template-columns:minmax(190px,1fr) auto;gap:8px;align-items:end;margin-top:12px;padding-top:12px;border-top:1px solid #eef1f5}.po-project-assignment label{display:grid;gap:5px;font-size:.8rem;font-weight:700}.po-project-assignment select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff;font:inherit}.po-project-assignment small{grid-column:1/-1;color:#667085}.po-search-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px}.po-search-row input{flex:1 1 280px;min-width:0;padding:11px 12px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.po-search-count{font-size:.82rem;color:#667085;white-space:nowrap}.po-requisition-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(145px,190px));justify-content:start;gap:8px;margin-bottom:14px}.po-requisition-grid label,.po-notes{display:grid;gap:4px;font-size:.78rem;font-weight:700}.po-requisition-grid label{grid-template-rows:18px 38px;align-content:start}.po-field-title{height:18px;display:flex;align-items:baseline;gap:3px;white-space:nowrap}.po-requisition-grid input,.po-requisition-grid select,.po-notes textarea{width:100%;box-sizing:border-box;padding:8px 9px;border:1px solid #cfd6e1;border-radius:8px;background:#fff;font:inherit}.po-requisition-grid input,.po-requisition-grid select{height:38px;min-height:38px}.po-requisition-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0;padding:10px;background:#f8fafc;border:1px solid #eef1f5;border-radius:10px}.po-requisition-meta div{min-width:0}.po-requisition-meta small{display:block;color:#667085}.po-requisition-meta strong{overflow-wrap:anywhere}.po-notes{margin:12px 0}.po-required{color:#b42318}
   @media(max-width:900px){.po-requisition-meta{grid-template-columns:repeat(2,minmax(0,1fr))}.po-line{grid-template-columns:1fr 1fr 90px 1fr}.po-line .po-total-cell{grid-column:1/3}.po-line .po-remove-cell{grid-column:3/5}.po-line .po-remove-cell button{width:100%}.po-line-readonly{grid-template-columns:1fr 1fr 70px 100px}.po-line-readonly span:last-child{grid-column:1/-1;text-align:left}}
   @media(max-width:560px){.po-project-assignment{grid-template-columns:1fr}.po-project-assignment button{width:100%}.po-requisition-grid{grid-template-columns:1fr}.po-requisition-meta{grid-template-columns:1fr}.po-card{padding:14px}.po-supplier-row{grid-template-columns:1fr}.po-line{grid-template-columns:1fr 1fr}.po-line .po-name-cell,.po-line .po-code-cell{grid-column:1/-1}.po-line .po-total-cell,.po-line .po-remove-cell{grid-column:auto}.po-line-readonly{grid-template-columns:1fr 1fr}.po-actions{display:grid}.po-actions>div{display:grid}.po-actions button{width:100%}}
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const partsBtn=nav.querySelector('[data-view="parts"]');const ref=partsBtn?.nextSibling||nav.querySelector('[data-view="data"]')||null;const open=document.createElement("button");open.type="button";open.className="nav-item";open.dataset.view="openOrders";open.innerHTML=`<span>🧾</span><span>Open Orders</span>`;const ordered=document.createElement("button");ordered.type="button";ordered.className="nav-item";ordered.dataset.view="ordered";ordered.innerHTML=`<span>📦</span><span>Ordered</span>`;nav.insertBefore(open,ref);nav.insertBefore(ordered,ref);}
   const reference=document.getElementById("dataView")||document.getElementById("reportsView");const parent=reference?.parentElement||document.querySelector("main")||document.body;
-  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label><span class="po-field-title">GL Code <span class="po-required">*</span></span><input id="poGlCode" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Div <span class="po-required">*</span></span><input id="poDiv" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Dept <span class="po-required">*</span></span><input id="poDept" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Account <span class="po-required">*</span></span><input id="poAccount" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Department <span class="po-required">*</span></span><input id="poDepartment" maxlength="120" value="Maintenance"></label><label><span class="po-field-title">IPP</span><input id="poEpp" maxlength="120"></label><label><span class="po-field-title">Job Number</span><select id="poJobNumber"><option value="">No job</option></select></label><label><span class="po-field-title">Project</span><select id="poProjectSelect"></select></label><label><span class="po-field-title">Currency</span><select id="poCurrency"><option value="GBP">GBP</option><option value="EUR">EUR</option><option value="USD">USD</option><option value="CAD">CAD</option><option value="AUD">AUD</option></select></label><label><span class="po-field-title">New Account</span><select id="poNewAccount"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">Requisition raised by <span class="po-required">*</span></span><input id="poRequestedBy" maxlength="180" readonly></label><label><span class="po-field-title">Date quote needed <span class="po-required">*</span></span><input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
+  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label><span class="po-field-title">GL Code <span class="po-required">*</span></span><select id="poGlCode" data-po-option-field="glCode"></select></label><label><span class="po-field-title">Div <span class="po-required">*</span></span><select id="poDiv" data-po-option-field="div"></select></label><label><span class="po-field-title">Dept <span class="po-required">*</span></span><select id="poDept" data-po-option-field="dept"></select></label><label><span class="po-field-title">Account <span class="po-required">*</span></span><select id="poAccount" data-po-option-field="account"></select></label><label><span class="po-field-title">Department <span class="po-required">*</span></span><select id="poDepartment" data-po-option-field="department"></select></label><label><span class="po-field-title">IPP</span><select id="poEpp" data-po-option-field="epp"></select></label><label><span class="po-field-title">Job Number</span><select id="poJobNumber"></select></label><label><span class="po-field-title">Project</span><select id="poProjectSelect"></select></label><label><span class="po-field-title">Currency</span><select id="poCurrency" data-po-option-field="currency"></select></label><label><span class="po-field-title">New Account</span><select id="poNewAccount"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">Requisition raised by <span class="po-required">*</span></span><select id="poRequestedBy" data-po-option-field="requestedBy"></select></label><label><span class="po-field-title">Date quote needed <span class="po-required">*</span></span><input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
   const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div class="po-search-row"><input id="poOrderedSearch" type="search" placeholder="Search PO, supplier, part or part code…" autocomplete="off"><span class="po-search-count" id="poOrderedSearchCount"></span></div><div id="poOrderedList" class="po-list"></div>`;
   if(reference){parent.insertBefore(openView,reference);parent.insertBefore(orderedView,reference);}else{parent.appendChild(openView);parent.appendChild(orderedView);}
   $("#poNewBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
-  $("#poAddSupplierBtn")?.addEventListener("click",addPurchaseOrderSupplier);
   $("#poAddLineBtn")?.addEventListener("click",()=>addPurchaseOrderLine());
   $("#poClearBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
   $("#poSaveOpenBtn")?.addEventListener("click",()=>submitPurchaseOrder("save"));
   $("#poPlaceBtn")?.addEventListener("click",()=>submitPurchaseOrder("place"));
   $("#openOrdersView")?.addEventListener("input",updatePurchaseOrderPlaceState);
-  $("#openOrdersView")?.addEventListener("change",updatePurchaseOrderPlaceState);
+  $("#openOrdersView")?.addEventListener("change",async e=>{
+    const select=e.target.closest("select");
+    if(select) await handlePurchaseOrderSpecialChoice(select);
+    updatePurchaseOrderPlaceState();
+  });
   $("#poLines")?.addEventListener("input",updatePurchaseOrderTotals);
   $("#poLines")?.addEventListener("change",e=>{const name=e.target.closest('.po-part-name');if(name){const part=activeParts().find(p=>String(p.name).toLowerCase()===String(name.value).trim().toLowerCase());const row=name.closest('.po-line');const code=row?.querySelector('.po-part-code');if(part&&code&&!code.value)code.value=part.partNo||"";autofillPurchaseOrderPrice(row,part);}updatePurchaseOrderTotals();});
   $("#poLines")?.addEventListener("click",e=>{const btn=e.target.closest('[data-po-remove-line]');if(!btn)return;btn.closest('.po-line')?.remove();if(!$("#poLines")?.children.length)addPurchaseOrderLine();updatePurchaseOrderTotals();});
@@ -1477,7 +1482,16 @@ function ensurePurchaseOrderUi(){
 }
 function purchaseOrderDate(value){if(!value)return "—";const d=new Date(value);return Number.isFinite(d.getTime())?d.toLocaleString("en-GB",{day:"2-digit",month:"short",year:"numeric",hour:"2-digit",minute:"2-digit"}):"—";}
 function purchaseOrderTotal(order){return (order?.lines||[]).reduce((sum,row)=>sum+(Math.max(1,Number(row.qty)||1)*Math.max(0,Number(row.unitPrice)||0)),0);}
-function purchaseOrderSupplierOptions(selected=""){const values=activeSuppliers().slice().sort((a,b)=>a.localeCompare(b));return `<option value="">Select supplier…</option>${values.map(name=>`<option value="${esc(name)}" ${name===selected?"selected":""}>${esc(name)}</option>`).join("")}`;}
+function uniquePoValues(values=[]){const out=[];for(const raw of values){const value=String(raw||"").trim();if(value&&!out.some(item=>item.toLowerCase()===value.toLowerCase()))out.push(value);}return out;}
+function historicalPoValues(field){return uniquePoValues(purchaseOrders.map(order=>order?.[field]).filter(Boolean));}
+function purchaseOrderChoiceValues(field,extra=[]){return uniquePoValues([...(Array.isArray(purchaseOrderOptions?.[field])?purchaseOrderOptions[field]:[]),...historicalPoValues(field),...extra]);}
+function purchaseOrderChoiceOptions(field,selected="",{placeholder="Select…",extra=[]}={}){
+  const wanted=String(selected||"").trim();
+  const values=purchaseOrderChoiceValues(field,extra);
+  if(wanted&&!values.some(value=>value.toLowerCase()===wanted.toLowerCase()))values.unshift(wanted);
+  return `<option value="">${esc(placeholder)}</option>${values.map(value=>`<option value="${esc(value)}"${value===wanted?' selected':''}>${esc(value)}</option>`).join("")}<option value="__add__">+ Add new…</option>`;
+}
+function purchaseOrderSupplierOptions(selected=""){const wanted=String(selected||"").trim();const values=activeSuppliers().slice().sort((a,b)=>a.localeCompare(b));return `<option value="">Select supplier…</option>${values.map(name=>`<option value="${esc(name)}" ${name===wanted?"selected":""}>${esc(name)}</option>`).join("")}<option value="__add_supplier__">+ Add new supplier…</option>`;}
 function lastPurchasePrice(partName,partCode,supplier=""){
   const name=String(partName||"").trim().toLowerCase(),code=String(partCode||"").trim().toLowerCase(),wantedSupplier=String(supplier||"").trim().toLowerCase();
   if(!name&&!code)return null;
@@ -1501,7 +1515,7 @@ function autofillPurchaseOrderPrice(row,part){
   const priceInput=row.querySelector('.po-unit-price');
   if(!priceInput||String(priceInput.value||"").trim()!=="")return;
   const partName=part?.name||row.querySelector('.po-part-name')?.value||"",partCode=part?.partNo||row.querySelector('.po-part-code')?.value||"";
-  const remembered=lastPurchasePrice(partName,partCode,$("#poSupplierSelect")?.value||"");
+  const remembered=lastPurchasePrice(partName,partCode,String($("#poSupplierSelect")?.value||"").replace(/^__add_supplier__$/, ""));
   if(!remembered)return;
   priceInput.value=Number(remembered.price).toFixed(2);
   priceInput.title=`Last ordered price: ${money(remembered.price)}`;
@@ -1534,7 +1548,7 @@ function latestPurchaseOrderDefaults(){
     currency:lastValue("currency",appSettings.currency||"GBP")
   };
 }
-function purchaseOrderPlaceMissing(meta=purchaseOrderMeta(),lines=collectPurchaseOrderLines(),supplier=String($("#poSupplierSelect")?.value||"").trim()){
+function purchaseOrderPlaceMissing(meta=purchaseOrderMeta(),lines=collectPurchaseOrderLines(),supplier=String($("#poSupplierSelect")?.value||"").trim().replace(/^__add_supplier__$/,"").trim()){
   const missing=[];
   if(!meta.glCode)missing.push("GL Code");
   if(!meta.div)missing.push("Div");
@@ -1573,23 +1587,64 @@ function purchaseOrderJobOptions(selected=""){
     return String(b.jobNo||"").localeCompare(String(a.jobNo||""),undefined,{numeric:true,sensitivity:"base"});
   });
   let html='<option value="">No job</option>';
-  if(wanted&&!sorted.some(job=>String(job.jobNo)===wanted)) html+=`<option value="${esc(wanted)}" selected>${esc(wanted)}</option>`;
+  const custom=purchaseOrderChoiceValues("jobNumber").filter(value=>!sorted.some(job=>String(job.jobNo)===value));
+  if(wanted&&!sorted.some(job=>String(job.jobNo)===wanted)&&!custom.includes(wanted)) custom.unshift(wanted);
   html+=sorted.map(job=>`<option value="${esc(job.jobNo||"")}"${String(job.jobNo||"")===wanted?' selected':''}>${esc(job.jobNo||"Job")}</option>`).join("");
+  html+=custom.map(value=>`<option value="${esc(value)}"${value===wanted?' selected':''}>${esc(value)}</option>`).join("");
+  html+='<option value="__add_job__">+ Add new job number…</option>';
   return html;
 }
+async function addPurchaseOrderOption(field,label,rawValue=""){
+  let value=String(rawValue||"").trim();
+  if(!value)value=String(prompt(`New ${label}:`)||"").trim();
+  if(!value)return "";
+  if(field==="currency")value=value.toUpperCase();
+  try{
+    const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"purchaseOrderOption",field,value})});
+    if(payload.state)applySharedState(payload);
+    return String(payload.value||value);
+  }catch(error){showSaveError(error);return "";}
+}
+async function addPurchaseOrderProject(){
+  const name=String(prompt("New project name:")||"").trim();if(!name)return "";
+  try{const payload=await saveMutation("/api/projects",{action:"save",project:{name,status:"Active",code:"",budget:0,notes:""}});return String(payload.project?.id||"");}catch(error){showSaveError(error);return "";}
+}
+function refreshPurchaseOrderSelects(values={}){
+  const defaults=latestPurchaseOrderDefaults();
+  const map={
+    poGlCode:["glCode","GL Code","Select GL Code…",values.poGlCode??defaults.glCode,[]],
+    poDiv:["div","Div","Select Div…",values.poDiv??defaults.div,[]],
+    poDept:["dept","Dept","Select Dept…",values.poDept??defaults.dept,[]],
+    poAccount:["account","Account","Select Account…",values.poAccount??defaults.account,[]],
+    poDepartment:["department","Department","Select Department…",values.poDepartment??defaults.department,["Maintenance"]],
+    poEpp:["epp","IPP","Select IPP…",values.poEpp??defaults.epp,[]],
+    poCurrency:["currency","Currency","Select currency…",values.poCurrency??defaults.currency,["GBP","EUR","USD","CAD","AUD"]],
+    poRequestedBy:["requestedBy","Requisition raised by","Select person…",values.poRequestedBy??purchaseOrderRequesterName(),activeProfiles().map(profile=>profile.name).filter(Boolean)]
+  };
+  for(const [id,[field,label,placeholder,selected,extra]] of Object.entries(map)){const el=$("#"+id);if(!el)continue;el.innerHTML=purchaseOrderChoiceOptions(field,selected,{placeholder,extra});el.value=String(selected||"");}
+}
+async function handlePurchaseOrderSpecialChoice(select){
+  const value=String(select?.value||"");if(!value.startsWith("__add"))return;
+  if(value==="__add_supplier__"){const added=await addPurchaseOrderSupplier();const current=added||"";select.innerHTML=purchaseOrderSupplierOptions(current);select.value=current;return;}
+  if(value==="__add_job__"){const added=await addPurchaseOrderOption("jobNumber","job number");select.innerHTML=purchaseOrderJobOptions(added);select.value=added;return;}
+  if(value==="__add_project__"){const id=await addPurchaseOrderProject();select.innerHTML=projectOptionsWithAdd(id,{includeArchived:true});select.value=id;return;}
+  if(value==="__add__"){const field=select.dataset.poOptionField;if(!field){select.value="";return;}const labels={glCode:"GL Code",div:"Div",dept:"Dept",account:"Account",department:"Department",epp:"IPP",currency:"currency",requestedBy:"requisition name"};const current={};["poGlCode","poDiv","poDept","poAccount","poDepartment","poEpp","poCurrency","poRequestedBy"].forEach(id=>{const el=$("#"+id);current[id]=String(el?.value||"").replace(/^__add__$/,"");});const added=await addPurchaseOrderOption(field,labels[field]||field);if(added)current[select.id]=added;refreshPurchaseOrderSelects(current);return;}
+}
+function projectOptionsWithAdd(selected="",opts={}){return projectOptions(selected,opts)+`<option value="__add_project__">+ Add new project…</option>`;}
+
 function purchaseOrderMeta(){
   return {
-    glCode:String($("#poGlCode")?.value||"").trim(),
-    div:String($("#poDiv")?.value||"").trim(),
-    dept:String($("#poDept")?.value||"").trim(),
-    account:String($("#poAccount")?.value||"").trim(),
-    department:String($("#poDepartment")?.value||"Maintenance").trim()||"Maintenance",
-    epp:String($("#poEpp")?.value||"").trim(),
-    jobNumber:String($("#poJobNumber")?.value||"").trim(),
-    projectId:String($("#poProjectSelect")?.value||"").trim(),
+    glCode:String($("#poGlCode")?.value||"").trim().replace(/^__add__$/,"").trim(),
+    div:String($("#poDiv")?.value||"").trim().replace(/^__add__$/,"").trim(),
+    dept:String($("#poDept")?.value||"").trim().replace(/^__add__$/,"").trim(),
+    account:String($("#poAccount")?.value||"").trim().replace(/^__add__$/,"").trim(),
+    department:String($("#poDepartment")?.value||"Maintenance").trim().replace(/^__add__$/,"").trim()||"Maintenance",
+    epp:String($("#poEpp")?.value||"").trim().replace(/^__add__$/,"").trim(),
+    jobNumber:String($("#poJobNumber")?.value||"").trim().replace(/^__add_job__$/,"").trim(),
+    projectId:String($("#poProjectSelect")?.value||"").trim().replace(/^__add_project__$/,"").trim(),
     newAccount:String($("#poNewAccount")?.value||"").trim(),
-    currency:String($("#poCurrency")?.value||appSettings.currency||"GBP"),
-    requestedBy:String($("#poRequestedBy")?.value||"").trim(),
+    currency:String($("#poCurrency")?.value||appSettings.currency||"GBP").replace(/^__add__$/,appSettings.currency||"GBP"),
+    requestedBy:String($("#poRequestedBy")?.value||"").trim().replace(/^__add__$/,"").trim(),
     dateQuoteNeeded:String($("#poDateQuoteNeeded")?.value||""),
     notes:String($("#poNotes")?.value||"").trim()
   };
@@ -1606,9 +1661,10 @@ function setPurchaseOrderMeta(order){
     poRequestedBy:(String(order?.requestedBy||"").includes("@")?purchaseOrderRequesterName():String(order?.requestedBy||"").trim())||purchaseOrderRequesterName(),
     poDateQuoteNeeded:order?.dateQuoteNeeded||"",poNotes:order?.notes||""
   };
-  Object.entries(values).forEach(([id,value])=>{const el=$("#"+id);if(el)el.value=value;});
+  refreshPurchaseOrderSelects(values);
+  ["poNewAccount","poDateQuoteNeeded","poNotes"].forEach(id=>{const el=$("#"+id);if(el)el.value=values[id]||"";});
   const jobSelect=$("#poJobNumber");if(jobSelect){jobSelect.innerHTML=purchaseOrderJobOptions(order?.jobNumber||"");jobSelect.value=String(order?.jobNumber||"");}
-  const project=$("#poProjectSelect");if(project){project.innerHTML=projectOptions(order?.projectId||"",{includeArchived:true});project.value=String(order?.projectId||"");}
+  const project=$("#poProjectSelect");if(project){project.innerHTML=projectOptionsWithAdd(order?.projectId||"",{includeArchived:true});project.value=String(order?.projectId||"");}
 }
 function purchaseOrderMetaReadOnly(order){
   const rows=[
@@ -1632,9 +1688,9 @@ function renderPurchaseOrderBuilder(){
   $("#poBuilderRef").textContent=order?`Editing ${order.orderNo||"open order"}`:"New open order";
   updatePurchaseOrderTotals();
 }
-async function addPurchaseOrderSupplier(){const name=prompt("Supplier name:");if(!name?.trim())return;try{const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"supplier",value:name.trim()})});if(payload.state)applySharedState(payload);$("#poSupplierSelect").innerHTML=purchaseOrderSupplierOptions(name.trim());$("#poSupplierSelect").value=name.trim();}catch(error){showSaveError(error);}}
+async function addPurchaseOrderSupplier(){const name=prompt("Supplier name:");if(!name?.trim())return "";try{const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"supplier",value:name.trim()})});if(payload.state)applySharedState(payload);return String(payload.value||name.trim());}catch(error){showSaveError(error);return "";}}
 async function submitPurchaseOrder(action){
-  const supplier=String($("#poSupplierSelect")?.value||"").trim(),lines=collectPurchaseOrderLines(),meta=purchaseOrderMeta();
+  const supplier=String($("#poSupplierSelect")?.value||"").trim().replace(/^__add_supplier__$/,"").trim(),lines=collectPurchaseOrderLines(),meta=purchaseOrderMeta();
   if(!supplier){alert("Choose or add a supplier first.");return;}
   if(!lines.length){alert("Add at least one part to the order.");return;}
   if(action==="place"){
@@ -1684,7 +1740,7 @@ function renderPurchaseOrders(){
 
   const supplier=$("#poSupplierSelect");
   if(supplier){const current=supplier.value;supplier.innerHTML=purchaseOrderSupplierOptions(current);supplier.value=current;}
-  const project=$("#poProjectSelect");if(project){const current=project.value;project.innerHTML=projectOptions(current,{includeArchived:true});project.value=current;}
+  const project=$("#poProjectSelect");if(project){const current=project.value;project.innerHTML=projectOptionsWithAdd(current,{includeArchived:true});project.value=current;}
   if($("#poPartNames")) $("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");
 }
 
