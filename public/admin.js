@@ -172,6 +172,24 @@ $("#syncAccessBtn")?.addEventListener("click",async e=>{
   finally{e.currentTarget.disabled=false}
 });
 
+
+$("#resetAllDataBtn")?.addEventListener("click",async e=>{
+  const button=e.currentTarget,status=$("#resetDataStatus");
+  const first=confirm("Clear ALL maintenance data?\n\nThis will remove jobs, machines, parts, stock history, suppliers, operator requests, purchase orders, preventive-maintenance records, projects and uploaded attachments.\n\nTeam profiles and Admin settings will be kept.");
+  if(!first)return;
+  const typed=prompt('Final confirmation: type DELETE ALL DATA exactly.');
+  if(typed!=="DELETE ALL DATA"){status.textContent="Reset cancelled — confirmation phrase did not match.";return;}
+  button.disabled=true;button.textContent="Clearing…";status.textContent="";
+  try{
+    const data=await api("/admin?api=reset-data",{method:"POST",body:JSON.stringify({confirmation:"DELETE ALL DATA"})});
+    const reset=data.reset||{};
+    jobs=[];
+    status.textContent=`Maintenance data cleared. ${Number(reset.attachmentsDeleted)||0} uploaded file${Number(reset.attachmentsDeleted)===1?"":"s"} removed. Team profiles and Admin settings were kept.`;
+    alert("Maintenance data has been cleared. The main website is ready for a fresh start.");
+  }catch(error){status.textContent=error.message;alert(error.message)}
+  finally{button.disabled=false;button.textContent="Clear all maintenance data";}
+});
+
 function showDenied(error){
   const email=error?.data?.identity?.email||"the current account";
   const isAdminError=error?.status===403;

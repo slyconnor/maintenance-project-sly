@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.9.14";
+const APP_VERSION = "5.10.0";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -32,7 +32,7 @@ const DEFAULT_PM_CATEGORIES = [
 ];
 
 const DEFAULT_STATE = {
-  version: 5.9,
+  version: 5.10,
   settings: { ...DEFAULT_SETTINGS },
   profiles: [],
   sections: ["Smokeshield"],
@@ -44,6 +44,7 @@ const DEFAULT_STATE = {
   jobs: [],
   stockOrders: [],
   purchaseOrders: [],
+  projects: [],
   stockTransactions: [],
   preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
   preventiveSchedules: [],
@@ -381,6 +382,21 @@ function normalizeMachine(machine) {
   };
 }
 
+function normalizeProject(project) {
+  const value = project && typeof project === "object" ? project : {};
+  const status = ["Active", "Completed", "Archived"].includes(String(value.status || "")) ? String(value.status) : "Active";
+  return {
+    id: String(value.id || `project-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
+    code: String(value.code || "").trim().slice(0, 80),
+    name: String(value.name || "").trim().slice(0, 180),
+    status,
+    budget: Math.max(0, Number(value.budget) || 0),
+    notes: String(value.notes || "").trim().slice(0, 2000),
+    createdAt: String(value.createdAt || new Date().toISOString()),
+    updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString())
+  };
+}
+
 function normalizePurchaseOrderLine(line) {
   const row = line && typeof line === "object" ? line : {};
   const qty = Math.max(1, Number(row.qty) || 1);
@@ -399,10 +415,26 @@ function normalizePurchaseOrder(order) {
   const value = order && typeof order === "object" ? order : {};
   const lines = (Array.isArray(value.lines) ? value.lines : []).map(normalizePurchaseOrderLine).filter((line) => line.partName);
   const total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+  const currency = ["GBP", "EUR", "USD", "CAD", "AUD"].includes(String(value.currency || "").toUpperCase())
+    ? String(value.currency).toUpperCase()
+    : "GBP";
   return {
     id: String(value.id || `po-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
     orderNo: String(value.orderNo || "").trim().slice(0, 40),
     supplier: String(value.supplier || "").trim().slice(0, 160),
+    projectId: String(value.projectId || "").trim(),
+    glCode: String(value.glCode || "").trim().slice(0, 80),
+    div: String(value.div || "").trim().slice(0, 80),
+    dept: String(value.dept || "").trim().slice(0, 80),
+    account: String(value.account || "").trim().slice(0, 80),
+    department: String(value.department || "Maintenance").trim().slice(0, 120) || "Maintenance",
+    epp: String(value.epp || "").trim().slice(0, 120),
+    jobNumber: String(value.jobNumber || "").trim().slice(0, 120),
+    newAccount: ["Yes", "No"].includes(String(value.newAccount || "")) ? String(value.newAccount) : "",
+    currency,
+    requestedBy: String(value.requestedBy || "").trim().slice(0, 180),
+    dateQuoteNeeded: cleanDateOnly(value.dateQuoteNeeded),
+    notes: String(value.notes || "").trim().slice(0, 2000),
     status: String(value.status || "Open") === "Ordered" ? "Ordered" : "Open",
     lines,
     total,
@@ -424,7 +456,7 @@ function nextPurchaseOrderNumber(state) {
 function normalizeState(input) {
   const s = input && typeof input === "object" ? input : {};
   return {
-    version: 5.9,
+    version: 5.10,
     settings: normalizeSettings(s.settings),
     profiles: Array.isArray(s.profiles) ? s.profiles : [],
     sections: Array.isArray(s.sections) ? s.sections : ["Smokeshield"],
@@ -436,6 +468,7 @@ function normalizeState(input) {
     jobs: Array.isArray(s.jobs) ? s.jobs : [],
     stockOrders: Array.isArray(s.stockOrders) ? s.stockOrders : [],
     purchaseOrders: Array.isArray(s.purchaseOrders) ? s.purchaseOrders.map(normalizePurchaseOrder).slice(-1000) : [],
+    projects: Array.isArray(s.projects) ? s.projects.map(normalizeProject).filter((item, index, rows) => item.name && rows.findIndex((other) => String(other.id) === String(item.id)) === index).slice(-1000) : [],
     stockTransactions: Array.isArray(s.stockTransactions) ? s.stockTransactions.slice(-2500) : [],
     preventiveCategories: (Array.isArray(s.preventiveCategories) ? s.preventiveCategories : DEFAULT_PM_CATEGORIES)
       .map(normalizePreventiveCategory)
@@ -702,6 +735,10 @@ function validateJob(state, job, originalJobNo = "") {
   out.machineId = String(out.machineId || "").trim();
   out.machine = String(out.machine || "").trim();
   out.assigned = String(out.assigned || "").trim();
+  out.projectId = String(out.projectId || "").trim();
+  if (out.projectId && !(state.projects || []).some((project) => String(project.id) === out.projectId)) {
+    throw new Error("The selected project could not be found.");
+  }
   out.timeEntries = Array.isArray(out.timeEntries) ? out.timeEntries : [];
   out.parts = Array.isArray(out.parts) ? out.parts.map((usage) => {
     const raw = usage && typeof usage === "object" ? { ...usage } : {};
@@ -807,6 +844,23 @@ async function logAttachmentAudit(env, identity, action, detail) {
     await env.DB.prepare("INSERT INTO audit_log (created_at, actor_email, action, detail_json) VALUES (datetime('now'), ?, ?, ?)")
       .bind(identity?.email || "unknown", action, JSON.stringify(detail || {})).run();
   } catch (_) {}
+}
+
+async function deleteAllTrackedAttachments(env) {
+  await ensureSchema(env);
+  const result = await env.DB.prepare("SELECT object_key FROM attachments").all();
+  const rows = result.results || [];
+  let deletedObjects = 0;
+  if (env.ATTACHMENTS) {
+    for (const row of rows) {
+      try {
+        await env.ATTACHMENTS.delete(row.object_key);
+        deletedObjects += 1;
+      } catch (_) {}
+    }
+  }
+  await env.DB.prepare("DELETE FROM attachments").run();
+  return { attachmentRows: rows.length, deletedObjects };
 }
 
 function requestReference(id) {
@@ -1825,15 +1879,42 @@ async function handleApi(request, env, routeOverride = "") {
       const action = String(body.action || "").toLowerCase();
       const outcome = await mutateState(env, auth.identity, `purchase.order.${action}`, async (state) => {
         state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
+        state.projects = Array.isArray(state.projects) ? state.projects.map(normalizeProject) : [];
         const supplier = String(body.supplier || "").trim().slice(0, 160);
         const rawLines = Array.isArray(body.lines) ? body.lines : [];
         const lines = rawLines.map(normalizePurchaseOrderLine).filter((line) => line.partName);
+        const projectId = String(body.projectId || "").trim();
+        if (projectId && !state.projects.some((project) => String(project.id) === projectId)) throw new Error("The selected project could not be found.");
+        const details = {
+          projectId,
+          glCode: String(body.glCode || "").trim().slice(0, 80),
+          div: String(body.div || "").trim().slice(0, 80),
+          dept: String(body.dept || "").trim().slice(0, 80),
+          account: String(body.account || "").trim().slice(0, 80),
+          department: String(body.department || "Maintenance").trim().slice(0, 120) || "Maintenance",
+          epp: String(body.epp || "").trim().slice(0, 120),
+          jobNumber: String(body.jobNumber || "").trim().slice(0, 120),
+          newAccount: ["Yes", "No"].includes(String(body.newAccount || "")) ? String(body.newAccount) : "",
+          currency: ["GBP", "EUR", "USD", "CAD", "AUD"].includes(String(body.currency || "").toUpperCase()) ? String(body.currency).toUpperCase() : normalizeSettings(state.settings).currency,
+          requestedBy: String(body.requestedBy || auth.identity.email || "").trim().slice(0, 180),
+          dateQuoteNeeded: cleanDateOnly(body.dateQuoteNeeded),
+          notes: String(body.notes || "").trim().slice(0, 2000)
+        };
         if (["save", "place"].includes(action)) {
           if (!supplier) throw new Error("Choose or add a supplier first.");
           if (!lines.length) throw new Error("Add at least one part to the order.");
+          if (action === "place" && !details.glCode) throw new Error("Enter the GL Code before placing the order.");
+          if (action === "place" && !details.department) throw new Error("Enter the Department before placing the order.");
+          if (action === "place" && !details.requestedBy) throw new Error("Enter who raised the requisition before placing the order.");
           ensureUniqueString(state.suppliers, supplier);
         }
         let order = state.purchaseOrders.find((row) => String(row.id) === String(body.orderId || ""));
+        const applyDetails = (target) => {
+          target.supplier = supplier;
+          target.lines = lines;
+          target.total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+          Object.assign(target, details);
+        };
         if (action === "save") {
           if (order && order.status === "Ordered") throw new Error("Placed orders are read-only.");
           if (!order) {
@@ -1843,14 +1924,13 @@ async function handleApi(request, env, routeOverride = "") {
               supplier,
               status: "Open",
               lines,
+              ...details,
               createdAt: new Date().toISOString(),
               createdBy: auth.identity.email || ""
             });
             state.purchaseOrders.push(order);
           } else {
-            order.supplier = supplier;
-            order.lines = lines;
-            order.total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+            applyDetails(order);
             order.updatedAt = new Date().toISOString();
           }
           return { order };
@@ -1864,14 +1944,13 @@ async function handleApi(request, env, routeOverride = "") {
               supplier,
               status: "Open",
               lines,
+              ...details,
               createdAt: new Date().toISOString(),
               createdBy: auth.identity.email || ""
             });
             state.purchaseOrders.push(order);
           } else {
-            order.supplier = supplier;
-            order.lines = lines;
-            order.total = Math.round(lines.reduce((sum, line) => sum + line.lineTotal, 0) * 100) / 100;
+            applyDetails(order);
           }
           order.status = "Ordered";
           order.orderedAt = new Date().toISOString();
@@ -1886,6 +1965,100 @@ async function handleApi(request, env, routeOverride = "") {
           return { orderId: order.id, deleted: true };
         }
         throw new Error("Unknown purchase order action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
+    if (method === "POST" && route === "projects") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "save").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `project.${action}`, async (state) => {
+        state.projects = Array.isArray(state.projects) ? state.projects.map(normalizeProject) : [];
+        if (action === "save") {
+          const raw = body.project && typeof body.project === "object" ? body.project : {};
+          const existing = state.projects.find((project) => String(project.id) === String(raw.id || ""));
+          const incoming = normalizeProject({ ...raw, id: existing?.id || raw.id || undefined });
+          if (!incoming.name) throw new Error("Enter a project name.");
+          if (incoming.code && state.projects.some((project) => String(project.id) !== String(incoming.id) && String(project.code || "").toLowerCase() === incoming.code.toLowerCase())) {
+            throw new Error("That project code already exists.");
+          }
+          const idx = existing ? state.projects.findIndex((project) => String(project.id) === String(existing.id)) : -1;
+          if (idx >= 0) {
+            incoming.createdAt = state.projects[idx].createdAt || incoming.createdAt;
+            incoming.updatedAt = new Date().toISOString();
+            state.projects[idx] = incoming;
+          } else {
+            incoming.updatedAt = incoming.createdAt = new Date().toISOString();
+            state.projects.push(incoming);
+          }
+          return { project: incoming };
+        }
+        if (action === "delete") {
+          const id = String(body.id || "").trim();
+          const linkedJobs = (state.jobs || []).filter((job) => String(job.projectId || "") === id).length;
+          const linkedOrders = (state.purchaseOrders || []).filter((order) => String(order.projectId || "") === id).length;
+          if (linkedJobs || linkedOrders) throw new Error(`This project is linked to ${linkedJobs} job${linkedJobs === 1 ? "" : "s"} and ${linkedOrders} purchase order${linkedOrders === 1 ? "" : "s"}. Archive it instead of deleting it.`);
+          const idx = state.projects.findIndex((project) => String(project.id) === id);
+          if (idx < 0) throw new Error("Project not found.");
+          state.projects.splice(idx, 1);
+          return { id, deleted: true };
+        }
+        throw new Error("Unknown project action.");
+      });
+      return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
+    }
+
+    if (method === "POST" && route === "parts-usage") {
+      const auth = await requireUser(request, env, { human: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      const action = String(body.action || "").toLowerCase();
+      const outcome = await mutateState(env, auth.identity, `parts.usage.${action}`, async (state) => {
+        const jobNo = String(body.jobNo || "").trim();
+        const jobIndex = state.jobs.findIndex((job) => String(job.jobNo) === jobNo);
+        if (jobIndex < 0) throw new Error("Job not found.");
+        const job = state.jobs[jobIndex];
+        const usageIndex = Number.parseInt(body.usageIndex, 10);
+        if (!Number.isInteger(usageIndex) || usageIndex < 0 || usageIndex >= (job.parts || []).length) throw new Error("Part usage record not found.");
+        const existing = job.parts[usageIndex];
+        if ((Number(existing.qty) || 0) <= 0) throw new Error("That row is not a parts-used record.");
+        const oldJob = structuredClone(job);
+        if (action === "edit") {
+          const qty = Number(body.qty);
+          const unitPrice = Number(body.unitPrice);
+          if (!Number.isFinite(qty) || qty < 0) throw new Error("Quantity used must be zero or more.");
+          if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("Unit price must be zero or more.");
+          existing.qty = qty;
+          existing.unitPrice = unitPrice;
+          existing.supplier = String(body.supplier || "").trim().slice(0, 160);
+          existing.date = cleanDateOnly(body.date);
+          if (!existing.date) throw new Error("Choose the date the part was used.");
+          if (existing.supplier) ensureUniqueString(state.suppliers, existing.supplier);
+          if (qty <= 0) {
+            if ((Number(existing.orderedQty) || 0) > 0) existing.qty = 0;
+            else job.parts.splice(usageIndex, 1);
+          }
+        } else if (action === "delete") {
+          if ((Number(existing.orderedQty) || 0) > 0) existing.qty = 0;
+          else job.parts.splice(usageIndex, 1);
+        } else {
+          throw new Error("Unknown parts usage action.");
+        }
+        const movements = applyJobStockChanges(state, oldJob, job);
+        for (const movement of movements) {
+          pushStockTransaction(state, {
+            partId: movement.part.id,
+            type: movement.qty < 0 ? "job-use" : "job-return",
+            qty: movement.qty,
+            balanceAfter: movement.part.currentStock,
+            jobNo: job.jobNo,
+            note: action === "delete" ? "Stock corrected after deleting parts usage history" : "Stock corrected after editing parts usage history",
+            actor: auth.identity.email || ""
+          });
+        }
+        return { jobNo, usageIndex, deleted: action === "delete" };
       });
       return json({ ok: true, revision: outcome.revision, state: outcome.state, ...outcome.result });
     }
@@ -2282,6 +2455,59 @@ async function handleApi(request, env, routeOverride = "") {
       return json({ ok: true, profiles: outcome.state.profiles, jobs: outcome.state.jobs, revision: outcome.revision, accessSync });
     }
 
+    if (route === "admin/reset-data" && method === "POST") {
+      const auth = await requireUser(request, env, { admin: true });
+      if (!auth.ok) return auth.response;
+      const body = await bodyJson(request);
+      if (String(body.confirmation || "") !== "DELETE ALL DATA") return json({ error: 'Type "DELETE ALL DATA" exactly to confirm the reset.' }, 400);
+      const outcome = await mutateState(env, auth.identity, "admin.reset-maintenance-data", async (state) => {
+        const preservedSettings = normalizeSettings(state.settings);
+        const preservedProfiles = Array.isArray(state.profiles) ? state.profiles : [];
+        const fresh = normalizeState({
+          ...DEFAULT_STATE,
+          settings: preservedSettings,
+          profiles: preservedProfiles,
+          sections: [],
+          archivedSections: [],
+          machines: [],
+          partCatalog: [],
+          suppliers: [],
+          archivedSuppliers: [],
+          jobs: [],
+          stockOrders: [],
+          purchaseOrders: [],
+          projects: [],
+          stockTransactions: [],
+          preventiveCategories: DEFAULT_PM_CATEGORIES.map((item) => ({ ...item })),
+          preventiveSchedules: [],
+          preventiveHistory: [],
+          pmDigestLog: []
+        });
+        Object.keys(state).forEach((key) => { delete state[key]; });
+        Object.assign(state, fresh);
+        return { reset: true, preservedProfiles: preservedProfiles.length };
+      });
+      let operatorRequestsDeleted = 0;
+      try {
+        const result = await env.DB.prepare("DELETE FROM operator_requests").run();
+        operatorRequestsDeleted = Number(result.meta?.changes || 0);
+        try { await env.DB.prepare("DELETE FROM sqlite_sequence WHERE name = 'operator_requests'").run(); } catch (_) {}
+      } catch (_) {}
+      let attachments = { attachmentRows: 0, deletedObjects: 0 };
+      try { attachments = await deleteAllTrackedAttachments(env); } catch (_) {}
+      return json({
+        ok: true,
+        revision: outcome.revision,
+        state: outcome.state,
+        reset: {
+          ...outcome.result,
+          operatorRequestsDeleted,
+          attachmentsDeleted: attachments.deletedObjects,
+          attachmentRowsDeleted: attachments.attachmentRows
+        }
+      });
+    }
+
     if (route === "admin/settings" && method === "POST") {
       const auth = await requireUser(request, env, { admin: true });
       if (!auth.ok) return auth.response;
@@ -2400,6 +2626,7 @@ export default {
       const adminApi = url.searchParams.get("api");
       if (adminApi === "profiles") return withVersion(await handleApi(request, env, "admin/profiles"));
       if (adminApi === "settings") return withVersion(await handleApi(request, env, "admin/settings"));
+      if (adminApi === "reset-data") return withVersion(await handleApi(request, env, "admin/reset-data"));
       if (adminApi === "test-email") return withVersion(await handleApi(request, env, "admin/test-email"));
       if (adminApi === "sync-access") return withVersion(await handleApi(request, env, "admin/sync-access"));
 

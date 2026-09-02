@@ -12,6 +12,7 @@ let profiles = [];
 let operatorRequests = [];
 let stockOrders = [];
 let purchaseOrders = [];
+let projects = [];
 let stockPurchasingTab = "needs";
 let stockTransactions = [];
 let preventiveCategories = [];
@@ -51,6 +52,8 @@ let machineStatusFilter = "all";
 let selectedPmCategory = "all";
 let editingPurchaseOrderId = null;
 let orderedPurchaseSearchQuery = "";
+let editingProjectId = null;
+let editingPartUsageRef = null;
 
 const $ = s => document.querySelector(s);
 const $$ = s => [...document.querySelectorAll(s)];
@@ -88,6 +91,10 @@ const isMachineArchived = machine => String(machine?.status || "Active").toLower
 const activeSections = () => sections.filter(s=>!isSectionArchived(s));
 const activeSuppliers = () => suppliers.filter(s=>!isSupplierArchived(s));
 const activeParts = () => partCatalog.filter(p=>p.active!==false);
+const activeProjects = () => projects.filter(project=>String(project.status||"Active")!=="Archived");
+const projectForId = id => projects.find(project=>String(project.id)===String(id||"")) || null;
+const projectLabel = id => { const project=projectForId(id); return project ? `${project.code?`${project.code} · `:""}${project.name}` : ""; };
+
 const stockTrackedParts = () => partCatalog.filter(p=>p.active!==false && p.stockTracked===true);
 const lowStockParts = () => stockTrackedParts().filter(p=>(Number(p.currentStock)||0) <= (Number(p.minStock)||0));
 const stockStatus = p => {
@@ -131,6 +138,7 @@ function applySharedState(payload) {
   profiles = Array.isArray(state.profiles) ? state.profiles : [];
   stockOrders = Array.isArray(state.stockOrders) ? state.stockOrders : [];
   purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders : [];
+  projects = Array.isArray(state.projects) ? state.projects : [];
   stockTransactions = Array.isArray(state.stockTransactions) ? state.stockTransactions : [];
   preventiveCategories = Array.isArray(state.preventiveCategories) && state.preventiveCategories.length ? state.preventiveCategories : [
     {id:"pmcat-mechanical",name:"Mechanical",active:true},
@@ -845,7 +853,43 @@ function renderMachines() {
   bindJobEditors();
 }
 
+
+function ensurePartsUsageUi(){
+  const body=$("#partsBody");if(!body)return;
+  const head=body.closest("table")?.querySelector("thead tr");
+  if(head&&!head.querySelector('[data-parts-usage-actions-head]')){const th=document.createElement("th");th.dataset.partsUsageActionsHead="1";th.textContent="Action";head.appendChild(th);}
+  if(!$("#partUsageDialog")){
+    const dialog=document.createElement("dialog");dialog.id="partUsageDialog";dialog.className="pm-dialog";dialog.innerHTML=`<form id="partUsageForm"><div class="pm-dialog-head"><div><h2>Edit parts usage</h2><p class="muted" id="partUsageSummary"></p></div><button type="button" class="btn secondary compact" id="partUsageCloseBtn">Close</button></div><input type="hidden" name="jobNo"><input type="hidden" name="usageIndex"><div class="pm-form-grid"><label>Quantity used<input name="qty" type="number" min="0" step="1" required></label><label>Unit price (${currencySymbol()})<input name="unitPrice" type="number" min="0" step="0.01" required></label><label>Supplier<input name="supplier" list="partUsageSuppliers"></label><label>Date used / fitted<input name="date" type="date" required></label></div><datalist id="partUsageSuppliers"></datalist><div class="pm-dialog-actions"><div></div><div><button type="button" class="btn secondary" id="partUsageCancelBtn">Cancel</button><button type="submit" class="btn primary">Save changes</button></div></div></form>`;document.body.appendChild(dialog);
+    $("#partUsageCloseBtn")?.addEventListener("click",()=>dialog.close());$("#partUsageCancelBtn")?.addEventListener("click",()=>dialog.close());
+    $("#partUsageForm")?.addEventListener("submit",submitPartUsageEdit);
+  }
+  if(!body.dataset.usageActionsBound){
+    body.dataset.usageActionsBound="1";
+    body.addEventListener("click",e=>{
+      const edit=e.target.closest("[data-part-usage-edit]");if(edit){openPartUsageEdit(edit.dataset.jobNo,Number(edit.dataset.usageIndex));return;}
+      const del=e.target.closest("[data-part-usage-delete]");if(del){deletePartUsage(del.dataset.jobNo,Number(del.dataset.usageIndex));}
+    });
+  }
+}
+function openPartUsageEdit(jobNo,usageIndex){
+  const job=jobs.find(row=>String(row.jobNo)===String(jobNo)),usage=job?.parts?.[usageIndex];if(!job||!usage||(Number(usage.qty)||0)<=0){alert("Parts usage record not found.");return;}
+  editingPartUsageRef={jobNo,usageIndex};const form=$("#partUsageForm");form.elements.jobNo.value=jobNo;form.elements.usageIndex.value=String(usageIndex);form.elements.qty.value=String(Number(usage.qty)||0);form.elements.unitPrice.value=String(Number(usage.unitPrice)||0);form.elements.supplier.value=usage.supplier||"";form.elements.date.value=usage.date||job.raised||defaultFormDate();
+  $("#partUsageSummary").textContent=`${jobNo} · ${usage.name||"Part"}${usage.partNo?` · ${usage.partNo}`:""}`;
+  $("#partUsageSuppliers").innerHTML=activeSuppliers().map(name=>`<option value="${esc(name)}"></option>`).join("");
+  $("#partUsageDialog").showModal();
+}
+async function submitPartUsageEdit(e){
+  e.preventDefault();const form=e.currentTarget,fd=new FormData(form);
+  try{await saveMutation("/api/parts-usage",{action:"edit",jobNo:String(fd.get("jobNo")||""),usageIndex:Number(fd.get("usageIndex")),qty:Number(fd.get("qty")),unitPrice:Number(fd.get("unitPrice")),supplier:String(fd.get("supplier")||"").trim(),date:String(fd.get("date")||"")});$("#partUsageDialog").close();editingPartUsageRef=null;switchView("parts");}catch(error){showSaveError(error);}
+}
+async function deletePartUsage(jobNo,usageIndex){
+  const job=jobs.find(row=>String(row.jobNo)===String(jobNo)),usage=job?.parts?.[usageIndex];if(!job||!usage)return;
+  if(!confirm(`Delete this parts-used record?\n\n${usage.name||"Part"} · ${Number(usage.qty)||0} used on ${jobNo}\n\nTracked stock will be corrected automatically.`))return;
+  try{await saveMutation("/api/parts-usage",{action:"delete",jobNo,usageIndex});switchView("parts");}catch(error){showSaveError(error);}
+}
+
 function renderParts() {
+  ensurePartsUsageUi();
   $("#partsSubtitle").textContent = selectedProfileId === "all" ? "Parts usage, live stock levels, suppliers and costs recorded through maintenance jobs." : `Parts used on jobs assigned to ${profileContext()}, plus the shared stock position.`;
   const stockRank=p=>p.active===false?4:p.stockTracked!==true?3:(Number(p.currentStock)||0)<=0?0:(Number(p.currentStock)||0)<=(Number(p.minStock)||0)?1:2;
   const saved=partCatalog.filter(p=>p.active!==false).sort((a,b)=>stockRank(a)-stockRank(b)||String(a.name).localeCompare(String(b.name)));
@@ -866,8 +910,8 @@ function renderParts() {
     const rowClass=status.className==="stock-out"?"stock-out-row":status.className==="stock-low"?"stock-low-row":"";
     return `<tr class="${rowClass}"><td><strong>${esc(p.name)}</strong>${p.active===false?`<br><span class="stock-muted">Archived</span>`:""}</td><td>${esc(p.partNo||"—")}</td><td>${esc(current)}</td><td>${esc(min)}</td><td>${esc(p.binLocation||"—")}</td><td><span class="status-chip ${status.className}">${esc(status.label)}</span></td><td><button type="button" class="btn secondary compact stock-action" data-edit-stock="${esc(p.id)}">Edit stock</button></td></tr>`;
   }).join(""):`<tr><td colspan="7">No saved parts yet.</td></tr>`;
-  const parts = visibleJobs().flatMap(j=>(j.parts||[]).map(p=>({...p,jobNo:j.jobNo,machine:j.machine,machineId:j.machineId||"",section:j.section||inferSection(j.machine)}))).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
-  $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0} used${partOrderedQty(p)>0?` / ${partOrderedQty(p)} ordered`:""}</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc(machineLabel(p))}</td></tr>`).join("") : `<tr><td colspan="9">No parts recorded for ${esc(profileContext())}.</td></tr>`;
+  const parts = visibleJobs().flatMap(j=>(j.parts||[]).map((p,usageIndex)=>({...p,usageIndex,jobNo:j.jobNo,machine:j.machine,machineId:j.machineId||"",section:j.section||inferSection(j.machine)})).filter(p=>(Number(p.qty)||0)>0)).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
+  $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0} used</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc(machineLabel(p))}</td><td><div class="manage-actions"><button type="button" class="btn secondary compact" data-part-usage-edit data-job-no="${esc(p.jobNo)}" data-usage-index="${p.usageIndex}">Edit</button><button type="button" class="btn danger compact" data-part-usage-delete data-job-no="${esc(p.jobNo)}" data-usage-index="${p.usageIndex}">Delete</button></div></td></tr>`).join("") : `<tr><td colspan="10">No parts recorded for ${esc(profileContext())}.</td></tr>`;
 }
 
 function reportData() {
@@ -1170,6 +1214,7 @@ function defaultFormDate() {
 function renderPickLists() {
   renderSectionSelects();
   renderAssignedSelect();
+  renderJobProjectSelect($("#jobProjectSelect")?.value||"");
   const currentSection = $("#jobSectionSelect")?.value || "";
   renderMachineSelect(currentSection,$("#jobMachineSelect")?.value || "");
   refreshAllPartRowOptions();
@@ -1277,17 +1322,87 @@ function renderPreventive(){
   const emailBtn=$("#pmEmailNowBtn"),manageBtn=$("#pmManageCategoriesBtn");if(emailBtn)emailBtn.hidden=!signedInIdentity?.admin;if(manageBtn)manageBtn.hidden=!signedInIdentity?.admin;
 }
 
+
+function projectOptions(selected="", {includeArchived=false}={}) {
+  const rows=projects.filter(project=>includeArchived||String(project.status||"Active")!=="Archived").slice().sort((a,b)=>String(a.code||a.name).localeCompare(String(b.code||b.name)));
+  const selectedProject=projectForId(selected);
+  if(selectedProject&&!rows.some(project=>String(project.id)===String(selectedProject.id))) rows.unshift(selectedProject);
+  return `<option value="">No project</option>${rows.map(project=>`<option value="${esc(project.id)}" ${String(project.id)===String(selected)?"selected":""}>${esc(project.code?`${project.code} · ${project.name}`:project.name)}${project.status==="Archived"?" (archived)":""}</option>`).join("")}`;
+}
+function ensureJobProjectField(){
+  const form=$("#jobForm");if(!form||form.elements.projectId)return;
+  const label=document.createElement("label");label.className="job-project-field";label.innerHTML=`Project (optional)<select name="projectId" id="jobProjectSelect"></select>`;
+  const assigned=$("#jobAssignedSelect")?.closest("label");
+  if(assigned?.parentElement) assigned.parentElement.insertBefore(label,assigned.nextSibling);
+  else form.insertBefore(label,form.querySelector("#jobPartsOrderedSection")||form.querySelector("#timeEditor")||null);
+}
+function renderJobProjectSelect(selected=""){
+  ensureJobProjectField();
+  const select=$("#jobProjectSelect");if(!select)return;
+  select.innerHTML=projectOptions(selected,{includeArchived:true});
+  select.value=String(selected||"");
+}
+function projectStats(project){
+  const linkedJobs=jobs.filter(job=>String(job.projectId||"")===String(project.id));
+  const linkedOrders=purchaseOrders.filter(order=>String(order.projectId||"")===String(project.id));
+  const ordered=linkedOrders.filter(order=>order.status==="Ordered").reduce((sum,order)=>sum+purchaseOrderTotal(order),0);
+  const used=linkedJobs.reduce((sum,job)=>sum+jobPartsCost(job),0);
+  return {jobs:linkedJobs.length,orders:linkedOrders.length,ordered,used};
+}
+function ensureProjectsUi(){
+  if(document.getElementById("projectsView")){ensureJobProjectField();return;}
+  const style=document.createElement("style");style.id="projectStyles";style.textContent=`
+  .project-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.project-head h1,.project-head h2{margin:0 0 5px}.project-head p{margin:0;color:#667085}.project-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.project-kpi,.project-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px}.project-kpi{padding:15px}.project-kpi span{display:block;color:#667085;font-size:.82rem}.project-kpi strong{display:block;font-size:1.45rem;margin-top:5px}.project-card{padding:18px;margin:16px 0}.project-chart-wrap{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:24px;align-items:center}.project-pie{width:min(240px,100%);aspect-ratio:1;border-radius:50%;margin:auto;background:#e7ebf1}.project-legend{display:grid;gap:8px}.project-actions{display:flex;gap:6px;flex-wrap:wrap}.project-dialog{border:0;border-radius:18px;width:min(620px,calc(100% - 24px));padding:0;box-shadow:0 24px 70px rgba(16,24,40,.24)}.project-dialog::backdrop{background:rgba(16,24,40,.55)}.project-dialog form{padding:20px}.project-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.project-form-grid label,.project-full{display:grid;gap:5px;font-size:.84rem;font-weight:700}.project-form-grid input,.project-form-grid select,.project-full textarea{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.project-full{margin-top:12px}.project-dialog-actions{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:18px}@media(max-width:720px){.project-grid{grid-template-columns:1fr}.project-chart-wrap{grid-template-columns:1fr}.project-form-grid{grid-template-columns:1fr}}
+  `;document.head.appendChild(style);
+  const nav=$("#mainNav");if(nav){const b=document.createElement("button");b.type="button";b.className="nav-item";b.dataset.view="projects";b.innerHTML=`<span>▤</span><span>Projects</span>`;nav.insertBefore(b,nav.querySelector('[data-view="data"]')||null);}
+  const reference=$("#dataView")||$("#reportsView"),parent=reference?.parentElement||document.querySelector("main")||document.body;
+  const view=document.createElement("section");view.id="projectsView";view.className="view";view.innerHTML=`<div class="project-head"><div><h1>Projects</h1><p>Group maintenance jobs and purchase orders together and track project costs.</p></div><button type="button" class="btn primary" id="projectNewBtn">+ New project</button></div><div class="project-grid"><div class="project-kpi"><span>Active projects</span><strong id="projectActiveCount">0</strong></div><div class="project-kpi"><span>Ordered cost</span><strong id="projectOrderedCost">${money(0)}</strong></div><div class="project-kpi"><span>Parts used</span><strong id="projectUsedCost">${money(0)}</strong></div></div><article class="project-card"><div class="project-head"><div><h2>Project cost pie chart</h2><p>Placed purchase-order value by project. Parts used from stock are shown separately to avoid double-counting purchases.</p></div></div><div class="project-chart-wrap"><div class="project-pie" id="projectCostPie"></div><div class="project-legend" id="projectCostLegend"></div></div></article><article class="project-card"><div class="project-head"><div><h2>All projects</h2><p>Jobs and purchase orders can be assigned to a project from their normal forms.</p></div></div><div class="table-wrap"><table><thead><tr><th>Project</th><th>Status</th><th>Jobs</th><th>Orders</th><th>Ordered cost</th><th>Parts used</th><th>Budget</th><th>Action</th></tr></thead><tbody id="projectsBody"></tbody></table></div></article>`;
+  if(reference)parent.insertBefore(view,reference);else parent.appendChild(view);
+  const dialog=document.createElement("dialog");dialog.id="projectDialog";dialog.className="project-dialog";dialog.innerHTML=`<form id="projectForm"><div class="project-head"><div><h2 id="projectDialogTitle">New project</h2><p>Create a project for jobs and purchase orders.</p></div><button type="button" class="btn secondary compact" id="projectCloseBtn">Close</button></div><input type="hidden" name="id"><div class="project-form-grid"><label>Project name<input name="name" required maxlength="180" placeholder="Line 4 upgrade"></label><label>Project code<input name="code" maxlength="80" placeholder="PRJ-001"></label><label>Status<select name="status"><option>Active</option><option>Completed</option><option>Archived</option></select></label><label>Budget (${currencySymbol()})<input name="budget" type="number" min="0" step="0.01" placeholder="Optional"></label></div><label class="project-full">Notes<textarea name="notes" rows="4" maxlength="2000"></textarea></label><div class="project-dialog-actions"><button type="button" class="btn danger" id="projectDeleteBtn" hidden>Delete project</button><div><button type="button" class="btn secondary" id="projectCancelBtn">Cancel</button><button type="submit" class="btn primary">Save project</button></div></div></form>`;document.body.appendChild(dialog);
+  $("#projectNewBtn")?.addEventListener("click",()=>openProjectDialog());
+  $("#projectCloseBtn")?.addEventListener("click",()=>dialog.close());$("#projectCancelBtn")?.addEventListener("click",()=>dialog.close());
+  $("#projectForm")?.addEventListener("submit",submitProject);
+  $("#projectDeleteBtn")?.addEventListener("click",deleteProjectFromDialog);
+  $("#projectsBody")?.addEventListener("click",e=>{const edit=e.target.closest("[data-project-edit]");if(edit)openProjectDialog(edit.dataset.projectEdit);});
+  ensureJobProjectField();
+}
+function openProjectDialog(id=""){
+  editingProjectId=id||null;const form=$("#projectForm");if(!form)return;form.reset();const project=projectForId(id);
+  $("#projectDialogTitle").textContent=project?"Edit project":"New project";$("#projectDeleteBtn").hidden=!project;
+  form.elements.id.value=project?.id||"";form.elements.name.value=project?.name||"";form.elements.code.value=project?.code||"";form.elements.status.value=project?.status||"Active";form.elements.budget.value=project?.budget?String(project.budget):"";form.elements.notes.value=project?.notes||"";
+  $("#projectDialog")?.showModal();
+}
+async function submitProject(e){
+  e.preventDefault();const form=e.currentTarget,fd=new FormData(form);const project={id:String(fd.get("id")||"")||undefined,name:String(fd.get("name")||"").trim(),code:String(fd.get("code")||"").trim(),status:String(fd.get("status")||"Active"),budget:Number(fd.get("budget"))||0,notes:String(fd.get("notes")||"").trim()};
+  try{await saveMutation("/api/projects",{action:"save",project});$("#projectDialog").close();editingProjectId=null;switchView("projects");}catch(error){showSaveError(error);}
+}
+async function deleteProjectFromDialog(){
+  const id=$("#projectForm")?.elements.id.value;if(!id)return;if(!confirm("Delete this project? Projects linked to jobs or purchase orders must be archived instead."))return;
+  try{await saveMutation("/api/projects",{action:"delete",id});$("#projectDialog").close();editingProjectId=null;switchView("projects");}catch(error){showSaveError(error);}
+}
+function renderProjects(){
+  if(!$("#projectsView"))return;
+  const active=projects.filter(project=>project.status==="Active"),stats=projects.map(project=>({project,...projectStats(project)}));
+  const orderedTotal=stats.reduce((sum,row)=>sum+row.ordered,0),usedTotal=stats.reduce((sum,row)=>sum+row.used,0);
+  $("#projectActiveCount").textContent=String(active.length);$("#projectOrderedCost").textContent=money(orderedTotal);$("#projectUsedCost").textContent=money(usedTotal);
+  const pieRows=stats.filter(row=>row.ordered>0).sort((a,b)=>b.ordered-a.ordered).map(row=>({name:row.project.code?`${row.project.code} · ${row.project.name}`:row.project.name,value:row.ordered}));
+  renderPie($("#projectCostPie"),$("#projectCostLegend"),pieRows,money);
+  $("#projectsBody").innerHTML=stats.length?stats.sort((a,b)=>String(a.project.status).localeCompare(String(b.project.status))||String(a.project.code||a.project.name).localeCompare(String(b.project.code||b.project.name))).map(({project,jobs:jobCount,orders,ordered,used})=>`<tr><td><strong>${esc(project.code?`${project.code} · ${project.name}`:project.name)}</strong>${project.notes?`<br><small>${esc(project.notes.length>90?project.notes.slice(0,87)+"…":project.notes)}</small>`:""}</td><td>${esc(project.status||"Active")}</td><td>${jobCount}</td><td>${orders}</td><td>${money(ordered)}</td><td>${money(used)}</td><td>${project.budget?money(project.budget):"—"}</td><td><div class="project-actions"><button type="button" class="btn secondary compact" data-project-edit="${esc(project.id)}">Edit</button></div></td></tr>`).join(""):`<tr><td colspan="8">No projects yet.</td></tr>`;
+  renderJobProjectSelect($("#jobProjectSelect")?.value||"");
+  const poProject=$("#poProjectSelect");if(poProject){const current=poProject.value;poProject.innerHTML=projectOptions(current,{includeArchived:true});poProject.value=current;}
+}
+
 function ensurePurchaseOrderUi(){
   document.getElementById("stockPurchasingBlock")?.remove();
   if(document.getElementById("openOrdersView"))return;
   const style=document.createElement("style");style.id="purchaseOrderStyles";style.textContent=`
-  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.po-search-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px}.po-search-row input{flex:1 1 280px;min-width:0;padding:11px 12px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.po-search-count{font-size:.82rem;color:#667085;white-space:nowrap}
-  @media(max-width:900px){.po-line{grid-template-columns:1fr 1fr 90px 1fr}.po-line .po-total-cell{grid-column:1/3}.po-line .po-remove-cell{grid-column:3/5}.po-line .po-remove-cell button{width:100%}.po-line-readonly{grid-template-columns:1fr 1fr 70px 100px}.po-line-readonly span:last-child{grid-column:1/-1;text-align:left}}
-  @media(max-width:560px){.po-card{padding:14px}.po-supplier-row{grid-template-columns:1fr}.po-line{grid-template-columns:1fr 1fr}.po-line .po-name-cell,.po-line .po-code-cell{grid-column:1/-1}.po-line .po-total-cell,.po-line .po-remove-cell{grid-column:auto}.po-line-readonly{grid-template-columns:1fr 1fr}.po-actions{display:grid}.po-actions>div{display:grid}.po-actions button{width:100%}}
+  .po-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.po-head h1{margin:0 0 5px}.po-head p{margin:0;color:#667085}.po-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.po-supplier-row{display:grid;grid-template-columns:minmax(220px,1fr) auto;gap:9px;align-items:end;margin-bottom:16px}.po-supplier-row label{display:grid;gap:5px;font-size:.84rem;font-weight:700}.po-supplier-row select{width:100%;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;font:inherit}.po-lines{display:grid;gap:9px}.po-line{display:grid;grid-template-columns:minmax(170px,1.3fr) minmax(120px,.7fr) 90px 120px 120px auto;gap:8px;align-items:end;padding:10px;border:1px solid #e2e7ef;border-radius:11px}.po-line label{display:grid;gap:4px;font-size:.78rem;font-weight:700;min-width:0}.po-line input{width:100%;min-width:0;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;font:inherit}.po-line-total{padding:10px 8px;border:1px solid #e2e7ef;border-radius:8px;background:#f8fafc;min-height:20px;font-weight:800;text-align:right}.po-total-row{display:flex;justify-content:flex-end;align-items:center;gap:18px;margin-top:16px;padding-top:14px;border-top:1px solid #e2e7ef;font-size:1.05rem}.po-total-row strong{font-size:1.45rem}.po-actions{display:flex;justify-content:space-between;gap:9px;flex-wrap:wrap;margin-top:16px}.po-actions>div{display:flex;gap:8px;flex-wrap:wrap}.po-list{display:grid;gap:10px}.po-list-card{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.po-list-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap}.po-list-head h3{margin:0 0 4px}.po-meta{color:#667085;font-size:.8rem}.po-order-total{font-size:1.15rem;font-weight:800}.po-line-readonly{display:grid;grid-template-columns:minmax(160px,1.4fr) minmax(100px,.7fr) 70px 105px 110px;gap:8px;padding:8px 0;border-top:1px solid #eef1f5;align-items:center}.po-line-readonly:first-child{margin-top:10px}.po-line-readonly span:last-child{text-align:right;font-weight:700}.po-empty{padding:22px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:11px}.po-status{display:inline-flex;padding:4px 9px;border-radius:999px;background:#e8f1ff;color:#175cd3;font-size:.74rem;font-weight:800}.po-builder-ref{font-size:.8rem;color:#667085;margin-bottom:10px}.po-readonly-note{color:#667085;font-size:.8rem;margin:4px 0 0}.po-small-actions{display:flex;gap:7px;flex-wrap:wrap;margin-top:12px}.po-search-row{display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin:0 0 16px}.po-search-row input{flex:1 1 280px;min-width:0;padding:11px 12px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.po-search-count{font-size:.82rem;color:#667085;white-space:nowrap}.po-requisition-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:10px;margin-bottom:14px}.po-requisition-grid label,.po-notes{display:grid;gap:5px;font-size:.8rem;font-weight:700}.po-requisition-grid input,.po-requisition-grid select,.po-notes textarea{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff;font:inherit}.po-requisition-meta{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;margin:10px 0;padding:10px;background:#f8fafc;border:1px solid #eef1f5;border-radius:10px}.po-requisition-meta div{min-width:0}.po-requisition-meta small{display:block;color:#667085}.po-requisition-meta strong{overflow-wrap:anywhere}.po-notes{margin:12px 0}.po-required{color:#b42318}
+  @media(max-width:900px){.po-requisition-grid{grid-template-columns:repeat(2,minmax(0,1fr))}.po-requisition-meta{grid-template-columns:repeat(2,minmax(0,1fr))}.po-line{grid-template-columns:1fr 1fr 90px 1fr}.po-line .po-total-cell{grid-column:1/3}.po-line .po-remove-cell{grid-column:3/5}.po-line .po-remove-cell button{width:100%}.po-line-readonly{grid-template-columns:1fr 1fr 70px 100px}.po-line-readonly span:last-child{grid-column:1/-1;text-align:left}}
+  @media(max-width:560px){.po-requisition-grid,.po-requisition-meta{grid-template-columns:1fr}.po-card{padding:14px}.po-supplier-row{grid-template-columns:1fr}.po-line{grid-template-columns:1fr 1fr}.po-line .po-name-cell,.po-line .po-code-cell{grid-column:1/-1}.po-line .po-total-cell,.po-line .po-remove-cell{grid-column:auto}.po-line-readonly{grid-template-columns:1fr 1fr}.po-actions{display:grid}.po-actions>div{display:grid}.po-actions button{width:100%}}
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const partsBtn=nav.querySelector('[data-view="parts"]');const ref=partsBtn?.nextSibling||nav.querySelector('[data-view="data"]')||null;const open=document.createElement("button");open.type="button";open.className="nav-item";open.dataset.view="openOrders";open.innerHTML=`<span>🧾</span><span>Open Orders</span>`;const ordered=document.createElement("button");ordered.type="button";ordered.className="nav-item";ordered.dataset.view="ordered";ordered.innerHTML=`<span>📦</span><span>Ordered</span>`;nav.insertBefore(open,ref);nav.insertBefore(ordered,ref);}
   const reference=document.getElementById("dataView")||document.getElementById("reportsView");const parent=reference?.parentElement||document.querySelector("main")||document.body;
-  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-supplier-row"><label>Supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
+  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label>GL Code <span class="po-required">*</span><input id="poGlCode" maxlength="80" placeholder="Required"></label><label>Div<input id="poDiv" maxlength="80"></label><label>Dept<input id="poDept" maxlength="80"></label><label>Account<input id="poAccount" maxlength="80"></label><label>Department <span class="po-required">*</span><input id="poDepartment" maxlength="120" value="Maintenance"></label><label>EPP<input id="poEpp" maxlength="120"></label><label>Job Number<input id="poJobNumber" maxlength="120"></label><label>Project<select id="poProjectSelect"></select></label><label>New Account<select id="poNewAccount"><option value="">—</option><option>No</option><option>Yes</option></select></label><label>Currency<select id="poCurrency"><option value="GBP">GBP</option><option value="EUR">EUR</option><option value="USD">USD</option><option value="CAD">CAD</option><option value="AUD">AUD</option></select></label><label>Requisition raised by <span class="po-required">*</span><input id="poRequestedBy" maxlength="180"></label><label>Date quote needed<input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
   const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div class="po-search-row"><input id="poOrderedSearch" type="search" placeholder="Search PO, supplier, part or part code…" autocomplete="off"><span class="po-search-count" id="poOrderedSearchCount"></span></div><div id="poOrderedList" class="po-list"></div>`;
   if(reference){parent.insertBefore(openView,reference);parent.insertBefore(orderedView,reference);}else{parent.appendChild(openView);parent.appendChild(orderedView);}
   $("#poNewBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
@@ -1338,9 +1453,72 @@ function autofillPurchaseOrderPrice(row,part){
 function addPurchaseOrderLine(data={}){const lines=$("#poLines");if(!lines)return;const row=document.createElement("div");row.className="po-line";row.innerHTML=`<label class="po-name-cell">Part name<input class="po-part-name" list="poPartNames" maxlength="180" value="${esc(data.partName||"")}" placeholder="Bearing 6204" required></label><label class="po-code-cell">Part code<input class="po-part-code" maxlength="120" value="${esc(data.partCode||"")}" placeholder="6204-2RS"></label><label>Qty<input class="po-qty" type="number" min="1" step="1" value="${Math.max(1,Number(data.qty)||1)}"></label><label>Unit price (${currencySymbol()})<input class="po-unit-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label class="po-total-cell">Line total<span class="po-line-total">${money((Number(data.qty)||1)*(Number(data.unitPrice)||0))}</span></label><div class="po-remove-cell"><button type="button" class="btn danger compact" data-po-remove-line>Remove</button></div>`;lines.appendChild(row);updatePurchaseOrderTotals();}
 function collectPurchaseOrderLines(){return $$("#poLines .po-line").map(row=>({partName:String(row.querySelector('.po-part-name')?.value||"").trim(),partCode:String(row.querySelector('.po-part-code')?.value||"").trim(),qty:Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),unitPrice:Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0)})).filter(row=>row.partName);}
 function updatePurchaseOrderTotals(){let grand=0;$$("#poLines .po-line").forEach(row=>{const qty=Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),price=Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0),total=qty*price;grand+=total;const cell=row.querySelector('.po-line-total');if(cell)cell.textContent=money(total);});if($("#poGrandTotal"))$("#poGrandTotal").textContent=money(grand);}
-function renderPurchaseOrderBuilder(){if(!$("#poSupplierSelect"))return;const order=editingPurchaseOrderId?purchaseOrders.find(row=>String(row.id)===String(editingPurchaseOrderId)&&row.status!=="Ordered"):null;if(editingPurchaseOrderId&&!order)editingPurchaseOrderId=null;$("#poSupplierSelect").innerHTML=purchaseOrderSupplierOptions(order?.supplier||"");$("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");$("#poLines").innerHTML="";(order?.lines?.length?order.lines:[{}]).forEach(addPurchaseOrderLine);$("#poBuilderRef").textContent=order?`Editing ${order.orderNo||"open order"}`:"New open order";updatePurchaseOrderTotals();}
+function purchaseOrderMeta(){
+  return {
+    glCode:String($("#poGlCode")?.value||"").trim(),
+    div:String($("#poDiv")?.value||"").trim(),
+    dept:String($("#poDept")?.value||"").trim(),
+    account:String($("#poAccount")?.value||"").trim(),
+    department:String($("#poDepartment")?.value||"Maintenance").trim()||"Maintenance",
+    epp:String($("#poEpp")?.value||"").trim(),
+    jobNumber:String($("#poJobNumber")?.value||"").trim(),
+    projectId:String($("#poProjectSelect")?.value||"").trim(),
+    newAccount:String($("#poNewAccount")?.value||"").trim(),
+    currency:String($("#poCurrency")?.value||appSettings.currency||"GBP"),
+    requestedBy:String($("#poRequestedBy")?.value||"").trim(),
+    dateQuoteNeeded:String($("#poDateQuoteNeeded")?.value||""),
+    notes:String($("#poNotes")?.value||"").trim()
+  };
+}
+function setPurchaseOrderMeta(order){
+  const values={
+    poGlCode:order?.glCode||"",poDiv:order?.div||"",poDept:order?.dept||"",poAccount:order?.account||"",
+    poDepartment:order?.department||"Maintenance",poEpp:order?.epp||"",poJobNumber:order?.jobNumber||"",
+    poNewAccount:order?.newAccount||"",poCurrency:order?.currency||appSettings.currency||"GBP",
+    poRequestedBy:order?.requestedBy||selectedProfileName()||signedInIdentity?.email||"",
+    poDateQuoteNeeded:order?.dateQuoteNeeded||"",poNotes:order?.notes||""
+  };
+  Object.entries(values).forEach(([id,value])=>{const el=$("#"+id);if(el)el.value=value;});
+  const project=$("#poProjectSelect");if(project){project.innerHTML=projectOptions(order?.projectId||"",{includeArchived:true});project.value=String(order?.projectId||"");}
+}
+function purchaseOrderMetaReadOnly(order){
+  const rows=[
+    ["GL Code",order.glCode],["Div",order.div],["Dept",order.dept],["Account",order.account],
+    ["Department",order.department||"Maintenance"],["EPP",order.epp],["Job Number",order.jobNumber],
+    ["Project",projectLabel(order.projectId)],["New Account",order.newAccount],["Currency",order.currency||appSettings.currency],
+    ["Raised by",order.requestedBy],["Quote needed",order.dateQuoteNeeded?fmtDate(order.dateQuoteNeeded):""]
+  ].filter(([,value])=>String(value||"").trim());
+  return `<div class="po-requisition-meta">${rows.map(([label,value])=>`<div><small>${esc(label)}</small><strong>${esc(value)}</strong></div>`).join("")}</div>${order.notes?`<div class="po-readonly-note"><strong>Notes:</strong> ${esc(order.notes)}</div>`:""}`;
+}
+function renderPurchaseOrderBuilder(){
+  if(!$("#poSupplierSelect"))return;
+  const order=editingPurchaseOrderId?purchaseOrders.find(row=>String(row.id)===String(editingPurchaseOrderId)&&row.status!=="Ordered"):null;
+  if(editingPurchaseOrderId&&!order)editingPurchaseOrderId=null;
+  $("#poSupplierSelect").innerHTML=purchaseOrderSupplierOptions(order?.supplier||"");
+  $("#poSupplierSelect").value=order?.supplier||"";
+  setPurchaseOrderMeta(order);
+  $("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");
+  $("#poLines").innerHTML="";
+  (order?.lines?.length?order.lines:[{}]).forEach(addPurchaseOrderLine);
+  $("#poBuilderRef").textContent=order?`Editing ${order.orderNo||"open order"}`:"New open order";
+  updatePurchaseOrderTotals();
+}
 async function addPurchaseOrderSupplier(){const name=prompt("Supplier name:");if(!name?.trim())return;try{const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"supplier",value:name.trim()})});if(payload.state)applySharedState(payload);$("#poSupplierSelect").innerHTML=purchaseOrderSupplierOptions(name.trim());$("#poSupplierSelect").value=name.trim();}catch(error){showSaveError(error);}}
-async function submitPurchaseOrder(action){const supplier=String($("#poSupplierSelect")?.value||"").trim(),lines=collectPurchaseOrderLines();if(!supplier){alert("Choose or add a supplier first.");return;}if(!lines.length){alert("Add at least one part to the order.");return;}const button=action==="place"?$("#poPlaceBtn"):$("#poSaveOpenBtn");const old=button?.textContent;if(button){button.disabled=true;button.textContent=action==="place"?"Placing…":"Saving…";}try{const payload=await saveMutation("/api/purchase-orders",{action,orderId:editingPurchaseOrderId||"",supplier,lines});if(action==="place"){editingPurchaseOrderId=null;renderPurchaseOrderBuilder();switchView("ordered");}else{editingPurchaseOrderId=payload.order?.id||editingPurchaseOrderId;switchView("openOrders");renderPurchaseOrderBuilder();}}catch(error){showSaveError(error);}finally{if(button){button.disabled=false;button.textContent=old;}}}
+async function submitPurchaseOrder(action){
+  const supplier=String($("#poSupplierSelect")?.value||"").trim(),lines=collectPurchaseOrderLines(),meta=purchaseOrderMeta();
+  if(!supplier){alert("Choose or add a supplier first.");return;}
+  if(!lines.length){alert("Add at least one part to the order.");return;}
+  if(action==="place"&&!meta.glCode){alert("Enter the GL Code before placing the order.");$("#poGlCode")?.focus();return;}
+  if(action==="place"&&!meta.department){alert("Enter the Department before placing the order.");$("#poDepartment")?.focus();return;}
+  if(action==="place"&&!meta.requestedBy){alert("Enter who raised the requisition before placing the order.");$("#poRequestedBy")?.focus();return;}
+  const button=action==="place"?$("#poPlaceBtn"):$("#poSaveOpenBtn"),old=button?.textContent;
+  if(button){button.disabled=true;button.textContent=action==="place"?"Placing…":"Saving…";}
+  try{
+    const payload=await saveMutation("/api/purchase-orders",{action,orderId:editingPurchaseOrderId||"",supplier,lines,...meta});
+    if(action==="place"){editingPurchaseOrderId=null;renderPurchaseOrderBuilder();switchView("ordered");}
+    else{editingPurchaseOrderId=payload.order?.id||editingPurchaseOrderId;switchView("openOrders");renderPurchaseOrderBuilder();}
+  }catch(error){showSaveError(error);}finally{if(button){button.disabled=false;button.textContent=old;}}
+}
 async function deletePurchaseOrder(orderId){if(!confirm("Delete this order? This is enabled for testing at the moment."))return;try{const wasEditing=String(editingPurchaseOrderId)===String(orderId);if(wasEditing)editingPurchaseOrderId=null;await saveMutation("/api/purchase-orders",{action:"delete",orderId});if(wasEditing)renderPurchaseOrderBuilder();}catch(error){showSaveError(error);}}
 function handleOpenPurchaseOrderClick(e){const edit=e.target.closest('[data-po-edit]');if(edit){editingPurchaseOrderId=edit.dataset.poEdit;renderPurchaseOrderBuilder();switchView("openOrders");window.scrollTo?.({top:0,behavior:"smooth"});return;}const place=e.target.closest('[data-po-place]');if(place){const order=purchaseOrders.find(row=>String(row.id)===String(place.dataset.poPlace));if(!order)return;editingPurchaseOrderId=order.id;renderPurchaseOrderBuilder();submitPurchaseOrder("place");return;}const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
 function handleOrderedPurchaseOrderClick(e){const del=e.target.closest('[data-po-delete]');if(del)deletePurchaseOrder(del.dataset.poDelete);}
@@ -1351,18 +1529,19 @@ function renderPurchaseOrders(){
   const allOrdered=purchaseOrders.filter(row=>row.status==="Ordered").sort((a,b)=>String(b.orderedAt||"").localeCompare(String(a.orderedAt||"")));
   const query=String(orderedPurchaseSearchQuery||"").trim().toLowerCase();
   const ordered=query ? allOrdered.filter(order=>{
-    const searchable=[order.orderNo,order.supplier,...(order.lines||[]).flatMap(line=>[line.partName,line.partCode])].join(" ").toLowerCase();
+    const searchable=[order.orderNo,order.supplier,order.glCode,order.department,order.jobNumber,order.requestedBy,projectLabel(order.projectId),...(order.lines||[]).flatMap(line=>[line.partName,line.partCode])].join(" ").toLowerCase();
     return searchable.includes(query);
   }) : allOrdered;
 
-  if($("#poOpenList")) $("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}">Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;
+  if($("#poOpenList")) $("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderMetaReadOnly(order)}${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}">Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;
 
   if($("#poOrderedSearch") && $("#poOrderedSearch").value!==orderedPurchaseSearchQuery) $("#poOrderedSearch").value=orderedPurchaseSearchQuery;
   if($("#poOrderedSearchCount")) $("#poOrderedSearchCount").textContent=query?`Showing ${ordered.length} of ${allOrdered.length}`:`${allOrdered.length} order${allOrdered.length===1?"":"s"}`;
-  if($("#poOrderedList")) $("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked and cannot be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">${query?"No ordered purchases match your search.":"No placed orders yet."}</div>`;
+  if($("#poOrderedList")) $("#poOrderedList").innerHTML=ordered.length?ordered.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Purchase order")} <span class="po-status">Ordered</span></h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Placed ${esc(purchaseOrderDate(order.orderedAt))}</div><p class="po-readonly-note">This order is locked and cannot be changed.</p></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderMetaReadOnly(order)}${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">${query?"No ordered purchases match your search.":"No placed orders yet."}</div>`;
 
   const supplier=$("#poSupplierSelect");
   if(supplier){const current=supplier.value;supplier.innerHTML=purchaseOrderSupplierOptions(current);supplier.value=current;}
+  const project=$("#poProjectSelect");if(project){const current=project.value;project.innerHTML=projectOptions(current,{includeArchived:true});project.value=current;}
   if($("#poPartNames")) $("#poPartNames").innerHTML=activeParts().slice().sort((a,b)=>a.name.localeCompare(b.name)).map(p=>`<option value="${esc(p.name)}">${esc(p.partNo||"")}</option>`).join("");
 }
 
@@ -1370,6 +1549,7 @@ function renderAll() {
   ensureV58Ui();
   ensurePreventiveUi();
   ensurePurchaseOrderUi();
+  ensureProjectsUi();
   ensureMachineIdentityFields();
   applyUiSettings();
   buildTabs();
@@ -1387,6 +1567,7 @@ function renderAll() {
   renderPreventive();
   renderCurrentDownDashboard();
   renderPurchaseOrders();
+  renderProjects();
   renderPickLists();
   bindMonthTabs();
   bindJobEditors();
@@ -1423,6 +1604,7 @@ function switchView(name) {
   if (name==='downtime') renderDowntime();
   if (name==='preventive') renderPreventive();
   if (name==='openOrders' || name==='ordered') renderPurchaseOrders();
+  if (name==='projects') renderProjects();
 }
 
 function xmlEsc(v) { return String(v??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&apos;"}[c])); }
@@ -1635,6 +1817,7 @@ async function openJob(jobNo=null) {
     $("#jobSectionSelect").value=job.section||inferSection(job.machine);
     renderMachineSelect($("#jobSectionSelect").value,job.machineId||job.machine);
     renderAssignedSelect(job.assigned||"");
+    renderJobProjectSelect(job.projectId||"");
     (job.timeEntries||[]).forEach(t=>addTimeRow(t));
     if (!(job.timeEntries||[]).length) addTimeRow({date:job.raised||defaultFormDate()});
     const orderedParts=(job.parts||[]).filter(p=>partOrderedQty(p)>0);
@@ -1649,6 +1832,7 @@ async function openJob(jobNo=null) {
     $("#jobSubmitBtn").textContent="Save Job";
     deleteBtn.hidden=true;
     renderAssignedSelect(selectedProfileId === "all" ? "" : profileContext());
+    renderJobProjectSelect("");
     renderMachineSelect("");
     try {
       const next = await api(`/api/next-job-number?year=${encodeURIComponent(selectedYear)}`, {method:"GET",headers:{accept:"application/json"}});
@@ -1768,7 +1952,7 @@ $("#jobForm").addEventListener("submit",async e=>{
   const parts=collectPartsFromEditor(); if(parts===null)return;
   const selectedMachine=machines.find(m=>String(m.id)===String(obj.machine));
   if(!selectedMachine){alert("Select a valid machine.");return;}
-  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:selectedMachine.section,machineId:selectedMachine.id,machine:selectedMachine.name,priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
+  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:selectedMachine.section,machineId:selectedMachine.id,machine:selectedMachine.name,projectId:String(obj.projectId||""),priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
   const originalJobNo=editingJobNo;
   const submit=$("#jobSubmitBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {
