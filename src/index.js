@@ -439,6 +439,8 @@ function normalizeProject(project) {
     name: String(value.name || "").trim().slice(0, 180),
     status,
     budget: Math.max(0, Number(value.budget) || 0),
+    expectedEndDate: cleanDateOnly(value.expectedEndDate),
+    endDate: cleanDateOnly(value.endDate),
     notes: String(value.notes || "").trim().slice(0, 2000),
     projectParts,
     manualParts: [],
