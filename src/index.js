@@ -6,7 +6,7 @@ import { QRCode, QRErrorCorrectLevel } from "./qr.js";
  * Shared maintenance data lives in the D1 binding env.DB.
  */
 
-const APP_VERSION = "5.10.18";
+const APP_VERSION = "5.10.21";
 const DEFAULT_SETTINGS = {
   companyName: "",
   siteName: "Maintenance Manager",
@@ -439,6 +439,7 @@ function normalizeProject(project) {
     name: String(value.name || "").trim().slice(0, 180),
     status,
     budget: Math.max(0, Number(value.budget) || 0),
+    startDate: cleanDateOnly(value.startDate),
     expectedEndDate: cleanDateOnly(value.expectedEndDate),
     endDate: cleanDateOnly(value.endDate),
     notes: String(value.notes || "").trim().slice(0, 2000),
