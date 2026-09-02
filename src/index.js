@@ -754,9 +754,13 @@ function validateJob(state, job, originalJobNo = "") {
       qty,
       unitPrice: Math.max(0, Number(raw.unitPrice) || 0),
       supplier: String(raw.supplier || "").trim(),
-      date: String(raw.date || "").trim()
+      date: String(raw.date || "").trim(),
+      projectId: String(raw.projectId || "").trim()
     };
   }).filter((usage) => usage.qty > 0 || usage.orderedQty > 0) : [];
+  for (const usage of out.parts) {
+    if (usage.projectId && !(state.projects || []).some((project) => String(project.id) === String(usage.projectId))) usage.projectId = "";
+  }
 
   if (!out.jobNo || !out.title || !out.section || !out.machine || !out.assigned || !out.raised) {
     throw new Error("Job number, title, section, machine, assigned engineer and date raised are required.");
@@ -1958,6 +1962,12 @@ async function handleApi(request, env, routeOverride = "") {
           order.updatedAt = order.orderedAt;
           return { order };
         }
+        if (action === "setproject") {
+          if (!order) throw new Error("Order not found.");
+          order.projectId = projectId;
+          order.updatedAt = new Date().toISOString();
+          return { order };
+        }
         if (action === "delete") {
           if (!order) throw new Error("Order not found.");
           const idx = state.purchaseOrders.findIndex((row) => String(row.id) === String(order.id));
@@ -1995,11 +2005,46 @@ async function handleApi(request, env, routeOverride = "") {
           }
           return { project: incoming };
         }
+        if (action === "setlinks") {
+          const id = String(body.id || "").trim();
+          const project = state.projects.find((row) => String(row.id) === id);
+          if (!project) throw new Error("Project not found.");
+          state.purchaseOrders = Array.isArray(state.purchaseOrders) ? state.purchaseOrders.map(normalizePurchaseOrder) : [];
+          state.jobs = Array.isArray(state.jobs) ? state.jobs : [];
+          const selectedOrders = new Set((Array.isArray(body.orderIds) ? body.orderIds : []).map((value) => String(value)));
+          const selectedUsage = new Set((Array.isArray(body.partUsageRefs) ? body.partUsageRefs : []).map((value) => String(value)));
+
+          for (const order of state.purchaseOrders) {
+            if (String(order.status || "") !== "Ordered") continue;
+            const selected = selectedOrders.has(String(order.id));
+            if (selected) order.projectId = id;
+            else if (String(order.projectId || "") === id) order.projectId = "";
+            order.updatedAt = new Date().toISOString();
+          }
+
+          let linkedParts = 0;
+          for (const job of state.jobs) {
+            if (!Array.isArray(job.parts)) continue;
+            job.parts.forEach((usage, usageIndex) => {
+              if ((Number(usage?.qty) || 0) <= 0) return;
+              const key = `${String(job.jobNo || "")}::${usageIndex}`;
+              const inherited = !String(usage.projectId || "") && String(job.projectId || "") === id;
+              if (inherited) { linkedParts += 1; return; }
+              const selected = selectedUsage.has(key);
+              if (selected) usage.projectId = id;
+              else if (String(usage.projectId || "") === id) usage.projectId = "";
+              if (String(usage.projectId || "") === id) linkedParts += 1;
+            });
+          }
+          const linkedOrders = state.purchaseOrders.filter((order) => String(order.projectId || "") === id && String(order.status || "") === "Ordered").length;
+          return { id, linkedOrders, linkedParts };
+        }
         if (action === "delete") {
           const id = String(body.id || "").trim();
           const linkedJobs = (state.jobs || []).filter((job) => String(job.projectId || "") === id).length;
           const linkedOrders = (state.purchaseOrders || []).filter((order) => String(order.projectId || "") === id).length;
-          if (linkedJobs || linkedOrders) throw new Error(`This project is linked to ${linkedJobs} job${linkedJobs === 1 ? "" : "s"} and ${linkedOrders} purchase order${linkedOrders === 1 ? "" : "s"}. Archive it instead of deleting it.`);
+          const linkedParts = (state.jobs || []).reduce((count, job) => count + (Array.isArray(job.parts) ? job.parts.filter((usage) => (Number(usage?.qty) || 0) > 0 && String(usage.projectId || "") === id).length : 0), 0);
+          if (linkedJobs || linkedOrders || linkedParts) throw new Error(`This project is linked to ${linkedJobs} job${linkedJobs === 1 ? "" : "s"}, ${linkedOrders} purchase order${linkedOrders === 1 ? "" : "s"} and ${linkedParts} parts-used record${linkedParts === 1 ? "" : "s"}. Archive it instead of deleting it.`);
           const idx = state.projects.findIndex((project) => String(project.id) === id);
           if (idx < 0) throw new Error("Project not found.");
           state.projects.splice(idx, 1);

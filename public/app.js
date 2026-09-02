@@ -1108,6 +1108,7 @@ function addPartRow(data={}) {
   const row = document.createElement("div");
   row.className = "part-entry part-used-entry";
   row.dataset.partRow = String(partRowCounter);
+  row.dataset.projectId = String(data.projectId||"");
   row.innerHTML = `<div class="part-entry-head"><strong>Used part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
   $("#partsEditor").appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
@@ -1152,7 +1153,7 @@ function collectUsedPartsFromEditor() {
     const unitPrice = Math.max(0, Number(priceRaw)||0);
     const supplier = row.querySelector('.supplier-select')?.value || "";
     const date = row.querySelector('.part-date')?.value || "";
-    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",orderedQty:0,qty,unitPrice,supplier,date});
+    result.push({partId:catalogPart.id,name:catalogPart.name,partNo:catalogPart.partNo||"",orderedQty:0,qty,unitPrice,supplier,date,projectId:String(row.dataset.projectId||"")});
   }
   return result;
 }
@@ -1347,23 +1348,64 @@ function projectStats(project){
   const linkedJobs=jobs.filter(job=>String(job.projectId||"")===String(project.id));
   const linkedOrders=purchaseOrders.filter(order=>String(order.projectId||"")===String(project.id));
   const ordered=linkedOrders.filter(order=>order.status==="Ordered").reduce((sum,order)=>sum+purchaseOrderTotal(order),0);
-  const used=linkedJobs.reduce((sum,job)=>sum+jobPartsCost(job),0);
+  let used=0;
+  for(const job of jobs){
+    for(const part of job.parts||[]){
+      if((Number(part.qty)||0)<=0) continue;
+      const directProject=String(part.projectId||"");
+      if(directProject===String(project.id) || (!directProject && String(job.projectId||"")===String(project.id))) used+=partTotal(part);
+    }
+  }
   return {jobs:linkedJobs.length,orders:linkedOrders.length,ordered,used};
+}
+function projectPartUsageRows(){
+  const rows=[];
+  for(const job of jobs){
+    (job.parts||[]).forEach((part,usageIndex)=>{
+      if((Number(part.qty)||0)<=0) return;
+      rows.push({job,part,usageIndex,key:`${job.jobNo}::${usageIndex}`});
+    });
+  }
+  return rows.sort((a,b)=>String(b.part.date||b.job.raised||"").localeCompare(String(a.part.date||a.job.raised||"")));
+}
+function projectLinkLists(project){
+  const partRows=projectPartUsageRows();
+  const orderRows=purchaseOrders.filter(order=>order.status==="Ordered").slice().sort((a,b)=>String(b.orderedAt||b.createdAt||"").localeCompare(String(a.orderedAt||a.createdAt||"")));
+  const partHtml=partRows.length?partRows.map(({job,part,usageIndex,key})=>{
+    const direct=String(part.projectId||"");
+    const inherited=!direct&&String(job.projectId||"")===String(project?.id||"");
+    const checked=direct===String(project?.id||"")||inherited;
+    const other=direct&&direct!==String(project?.id||"")?projectLabel(direct):"";
+    return `<label class="project-link-row ${inherited?'inherited':''}"><input type="checkbox" name="projectPartUsage" value="${esc(key)}" ${checked?'checked':''} ${inherited?'disabled':''}><span><strong>${esc(part.name||"Part")}${part.partNo?` · ${esc(part.partNo)}`:""}</strong><small>${esc(job.jobNo)} · ${fmtDate(part.date||job.raised)} · ${Number(part.qty)||0} used · ${money(partTotal(part))}${inherited?' · included through this project’s job':other?` · currently ${esc(other)}`:''}</small></span></label>`;
+  }).join(""):`<div class="project-link-empty">No parts usage history yet.</div>`;
+  const orderHtml=orderRows.length?orderRows.map(order=>{
+    const checked=String(order.projectId||"")===String(project?.id||"");
+    const other=order.projectId&&!checked?projectLabel(order.projectId):"";
+    const partNames=(order.lines||[]).slice(0,3).map(line=>line.partName).filter(Boolean).join(", ");
+    return `<label class="project-link-row"><input type="checkbox" name="projectOrder" value="${esc(order.id)}" ${checked?'checked':''}><span><strong>${esc(order.orderNo||"Purchase order")} · ${esc(order.supplier||"No supplier")} · ${money(purchaseOrderTotal(order))}</strong><small>${esc(partNames||"No parts")}${other?` · currently ${esc(other)}`:""}</small></span></label>`;
+  }).join(""):`<div class="project-link-empty">No placed purchase orders yet.</div>`;
+  return {partHtml,orderHtml};
+}
+function filterProjectLinkList(inputId,listId){
+  const query=String($(inputId)?.value||"").trim().toLowerCase();
+  $(`${listId}`)?.querySelectorAll('.project-link-row').forEach(row=>{row.hidden=Boolean(query)&&!row.textContent.toLowerCase().includes(query);});
 }
 function ensureProjectsUi(){
   if(document.getElementById("projectsView")){ensureJobProjectField();return;}
   const style=document.createElement("style");style.id="projectStyles";style.textContent=`
-  .project-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.project-head h1,.project-head h2{margin:0 0 5px}.project-head p{margin:0;color:#667085}.project-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.project-kpi,.project-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px}.project-kpi{padding:15px}.project-kpi span{display:block;color:#667085;font-size:.82rem}.project-kpi strong{display:block;font-size:1.45rem;margin-top:5px}.project-card{padding:18px;margin:16px 0}.project-chart-wrap{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:24px;align-items:center}.project-pie{width:min(240px,100%);aspect-ratio:1;border-radius:50%;margin:auto;background:#e7ebf1}.project-legend{display:grid;gap:8px}.project-actions{display:flex;gap:6px;flex-wrap:wrap}.project-dialog{border:0;border-radius:18px;width:min(620px,calc(100% - 24px));padding:0;box-shadow:0 24px 70px rgba(16,24,40,.24)}.project-dialog::backdrop{background:rgba(16,24,40,.55)}.project-dialog form{padding:20px}.project-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.project-form-grid label,.project-full{display:grid;gap:5px;font-size:.84rem;font-weight:700}.project-form-grid input,.project-form-grid select,.project-full textarea{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.project-full{margin-top:12px}.project-dialog-actions{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:18px}@media(max-width:720px){.project-grid{grid-template-columns:1fr}.project-chart-wrap{grid-template-columns:1fr}.project-form-grid{grid-template-columns:1fr}}
+  .project-head{display:flex;justify-content:space-between;align-items:flex-start;gap:12px;flex-wrap:wrap;margin-bottom:16px}.project-head h1,.project-head h2{margin:0 0 5px}.project-head p{margin:0;color:#667085}.project-grid{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;margin:16px 0}.project-kpi,.project-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px}.project-kpi{padding:15px}.project-kpi span{display:block;color:#667085;font-size:.82rem}.project-kpi strong{display:block;font-size:1.45rem;margin-top:5px}.project-card{padding:18px;margin:16px 0}.project-chart-wrap{display:grid;grid-template-columns:minmax(220px,320px) 1fr;gap:24px;align-items:center}.project-pie{width:min(240px,100%);aspect-ratio:1;border-radius:50%;margin:auto;background:#e7ebf1}.project-legend{display:grid;gap:8px}.project-actions{display:flex;gap:6px;flex-wrap:wrap}.project-dialog{border:0;border-radius:18px;width:min(900px,calc(100% - 24px));max-height:90vh;overflow:auto;padding:0;box-shadow:0 24px 70px rgba(16,24,40,.24)}.project-dialog::backdrop{background:rgba(16,24,40,.55)}.project-dialog form{padding:20px}.project-form-grid{display:grid;grid-template-columns:1fr 1fr;gap:12px}.project-form-grid label,.project-full{display:grid;gap:5px;font-size:.84rem;font-weight:700}.project-form-grid input,.project-form-grid select,.project-full textarea{width:100%;box-sizing:border-box;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;font:inherit}.project-full{margin-top:12px}.project-link-section{margin-top:16px;padding-top:14px;border-top:1px solid #e7ebf0}.project-link-section h3{margin:0 0 4px}.project-link-section>p{margin:0 0 10px;color:#667085;font-size:.82rem}.project-link-search{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:9px;font:inherit;margin-bottom:8px}.project-link-list{display:grid;gap:6px;max-height:220px;overflow:auto;padding-right:3px}.project-link-row{display:grid;grid-template-columns:auto 1fr;gap:9px;align-items:start;padding:9px 10px;border:1px solid #e2e7ef;border-radius:10px;font-weight:400;background:#fff}.project-link-row input{margin-top:3px}.project-link-row strong,.project-link-row small{display:block}.project-link-row small{color:#667085;margin-top:2px}.project-link-row.inherited{background:#f8fafc}.project-link-empty{padding:12px;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.project-dialog-actions{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap;margin-top:18px}@media(max-width:720px){.project-grid{grid-template-columns:1fr}.project-chart-wrap{grid-template-columns:1fr}.project-form-grid{grid-template-columns:1fr}}
   `;document.head.appendChild(style);
   const nav=$("#mainNav");if(nav){const b=document.createElement("button");b.type="button";b.className="nav-item";b.dataset.view="projects";b.innerHTML=`<span>▤</span><span>Projects</span>`;nav.insertBefore(b,nav.querySelector('[data-view="data"]')||null);}
   const reference=$("#dataView")||$("#reportsView"),parent=reference?.parentElement||document.querySelector("main")||document.body;
   const view=document.createElement("section");view.id="projectsView";view.className="view";view.innerHTML=`<div class="project-head"><div><h1>Projects</h1><p>Group maintenance jobs and purchase orders together and track project costs.</p></div><button type="button" class="btn primary" id="projectNewBtn">+ New project</button></div><div class="project-grid"><div class="project-kpi"><span>Active projects</span><strong id="projectActiveCount">0</strong></div><div class="project-kpi"><span>Ordered cost</span><strong id="projectOrderedCost">${money(0)}</strong></div><div class="project-kpi"><span>Parts used</span><strong id="projectUsedCost">${money(0)}</strong></div></div><article class="project-card"><div class="project-head"><div><h2>Project cost pie chart</h2><p>Placed purchase-order value by project. Parts used from stock are shown separately to avoid double-counting purchases.</p></div></div><div class="project-chart-wrap"><div class="project-pie" id="projectCostPie"></div><div class="project-legend" id="projectCostLegend"></div></div></article><article class="project-card"><div class="project-head"><div><h2>All projects</h2><p>Jobs and purchase orders can be assigned to a project from their normal forms.</p></div></div><div class="table-wrap"><table><thead><tr><th>Project</th><th>Status</th><th>Jobs</th><th>Orders</th><th>Ordered cost</th><th>Parts used</th><th>Budget</th><th>Action</th></tr></thead><tbody id="projectsBody"></tbody></table></div></article>`;
   if(reference)parent.insertBefore(view,reference);else parent.appendChild(view);
-  const dialog=document.createElement("dialog");dialog.id="projectDialog";dialog.className="project-dialog";dialog.innerHTML=`<form id="projectForm"><div class="project-head"><div><h2 id="projectDialogTitle">New project</h2><p>Create a project for jobs and purchase orders.</p></div><button type="button" class="btn secondary compact" id="projectCloseBtn">Close</button></div><input type="hidden" name="id"><div class="project-form-grid"><label>Project name<input name="name" required maxlength="180" placeholder="Line 4 upgrade"></label><label>Project code<input name="code" maxlength="80" placeholder="PRJ-001"></label><label>Status<select name="status"><option>Active</option><option>Completed</option><option>Archived</option></select></label><label>Budget (${currencySymbol()})<input name="budget" type="number" min="0" step="0.01" placeholder="Optional"></label></div><label class="project-full">Notes<textarea name="notes" rows="4" maxlength="2000"></textarea></label><div class="project-dialog-actions"><button type="button" class="btn danger" id="projectDeleteBtn" hidden>Delete project</button><div><button type="button" class="btn secondary" id="projectCancelBtn">Cancel</button><button type="submit" class="btn primary">Save project</button></div></div></form>`;document.body.appendChild(dialog);
+  const dialog=document.createElement("dialog");dialog.id="projectDialog";dialog.className="project-dialog";dialog.innerHTML=`<form id="projectForm"><div class="project-head"><div><h2 id="projectDialogTitle">New project</h2><p>Create a project for jobs and purchase orders.</p></div><button type="button" class="btn secondary compact" id="projectCloseBtn">Close</button></div><input type="hidden" name="id"><div class="project-form-grid"><label>Project name<input name="name" required maxlength="180" placeholder="Line 4 upgrade"></label><label>Project code<input name="code" maxlength="80" placeholder="PRJ-001"></label><label>Status<select name="status"><option>Active</option><option>Completed</option><option>Archived</option></select></label><label>Budget (${currencySymbol()})<input name="budget" type="number" min="0" step="0.01" placeholder="Optional"></label></div><label class="project-full">Notes<textarea name="notes" rows="4" maxlength="2000"></textarea></label><div id="projectLinksWrap" hidden><section class="project-link-section"><h3>Parts used</h3><p>Select parts-usage records to count against this project. Parts from jobs already assigned to this project are included automatically.</p><input class="project-link-search" id="projectPartSearch" type="search" placeholder="Search part, part number or job…"><div class="project-link-list" id="projectPartsUsedList"></div></section><section class="project-link-section"><h3>Ordered parts / purchase orders</h3><p>Select placed orders to attach to this project. Selecting an order already on another project will move it here.</p><input class="project-link-search" id="projectOrderSearch" type="search" placeholder="Search PO, supplier or part…"><div class="project-link-list" id="projectOrdersList"></div></section></div><div class="project-dialog-actions"><button type="button" class="btn danger" id="projectDeleteBtn" hidden>Delete project</button><div><button type="button" class="btn secondary" id="projectCancelBtn">Cancel</button><button type="submit" class="btn primary">Save project</button></div></div></form>`;document.body.appendChild(dialog);
   $("#projectNewBtn")?.addEventListener("click",()=>openProjectDialog());
   $("#projectCloseBtn")?.addEventListener("click",()=>dialog.close());$("#projectCancelBtn")?.addEventListener("click",()=>dialog.close());
   $("#projectForm")?.addEventListener("submit",submitProject);
   $("#projectDeleteBtn")?.addEventListener("click",deleteProjectFromDialog);
+  $("#projectPartSearch")?.addEventListener("input",()=>filterProjectLinkList("#projectPartSearch","#projectPartsUsedList"));
+  $("#projectOrderSearch")?.addEventListener("input",()=>filterProjectLinkList("#projectOrderSearch","#projectOrdersList"));
   $("#projectsBody")?.addEventListener("click",e=>{const edit=e.target.closest("[data-project-edit]");if(edit)openProjectDialog(edit.dataset.projectEdit);});
   ensureJobProjectField();
 }
@@ -1371,11 +1413,22 @@ function openProjectDialog(id=""){
   editingProjectId=id||null;const form=$("#projectForm");if(!form)return;form.reset();const project=projectForId(id);
   $("#projectDialogTitle").textContent=project?"Edit project":"New project";$("#projectDeleteBtn").hidden=!project;
   form.elements.id.value=project?.id||"";form.elements.name.value=project?.name||"";form.elements.code.value=project?.code||"";form.elements.status.value=project?.status||"Active";form.elements.budget.value=project?.budget?String(project.budget):"";form.elements.notes.value=project?.notes||"";
+  const links=$("#projectLinksWrap");if(links)links.hidden=!project;
+  if(project){const lists=projectLinkLists(project);$("#projectPartsUsedList").innerHTML=lists.partHtml;$("#projectOrdersList").innerHTML=lists.orderHtml;$("#projectPartSearch").value="";$("#projectOrderSearch").value="";}
   $("#projectDialog")?.showModal();
 }
 async function submitProject(e){
   e.preventDefault();const form=e.currentTarget,fd=new FormData(form);const project={id:String(fd.get("id")||"")||undefined,name:String(fd.get("name")||"").trim(),code:String(fd.get("code")||"").trim(),status:String(fd.get("status")||"Active"),budget:Number(fd.get("budget"))||0,notes:String(fd.get("notes")||"").trim()};
-  try{await saveMutation("/api/projects",{action:"save",project});$("#projectDialog").close();editingProjectId=null;switchView("projects");}catch(error){showSaveError(error);}
+  try{
+    const saved=await saveMutation("/api/projects",{action:"save",project},{render:false});
+    const savedId=String(saved?.project?.id||project.id||"");
+    if(project.id&&savedId){
+      const partUsageRefs=$$('#projectPartsUsedList input[name="projectPartUsage"]:checked:not(:disabled)').map(input=>input.value);
+      const orderIds=$$('#projectOrdersList input[name="projectOrder"]:checked').map(input=>input.value);
+      await saveMutation("/api/projects",{action:"setLinks",id:savedId,partUsageRefs,orderIds},{render:false});
+    }
+    $("#projectDialog").close();editingProjectId=null;await loadSharedState();switchView("projects");
+  }catch(error){showSaveError(error);}
 }
 async function deleteProjectFromDialog(){
   const id=$("#projectForm")?.elements.id.value;if(!id)return;if(!confirm("Delete this project? Projects linked to jobs or purchase orders must be archived instead."))return;
@@ -1908,7 +1961,7 @@ async function openJob(jobNo=null) {
     const orderedParts=(job.parts||[]).filter(p=>partOrderedQty(p)>0);
     const usedParts=(job.parts||[]).filter(p=>(Number(p.qty)||0)>0);
     orderedParts.forEach(p=>addOrderedPartRow({partId:catalogPartId(p),partNo:p.partNo||"",orderedQty:p.orderedQty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
-    usedParts.forEach(p=>addPartRow({partId:catalogPartId(p),partNo:p.partNo||"",qty:p.qty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date}));
+    usedParts.forEach(p=>addPartRow({partId:catalogPartId(p),partNo:p.partNo||"",qty:p.qty,unitPrice:p.unitPrice,supplier:p.supplier,date:p.date,projectId:p.projectId||""}));
     if (!orderedParts.length) addOrderedPartRow({date:job.raised||defaultFormDate()});
     if (!usedParts.length) addPartRow({date:job.raised||defaultFormDate()});
   } else {
