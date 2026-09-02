@@ -314,6 +314,7 @@ function normalizeCatalogPart(part) {
     minStock: Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
     binLocation: String(p.binLocation || "").trim(),
     preferredSupplier: String(p.preferredSupplier || "").trim(),
+    suppliers: [...new Set((Array.isArray(p.suppliers) ? p.suppliers : (String(p.preferredSupplier || "").trim() ? [p.preferredSupplier] : [])).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50),
     reorderQty: Math.max(1, Number.isFinite(Number(p.reorderQty)) ? Number(p.reorderQty) : 1)
   };
 }
@@ -415,16 +416,22 @@ function normalizeMachine(machine) {
 function normalizeProject(project) {
   const value = project && typeof project === "object" ? project : {};
   const status = ["Active", "Completed", "Archived"].includes(String(value.status || "")) ? String(value.status) : "Active";
-  const manualParts = Array.isArray(value.manualParts) ? value.manualParts.map((part) => {
+  const legacyParts = Array.isArray(value.manualParts) ? value.manualParts : [];
+  const rawProjectParts = Array.isArray(value.projectParts) ? value.projectParts : legacyParts.map((part) => ({ ...part, orderedQty: 0, usedQty: Number(part?.qty) || 0 }));
+  const projectParts = rawProjectParts.map((part) => {
     const row = part && typeof part === "object" ? part : {};
     return {
       id: String(row.id || crypto.randomUUID()),
       name: String(row.name || "").trim().slice(0, 180),
       partNo: String(row.partNo || "").trim().slice(0, 100),
-      qty: Math.max(0, Number(row.qty) || 0),
-      unitPrice: Math.max(0, Number(row.unitPrice) || 0)
+      orderedQty: Math.max(0, Number(row.orderedQty) || 0),
+      usedQty: Math.max(0, Number(row.usedQty ?? row.qty) || 0),
+      unitPrice: Math.max(0, Number(row.unitPrice) || 0),
+      suppliers: [...new Set((Array.isArray(row.suppliers) ? row.suppliers : []).map((supplier) => String(supplier || "").trim()).filter(Boolean))].slice(0, 50),
+      addToInventory: row.addToInventory === true || row.addToInventory === 1 || String(row.addToInventory).toLowerCase() === "true",
+      catalogPartId: String(row.catalogPartId || "").trim()
     };
-  }).filter((part) => part.name && part.qty > 0).slice(0, 500) : [];
+  }).filter((part) => part.name && (part.orderedQty > 0 || part.usedQty > 0)).slice(0, 500);
   return {
     id: String(value.id || `project-${Date.now()}-${crypto.randomUUID().slice(0, 8)}`),
     code: String(value.code || "").trim().slice(0, 80),
@@ -432,7 +439,8 @@ function normalizeProject(project) {
     status,
     budget: Math.max(0, Number(value.budget) || 0),
     notes: String(value.notes || "").trim().slice(0, 2000),
-    manualParts,
+    projectParts,
+    manualParts: [],
     createdAt: String(value.createdAt || new Date().toISOString()),
     updatedAt: String(value.updatedAt || value.createdAt || new Date().toISOString())
   };
@@ -2044,6 +2052,25 @@ async function handleApi(request, env, routeOverride = "") {
           const existing = state.projects.find((project) => String(project.id) === String(raw.id || ""));
           const incoming = normalizeProject({ ...raw, id: existing?.id || raw.id || undefined });
           if (!incoming.name) throw new Error("Enter a project name.");
+          state.partCatalog = Array.isArray(state.partCatalog) ? state.partCatalog.map(normalizeCatalogPart) : [];
+          state.suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
+          for (const manualPart of incoming.projectParts || []) {
+            for (const supplier of manualPart.suppliers || []) ensureUniqueString(state.suppliers, supplier);
+            if (!manualPart.addToInventory && !manualPart.catalogPartId) continue;
+            let catalogPart = manualPart.catalogPartId ? state.partCatalog.find((part) => String(part.id) === String(manualPart.catalogPartId)) : null;
+            if (!catalogPart && manualPart.partNo) catalogPart = state.partCatalog.find((part) => String(part.partNo || "").trim().toLowerCase() === manualPart.partNo.toLowerCase());
+            if (!catalogPart) catalogPart = state.partCatalog.find((part) => String(part.name || "").trim().toLowerCase() === manualPart.name.toLowerCase());
+            if (!catalogPart && manualPart.addToInventory) {
+              catalogPart = normalizeCatalogPart({ id: `p-${slug(manualPart.partNo || manualPart.name)}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`, name: manualPart.name, partNo: manualPart.partNo, active: true, stockTracked: false, currentStock: 0, minStock: 0, suppliers: manualPart.suppliers, preferredSupplier: manualPart.suppliers?.[0] || "" });
+              state.partCatalog.push(catalogPart);
+            } else if (catalogPart && manualPart.addToInventory) {
+              catalogPart.active = true;
+              if (!catalogPart.partNo && manualPart.partNo) catalogPart.partNo = manualPart.partNo;
+              catalogPart.suppliers = [...new Set([...(catalogPart.suppliers || []), ...(manualPart.suppliers || [])])].slice(0, 50);
+              if (!catalogPart.preferredSupplier && catalogPart.suppliers.length) catalogPart.preferredSupplier = catalogPart.suppliers[0];
+            }
+            if (catalogPart) manualPart.catalogPartId = String(catalogPart.id);
+          }
           if (incoming.code && state.projects.some((project) => String(project.id) !== String(incoming.id) && String(project.code || "").toLowerCase() === incoming.code.toLowerCase())) {
             throw new Error("That project code already exists.");
           }
@@ -2308,7 +2335,9 @@ async function handleApi(request, env, routeOverride = "") {
           if (!name) throw new Error("Part name is required.");
           let part = state.partCatalog.find((p) => String(p.name).toLowerCase() === name.toLowerCase());
           if (!part) {
-            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true });
+            const catalogSuppliers = [...new Set((Array.isArray(body.suppliers) ? body.suppliers : []).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50);
+            for (const supplier of catalogSuppliers) ensureUniqueString(state.suppliers, supplier);
+            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true, suppliers: catalogSuppliers, preferredSupplier: catalogSuppliers[0] || "" });
             state.partCatalog.push(part);
           } else {
             part.active = true;
