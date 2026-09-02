@@ -1456,7 +1456,7 @@ function ensurePurchaseOrderUi(){
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const partsBtn=nav.querySelector('[data-view="parts"]');const ref=partsBtn?.nextSibling||nav.querySelector('[data-view="data"]')||null;const open=document.createElement("button");open.type="button";open.className="nav-item";open.dataset.view="openOrders";open.innerHTML=`<span>🧾</span><span>Open Orders</span>`;const ordered=document.createElement("button");ordered.type="button";ordered.className="nav-item";ordered.dataset.view="ordered";ordered.innerHTML=`<span>📦</span><span>Ordered</span>`;nav.insertBefore(open,ref);nav.insertBefore(ordered,ref);}
   const reference=document.getElementById("dataView")||document.getElementById("reportsView");const parent=reference?.parentElement||document.querySelector("main")||document.body;
-  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label><span class="po-field-title">GL Code <span class="po-required">*</span></span><input id="poGlCode" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Div <span class="po-required">*</span></span><input id="poDiv" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Dept <span class="po-required">*</span></span><input id="poDept" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">New Account</span><select id="poAccount"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">Department <span class="po-required">*</span></span><input id="poDepartment" maxlength="120" value="Maintenance"></label><label><span class="po-field-title">IPP</span><input id="poEpp" maxlength="120"></label><label><span class="po-field-title">Job Number</span><select id="poJobNumber"><option value="">No job</option></select></label><label><span class="po-field-title">Project</span><select id="poProjectSelect"></select></label><label><span class="po-field-title">Currency</span><select id="poCurrency"><option value="GBP">GBP</option><option value="EUR">EUR</option><option value="USD">USD</option><option value="CAD">CAD</option><option value="AUD">AUD</option></select></label><label><span class="po-field-title">Requisition raised by <span class="po-required">*</span></span><input id="poRequestedBy" maxlength="180" readonly></label><label><span class="po-field-title">Date quote needed <span class="po-required">*</span></span><input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
+  const openView=document.createElement("section");openView.id="openOrdersView";openView.className="view";openView.innerHTML=`<div class="po-head"><div><h1>Open Orders</h1><p>Create a supplier order with as many parts as you need, then place it when ready.</p></div><button type="button" class="btn primary" id="poNewBtn">+ New order</button></div><div class="po-card"><div class="po-builder-ref" id="poBuilderRef">New open order</div><div class="po-requisition-grid"><label><span class="po-field-title">GL Code <span class="po-required">*</span></span><input id="poGlCode" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Div <span class="po-required">*</span></span><input id="poDiv" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Dept <span class="po-required">*</span></span><input id="poDept" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Account <span class="po-required">*</span></span><input id="poAccount" maxlength="80" placeholder="Required"></label><label><span class="po-field-title">Department <span class="po-required">*</span></span><input id="poDepartment" maxlength="120" value="Maintenance"></label><label><span class="po-field-title">IPP</span><input id="poEpp" maxlength="120"></label><label><span class="po-field-title">Job Number</span><select id="poJobNumber"><option value="">No job</option></select></label><label><span class="po-field-title">Project</span><select id="poProjectSelect"></select></label><label><span class="po-field-title">Currency</span><select id="poCurrency"><option value="GBP">GBP</option><option value="EUR">EUR</option><option value="USD">USD</option><option value="CAD">CAD</option><option value="AUD">AUD</option></select></label><label><span class="po-field-title">New Account</span><select id="poNewAccount"><option value="">—</option><option value="No">No</option><option value="Yes">Yes</option></select></label><label><span class="po-field-title">Requisition raised by <span class="po-required">*</span></span><input id="poRequestedBy" maxlength="180" readonly></label><label><span class="po-field-title">Date quote needed <span class="po-required">*</span></span><input id="poDateQuoteNeeded" type="date"></label></div><div class="po-supplier-row"><label>Nominated supplier<select id="poSupplierSelect"><option value="">Select supplier…</option></select></label><button type="button" class="btn secondary" id="poAddSupplierBtn">+ Add supplier</button></div><datalist id="poPartNames"></datalist><div id="poLines" class="po-lines"></div><div style="margin-top:10px"><button type="button" class="btn secondary compact" id="poAddLineBtn">+ Add part</button></div><label class="po-notes">Notes<textarea id="poNotes" rows="3" maxlength="2000" placeholder="Optional requisition notes"></textarea></label><div class="po-total-row"><span>Order total</span><strong id="poGrandTotal">${money(0)}</strong></div><div class="po-actions"><div><button type="button" class="btn secondary" id="poClearBtn">Clear</button></div><div><button type="button" class="btn secondary" id="poSaveOpenBtn">Save Open Order</button><button type="button" class="btn primary" id="poPlaceBtn">Place Order</button></div></div></div><div class="po-card"><div class="po-head"><div><h2 style="margin:0">Saved open orders</h2><p>Draft orders can still be edited before they are placed.</p></div></div><div id="poOpenList" class="po-list"></div></div>`;
   const orderedView=document.createElement("section");orderedView.id="orderedView";orderedView.className="view";orderedView.innerHTML=`<div class="po-head"><div><h1>Ordered</h1><p>Placed orders are locked and read-only. Delete remains available for testing for now.</p></div></div><div class="po-search-row"><input id="poOrderedSearch" type="search" placeholder="Search PO, supplier, part or part code…" autocomplete="off"><span class="po-search-count" id="poOrderedSearchCount"></span></div><div id="poOrderedList" class="po-list"></div>`;
   if(reference){parent.insertBefore(openView,reference);parent.insertBefore(orderedView,reference);}else{parent.appendChild(openView);parent.appendChild(orderedView);}
   $("#poNewBtn")?.addEventListener("click",()=>{editingPurchaseOrderId=null;renderPurchaseOrderBuilder();});
@@ -1528,6 +1528,7 @@ function latestPurchaseOrderDefaults(){
     glCode:lastValue("glCode"),
     div:lastValue("div"),
     dept:lastValue("dept"),
+    account:(()=>{const row=sorted.find(order=>{const value=String(order?.account||"").trim();return value&&!['Yes','No'].includes(value);});return row?String(row.account):"";})(),
     department:lastValue("department","Maintenance")||"Maintenance",
     epp:lastValue("epp"),
     currency:lastValue("currency",appSettings.currency||"GBP")
@@ -1538,6 +1539,7 @@ function purchaseOrderPlaceMissing(meta=purchaseOrderMeta(),lines=collectPurchas
   if(!meta.glCode)missing.push("GL Code");
   if(!meta.div)missing.push("Div");
   if(!meta.dept)missing.push("Dept");
+  if(!meta.account)missing.push("Account");
   if(!meta.dateQuoteNeeded)missing.push("Date quote needed");
   if(!supplier)missing.push("Supplier");
   if(!meta.requestedBy)missing.push("Raised by");
@@ -1550,6 +1552,7 @@ function purchaseOrderObjectPlaceMissing(order){
   if(!String(order?.glCode||"").trim())missing.push("GL Code");
   if(!String(order?.div||"").trim())missing.push("Div");
   if(!String(order?.dept||"").trim())missing.push("Dept");
+  if(!String(order?.account||"").trim()||["Yes","No"].includes(String(order?.account||"").trim()))missing.push("Account");
   if(!String(order?.dateQuoteNeeded||"").trim())missing.push("Date quote needed");
   if(!String(order?.supplier||"").trim())missing.push("Supplier");
   if(!String(order?.requestedBy||"").trim())missing.push("Raised by");
@@ -1579,12 +1582,12 @@ function purchaseOrderMeta(){
     glCode:String($("#poGlCode")?.value||"").trim(),
     div:String($("#poDiv")?.value||"").trim(),
     dept:String($("#poDept")?.value||"").trim(),
-    account:"",
+    account:String($("#poAccount")?.value||"").trim(),
     department:String($("#poDepartment")?.value||"Maintenance").trim()||"Maintenance",
     epp:String($("#poEpp")?.value||"").trim(),
     jobNumber:String($("#poJobNumber")?.value||"").trim(),
     projectId:String($("#poProjectSelect")?.value||"").trim(),
-    newAccount:String($("#poAccount")?.value||"").trim(),
+    newAccount:String($("#poNewAccount")?.value||"").trim(),
     currency:String($("#poCurrency")?.value||appSettings.currency||"GBP"),
     requestedBy:String($("#poRequestedBy")?.value||"").trim(),
     dateQuoteNeeded:String($("#poDateQuoteNeeded")?.value||""),
@@ -1593,9 +1596,11 @@ function purchaseOrderMeta(){
 }
 function setPurchaseOrderMeta(order){
   const defaults=latestPurchaseOrderDefaults();
-  const selectedNewAccount=order?.newAccount||(["Yes","No"].includes(String(order?.account||""))?String(order.account):"");
+  const legacyAccount=String(order?.account||"").trim();
+  const selectedNewAccount=order?.newAccount||(["Yes","No"].includes(legacyAccount)?legacyAccount:"");
+  const selectedAccount=legacyAccount&&!['Yes','No'].includes(legacyAccount)?legacyAccount:defaults.account;
   const values={
-    poGlCode:order?.glCode??defaults.glCode,poDiv:order?.div??defaults.div,poDept:order?.dept??defaults.dept,poAccount:selectedNewAccount,
+    poGlCode:order?.glCode??defaults.glCode,poDiv:order?.div??defaults.div,poDept:order?.dept??defaults.dept,poAccount:selectedAccount,poNewAccount:selectedNewAccount,
     poDepartment:order?.department??defaults.department,poEpp:order?.epp??defaults.epp,
     poCurrency:order?.currency??defaults.currency,
     poRequestedBy:(String(order?.requestedBy||"").includes("@")?purchaseOrderRequesterName():String(order?.requestedBy||"").trim())||purchaseOrderRequesterName(),
@@ -1607,8 +1612,8 @@ function setPurchaseOrderMeta(order){
 }
 function purchaseOrderMetaReadOnly(order){
   const rows=[
-    ["GL Code",order.glCode],["Div",order.div],["Dept",order.dept],["New Account",order.newAccount||(["Yes","No"].includes(String(order.account||""))?order.account:"")],
-    ["Department",order.department||"Maintenance"],["IPP",order.epp],["Job Number",order.jobNumber],
+    ["GL Code",order.glCode],["Div",order.div],["Dept",order.dept],["Account",(["Yes","No"].includes(String(order.account||""))?"":order.account)],
+    ["Department",order.department||"Maintenance"],["IPP",order.epp],["Job Number",order.jobNumber],["New Account",order.newAccount||(["Yes","No"].includes(String(order.account||""))?order.account:"")],
     ["Project",projectLabel(order.projectId)],["Currency",order.currency||appSettings.currency],
     ["Raised by",order.requestedBy],["Quote needed",order.dateQuoteNeeded?fmtDate(order.dateQuoteNeeded):""]
   ].filter(([,value])=>String(value||"").trim());
@@ -1636,7 +1641,7 @@ async function submitPurchaseOrder(action){
     const missing=purchaseOrderPlaceMissing(meta,lines,supplier);
     if(missing.length){
       alert(`Complete the required order information before placing: ${missing.join(", ")}.`);
-      const focusMap={"GL Code":"#poGlCode","Div":"#poDiv","Dept":"#poDept","Date quote needed":"#poDateQuoteNeeded","Supplier":"#poSupplierSelect","Raised by":"#poRequestedBy","Part":"#poLines .po-part-name"};
+      const focusMap={"GL Code":"#poGlCode","Div":"#poDiv","Dept":"#poDept","Account":"#poAccount","Date quote needed":"#poDateQuoteNeeded","Supplier":"#poSupplierSelect","Raised by":"#poRequestedBy","Part":"#poLines .po-part-name"};
       document.querySelector(focusMap[missing[0]]||"")?.focus();
       updatePurchaseOrderPlaceState();
       return;
@@ -1671,7 +1676,7 @@ function renderPurchaseOrders(){
     return searchable.includes(query);
   }) : allOrdered;
 
-  if($("#poOpenList")) $("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderMetaReadOnly(order)}${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}" ${purchaseOrderObjectPlaceMissing(order).length?'disabled title="Complete GL Code, Div, Dept, date, supplier and parts before placing"':''}>Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;
+  if($("#poOpenList")) $("#poOpenList").innerHTML=open.length?open.map(order=>`<article class="po-list-card"><div class="po-list-head"><div><h3>${esc(order.orderNo||"Open order")}</h3><div class="po-meta">${esc(order.supplier||"No supplier")} · Updated ${esc(purchaseOrderDate(order.updatedAt||order.createdAt))}</div></div><div class="po-order-total">${money(purchaseOrderTotal(order))}</div></div>${purchaseOrderMetaReadOnly(order)}${purchaseOrderLinesReadOnly(order)}<div class="po-small-actions"><button type="button" class="btn secondary compact" data-po-edit="${esc(order.id)}">Edit</button><button type="button" class="btn primary compact" data-po-place="${esc(order.id)}" ${purchaseOrderObjectPlaceMissing(order).length?'disabled title="Complete GL Code, Div, Dept, Account, date, supplier and parts before placing"':''}>Place Order</button><button type="button" class="btn danger compact" data-po-delete="${esc(order.id)}">Delete</button></div></article>`).join(""):`<div class="po-empty">No saved open orders.</div>`;
 
   if($("#poOrderedSearch") && $("#poOrderedSearch").value!==orderedPurchaseSearchQuery) $("#poOrderedSearch").value=orderedPurchaseSearchQuery;
   if($("#poOrderedSearchCount")) $("#poOrderedSearchCount").textContent=query?`Showing ${ordered.length} of ${allOrdered.length}`:`${allOrdered.length} order${allOrdered.length===1?"":"s"}`;

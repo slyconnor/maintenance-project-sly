@@ -1908,7 +1908,11 @@ async function handleApi(request, env, routeOverride = "") {
           if (!supplier) throw new Error("Choose or add a supplier first.");
           if (!lines.length) throw new Error("Add at least one part to the order.");
           if (action === "place" && !details.glCode) throw new Error("Enter the GL Code before placing the order.");
+          if (action === "place" && !details.div) throw new Error("Enter the Div before placing the order.");
+          if (action === "place" && !details.dept) throw new Error("Enter the Dept before placing the order.");
+          if (action === "place" && (!details.account || ["Yes", "No"].includes(details.account))) throw new Error("Enter the Account before placing the order.");
           if (action === "place" && !details.department) throw new Error("Enter the Department before placing the order.");
+          if (action === "place" && !details.dateQuoteNeeded) throw new Error("Enter the Date quote needed before placing the order.");
           if (action === "place" && !details.requestedBy) throw new Error("Enter who raised the requisition before placing the order.");
           ensureUniqueString(state.suppliers, supplier);
         }
