@@ -315,8 +315,34 @@ function normalizeCatalogPart(part) {
     binLocation: String(p.binLocation || "").trim(),
     preferredSupplier: String(p.preferredSupplier || "").trim(),
     suppliers: [...new Set((Array.isArray(p.suppliers) ? p.suppliers : (String(p.preferredSupplier || "").trim() ? [p.preferredSupplier] : [])).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50),
+    lastKnownPrice: (p.lastKnownPrice === null || p.lastKnownPrice === undefined || String(p.lastKnownPrice).trim() === "") ? null : Math.max(0, Number.isFinite(Number(p.lastKnownPrice)) ? Number(p.lastKnownPrice) : 0),
     reorderQty: Math.max(1, Number.isFinite(Number(p.reorderQty)) ? Number(p.reorderQty) : 1)
   };
+}
+
+function catalogPartForPrice(state, row) {
+  const source = row && typeof row === "object" ? row : {};
+  const directId = String(source.partId || source.catalogPartId || "").trim();
+  if (directId) {
+    const byId = (state.partCatalog || []).find((part) => String(part.id) === directId);
+    if (byId) return byId;
+  }
+  const partNo = String(source.partNo || source.partCode || "").trim().toLowerCase();
+  if (partNo) {
+    const byNumber = (state.partCatalog || []).find((part) => String(part.partNo || "").trim().toLowerCase() === partNo);
+    if (byNumber) return byNumber;
+  }
+  const name = String(source.name || source.partName || "").trim().toLowerCase();
+  return name ? (state.partCatalog || []).find((part) => String(part.name || "").trim().toLowerCase() === name) || null : null;
+}
+
+function rememberCatalogPartPrice(state, row) {
+  const price = Number(row?.unitPrice);
+  if (!Number.isFinite(price) || price < 0) return null;
+  const part = catalogPartForPrice(state, row);
+  if (!part) return null;
+  part.lastKnownPrice = Math.round(price * 100) / 100;
+  return part;
 }
 
 function cleanDateOnly(value) {
@@ -1967,8 +1993,9 @@ async function handleApi(request, env, routeOverride = "") {
         for (const p of job.parts || []) {
           const name = String(p.name || "").trim();
           if (name && !state.partCatalog.some((x) => String(x.name).toLowerCase() === name.toLowerCase())) {
-            state.partCatalog.push(normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(p.partNo || "").trim(), active: true, stockTracked: true, currentStock: 0, minStock: null }));
+            state.partCatalog.push(normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(p.partNo || "").trim(), active: true, stockTracked: true, currentStock: 0, minStock: null, lastKnownPrice: Number.isFinite(Number(p.unitPrice)) ? Number(p.unitPrice) : null }));
           }
+          rememberCatalogPartPrice(state, p);
           if (p.supplier) ensureUniqueString(state.suppliers, p.supplier);
         }
 
@@ -2069,6 +2096,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (action === "place" && !details.dateQuoteNeeded) throw new Error("Enter the Date goods needed before placing the order.");
           if (action === "place" && !details.requestedBy) throw new Error("Enter who raised the requisition before placing the order.");
           ensureUniqueString(state.suppliers, supplier);
+          for (const line of lines) rememberCatalogPartPrice(state, line);
         }
         let order = state.purchaseOrders.find((row) => String(row.id) === String(body.orderId || ""));
         const applyDetails = (target) => {
@@ -2166,7 +2194,7 @@ async function handleApi(request, env, routeOverride = "") {
             if (!catalogPart && manualPart.partNo) catalogPart = state.partCatalog.find((part) => String(part.partNo || "").trim().toLowerCase() === manualPart.partNo.toLowerCase());
             if (!catalogPart) catalogPart = state.partCatalog.find((part) => String(part.name || "").trim().toLowerCase() === manualPart.name.toLowerCase());
             if (!catalogPart && manualPart.addToInventory) {
-              catalogPart = normalizeCatalogPart({ id: `p-${slug(manualPart.partNo || manualPart.name)}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`, name: manualPart.name, partNo: manualPart.partNo, active: true, stockTracked: true, currentStock: 0, minStock: null, suppliers: manualPart.suppliers, preferredSupplier: manualPart.suppliers?.[0] || "" });
+              catalogPart = normalizeCatalogPart({ id: `p-${slug(manualPart.partNo || manualPart.name)}-${Date.now()}-${crypto.randomUUID().slice(0, 6)}`, name: manualPart.name, partNo: manualPart.partNo, active: true, stockTracked: true, currentStock: 0, minStock: null, suppliers: manualPart.suppliers, preferredSupplier: manualPart.suppliers?.[0] || "", lastKnownPrice: Number.isFinite(Number(manualPart.unitPrice)) ? Number(manualPart.unitPrice) : null });
               state.partCatalog.push(catalogPart);
             } else if (catalogPart && manualPart.addToInventory) {
               catalogPart.active = true;
@@ -2174,7 +2202,10 @@ async function handleApi(request, env, routeOverride = "") {
               catalogPart.suppliers = [...new Set([...(catalogPart.suppliers || []), ...(manualPart.suppliers || [])])].slice(0, 50);
               if (!catalogPart.preferredSupplier && catalogPart.suppliers.length) catalogPart.preferredSupplier = catalogPart.suppliers[0];
             }
-            if (catalogPart) manualPart.catalogPartId = String(catalogPart.id);
+            if (catalogPart) {
+              manualPart.catalogPartId = String(catalogPart.id);
+              rememberCatalogPartPrice(state, manualPart);
+            }
           }
           if (incoming.code && state.projects.some((project) => String(project.id) !== String(incoming.id) && String(project.code || "").toLowerCase() === incoming.code.toLowerCase())) {
             throw new Error("That project code already exists.");
@@ -2312,6 +2343,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("Unit price must be zero or more.");
           existing.qty = qty;
           existing.unitPrice = unitPrice;
+          rememberCatalogPartPrice(state, existing);
           existing.supplier = String(body.supplier || "").trim().slice(0, 160);
           existing.date = cleanDateOnly(body.date);
           if (!existing.date) throw new Error("Choose the date the part was used.");
@@ -2486,10 +2518,17 @@ async function handleApi(request, env, routeOverride = "") {
             for (const supplier of catalogSuppliers) ensureUniqueString(state.suppliers, supplier);
             const requestedTracked = body.stockTracked === true || body.stockTracked === 1 || String(body.stockTracked).toLowerCase() === "true" || String(body.stockTracked) === "1";
             const requestedMin = body.minStock === null || body.minStock === undefined || String(body.minStock).trim() === "" ? null : Math.max(0, Number(body.minStock) || 0);
-            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true, stockTracked: requestedTracked, currentStock: 0, minStock: requestedMin, suppliers: catalogSuppliers, preferredSupplier: catalogSuppliers[0] || "" });
+            const requestedPrice = body.lastKnownPrice === null || body.lastKnownPrice === undefined || String(body.lastKnownPrice).trim() === "" ? null : Number(body.lastKnownPrice);
+            if (requestedPrice !== null && (!Number.isFinite(requestedPrice) || requestedPrice < 0)) throw new Error("Last known price must be blank or zero or more.");
+            part = normalizeCatalogPart({ id: `p-${slug(name)}-${Date.now()}`, name, partNo: String(body.partNo || "").trim(), active: true, stockTracked: requestedTracked, currentStock: 0, minStock: requestedMin, suppliers: catalogSuppliers, preferredSupplier: catalogSuppliers[0] || "", lastKnownPrice: requestedPrice });
             state.partCatalog.push(part);
           } else {
             part.active = true;
+            if (body.lastKnownPrice !== undefined) {
+              const requestedPrice = body.lastKnownPrice === null || String(body.lastKnownPrice).trim() === "" ? null : Number(body.lastKnownPrice);
+              if (requestedPrice !== null && (!Number.isFinite(requestedPrice) || requestedPrice < 0)) throw new Error("Last known price must be blank or zero or more.");
+              part.lastKnownPrice = requestedPrice === null ? null : Math.round(requestedPrice * 100) / 100;
+            }
           }
           return { part };
         }
@@ -2639,13 +2678,17 @@ async function handleApi(request, env, routeOverride = "") {
             if (body.minStock !== undefined) {
               minStock = body.minStock === null || String(body.minStock).trim() === "" ? null : Number(body.minStock);
             }
+            let lastKnownPrice = part.lastKnownPrice === null || part.lastKnownPrice === undefined || String(part.lastKnownPrice).trim() === "" ? null : Number(part.lastKnownPrice);
+            if (body.lastKnownPrice !== undefined) lastKnownPrice = body.lastKnownPrice === null || String(body.lastKnownPrice).trim() === "" ? null : Number(body.lastKnownPrice);
             if (!Number.isFinite(currentStock)) throw new Error("Current stock must be a number.");
             if (minStock !== null && (!Number.isFinite(minStock) || minStock < 0)) throw new Error("Minimum stock must be blank or zero or more.");
+            if (lastKnownPrice !== null && (!Number.isFinite(lastKnownPrice) || lastKnownPrice < 0)) throw new Error("Last known price must be blank or zero or more.");
             part.name = name;
             part.partNo = partNo;
             part.stockTracked = stockTracked;
             part.currentStock = currentStock;
             part.minStock = minStock === null ? null : Math.max(0, minStock);
+            part.lastKnownPrice = lastKnownPrice === null ? null : Math.round(lastKnownPrice * 100) / 100;
             part.binLocation = body.binLocation === undefined ? String(part.binLocation || "").trim() : String(body.binLocation || "").trim();
             part.preferredSupplier = body.preferredSupplier === undefined ? String(part.preferredSupplier || "").trim() : String(body.preferredSupplier || "").trim();
             part.reorderQty = body.reorderQty === undefined ? Math.max(1, Number(part.reorderQty) || 1) : Math.max(1, Number(body.reorderQty) || 1);

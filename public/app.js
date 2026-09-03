@@ -101,6 +101,8 @@ const projectLabel = id => { const project=projectForId(id); return project ? `$
 const stockTrackedParts = () => partCatalog.filter(p=>p.active!==false && p.stockTracked===true);
 const hasMinimumStock = p => p?.minStock !== null && p?.minStock !== undefined && String(p.minStock).trim() !== "" && Number.isFinite(Number(p.minStock));
 const minimumStockText = p => hasMinimumStock(p) ? stockNumber(p.minStock) : "—";
+const hasLastKnownPrice = p => p && p.lastKnownPrice!==null && p.lastKnownPrice!==undefined && String(p.lastKnownPrice).trim()!=="" && Number.isFinite(Number(p.lastKnownPrice));
+const lastKnownPriceText = p => hasLastKnownPrice(p) ? money(Number(p.lastKnownPrice)) : "—";
 const lowStockParts = () => stockTrackedParts().filter(p=>hasMinimumStock(p) && (Number(p.currentStock)||0) <= Number(p.minStock));
 const stockStatus = p => {
   if(p?.stockTracked!==true) return {label:"Not tracked",className:"stock-off"};
@@ -139,6 +141,7 @@ function applySharedState(payload) {
     binLocation:String(p.binLocation||""),
     preferredSupplier:String(p.preferredSupplier||""),
     suppliers:Array.isArray(p.suppliers)?[...new Set(p.suppliers.map(value=>String(value||"").trim()).filter(Boolean))]:String(p.preferredSupplier||"").trim()?[String(p.preferredSupplier||"").trim()]:[],
+    lastKnownPrice:(p.lastKnownPrice===null||p.lastKnownPrice===undefined||String(p.lastKnownPrice).trim()==="")?null:Math.max(0,Number.isFinite(Number(p.lastKnownPrice))?Number(p.lastKnownPrice):0),
     reorderQty:Math.max(1,Number.isFinite(Number(p.reorderQty))?Number(p.reorderQty):1)
   })) : [];
   suppliers = Array.isArray(state.suppliers) ? state.suppliers : [];
@@ -419,7 +422,7 @@ function ensureV58Ui(){
     if(jobNoLabel)jobNoLabel.style.alignSelf="start";
     if(titleLabel)titleLabel.style.alignSelf="start";
     const box=document.createElement("div");box.className="v58-downtime-editor";box.id="jobDowntimeEditor";box.innerHTML=`<h3>Machine downtime</h3><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="downtimeStopped" id="jobDowntimeStopped"> Machine stopped / production lost</label><div class="v58-form-grid" id="jobDowntimeFields"><label>Downtime started<input type="datetime-local" name="downtimeStart" id="jobDowntimeStart"></label><label>Back in production<input type="datetime-local" name="downtimeEnd" id="jobDowntimeEnd"></label></div><div class="v58-inline-actions"><button type="button" class="btn secondary compact" id="downtimeStartNowBtn">Start now</button><button type="button" class="btn secondary compact" id="downtimeEndNowBtn">Back in production now</button></div><p class="v58-mini-note">Leave the end time blank while the machine is still down. Downtime reports calculate the live duration automatically.</p>`;const anchor=jobForm.querySelector(".dialog-actions,.form-actions,.modal-actions");jobForm.insertBefore(box,anchor||null);}
-  const stockForm=document.getElementById("stockForm");if(stockForm){const minInput=stockForm.elements.minStock;if(minInput){minInput.placeholder="Optional";const minLabel=minInput.closest("label");if(minLabel){for(const node of minLabel.childNodes){if(node.nodeType===Node.TEXT_NODE&&/Minimum stock/i.test(node.textContent||"")){node.textContent="Minimum stock (optional)";break;}}}}const anchor=stockForm.querySelector(".dialog-actions,.form-actions,.modal-actions");if(!stockForm.elements.partName){const identity=document.createElement("div");identity.className="v58-form-grid";identity.id="stockPartIdentity";identity.innerHTML=`<label>Part name<input name="partName" id="stockEditablePartName" maxlength="180" required placeholder="Part name"></label><label>Part number<input name="partNo" id="stockEditablePartNumber" maxlength="100" placeholder="Optional"></label>`;stockForm.insertBefore(identity,anchor||null);}const extra=document.createElement("div");extra.className="v58-form-grid";extra.id="stockPurchasingDefaults";extra.innerHTML=`<label>Preferred supplier<input name="preferredSupplier" id="stockPreferredSupplier" list="v58SupplierList" placeholder="Optional"></label><label>Default reorder quantity<input name="reorderQty" id="stockReorderQty" type="number" min="1" step="1" value="1"></label><datalist id="v58SupplierList"></datalist>`;stockForm.insertBefore(extra,anchor||null);}
+  const stockForm=document.getElementById("stockForm");if(stockForm){const minInput=stockForm.elements.minStock;if(minInput){minInput.placeholder="Optional";const minLabel=minInput.closest("label");if(minLabel){for(const node of minLabel.childNodes){if(node.nodeType===Node.TEXT_NODE&&/Minimum stock/i.test(node.textContent||"")){node.textContent="Minimum stock (optional)";break;}}}}const anchor=stockForm.querySelector(".dialog-actions,.form-actions,.modal-actions");if(!stockForm.elements.partName){const identity=document.createElement("div");identity.className="v58-form-grid";identity.id="stockPartIdentity";identity.innerHTML=`<label>Part name<input name="partName" id="stockEditablePartName" maxlength="180" required placeholder="Part name"></label><label>Part number<input name="partNo" id="stockEditablePartNumber" maxlength="100" placeholder="Optional"></label>`;stockForm.insertBefore(identity,anchor||null);}const extra=document.createElement("div");extra.className="v58-form-grid";extra.id="stockPurchasingDefaults";extra.innerHTML=`<label>Last known price (${currencySymbol()})<input name="lastKnownPrice" id="stockLastKnownPrice" type="number" min="0" step="0.01" placeholder="Optional"></label><label>Preferred supplier<input name="preferredSupplier" id="stockPreferredSupplier" list="v58SupplierList" placeholder="Optional"></label><label>Default reorder quantity<input name="reorderQty" id="stockReorderQty" type="number" min="1" step="1" value="1"></label><datalist id="v58SupplierList"></datalist>`;stockForm.insertBefore(extra,anchor||null);}
   const dlg=document.createElement("dialog");dlg.id="stockOrderDialog";dlg.innerHTML=`<form method="dialog" id="stockOrderForm" style="min-width:min(520px,90vw);padding:20px"><h2 id="stockOrderTitle">Create open order</h2><input type="hidden" name="partId"><div class="v58-form-grid"><label>Quantity ordered<input name="qty" type="number" min="1" step="1" required></label><label>Supplier<input name="supplier" list="v58SupplierList"></label><label>Expected date<input name="expectedDate" type="date"></label><label>Note<input name="note" maxlength="300"></label></div><div class="v58-inline-actions" style="justify-content:flex-end"><button type="button" class="btn secondary" id="stockOrderCancelBtn">Cancel</button><button type="submit" class="btn primary">Add to Open Orders</button></div></form>`;document.body.appendChild(dlg);
   bindV58Events();
 }
@@ -878,6 +881,9 @@ function ensurePartsFilterUi(){
   const body=$("#stockPlaceholderBody");if(!body)return;
   const tableWrap=body.closest(".table-wrap")||body.closest("table")?.parentElement;
   if(!tableWrap)return;
+  const stockTable=body.closest("table");
+  const stockHead=stockTable?.querySelector("thead tr");
+  if(stockHead&&!stockHead.querySelector('[data-last-known-price-head]')){const th=document.createElement("th");th.dataset.lastKnownPriceHead="1";th.textContent="Last known price";const partNoHead=stockHead.children[1];if(partNoHead)partNoHead.insertAdjacentElement("afterend",th);else stockHead.appendChild(th);}
   if(!$("#partsListControls")){
     const controls=document.createElement("div");controls.id="partsListControls";controls.className="parts-list-controls";
     controls.innerHTML=`<input id="partsListSearch" type="search" autocomplete="off" placeholder="Search part name, part number, bin or supplier…" aria-label="Search parts"><select id="partsSupplierFilter" aria-label="Filter parts by supplier"><option value="all">All suppliers</option></select><button type="button" class="btn primary compact" id="partsAddPartBtn">＋ Add Part</button>`;
@@ -963,8 +969,8 @@ function renderParts() {
     const current=p.stockTracked===true?stockNumber(p.currentStock):"Not tracked";
     const min=p.stockTracked===true?minimumStockText(p):"—";
     const rowClass=status.className==="stock-out"?"stock-out-row":status.className==="stock-low"?"stock-low-row":"";
-    return `<tr class="${rowClass}"><td><strong>${esc(p.name)}</strong>${p.active===false?`<br><span class="stock-muted">Archived</span>`:""}</td><td>${esc(p.partNo||"—")}</td><td>${esc(current)}</td><td>${esc(min)}</td><td>${esc(p.binLocation||"—")}</td><td><span class="status-chip ${status.className}">${esc(status.label)}</span></td><td><button type="button" class="btn secondary compact stock-action" data-edit-stock="${esc(p.id)}">Edit stock</button></td></tr>`;
-  }).join(""):`<tr><td colspan="7">No parts match the current search/filter.</td></tr>`;
+    return `<tr class="${rowClass}"><td><strong>${esc(p.name)}</strong>${p.active===false?`<br><span class="stock-muted">Archived</span>`:""}</td><td>${esc(p.partNo||"—")}</td><td>${esc(lastKnownPriceText(p))}</td><td>${esc(current)}</td><td>${esc(min)}</td><td>${esc(p.binLocation||"—")}</td><td><span class="status-chip ${status.className}">${esc(status.label)}</span></td><td><button type="button" class="btn secondary compact stock-action" data-edit-stock="${esc(p.id)}">Edit stock</button></td></tr>`;
+  }).join(""):`<tr><td colspan="8">No parts match the current search/filter.</td></tr>`;
   const partsAll = visibleJobs().flatMap(j=>(j.parts||[]).map((p,usageIndex)=>({...p,usageIndex,jobNo:j.jobNo,machine:j.machine,machineId:j.machineId||"",section:j.section||inferSection(j.machine)})).filter(p=>(Number(p.qty)||0)>0)).sort((a,b)=>(b.date||"").localeCompare(a.date||""));
   const parts=partsAll.filter(partUsageMatchesFilters);
   $("#partsBody").innerHTML = parts.length ? parts.map(p=>`<tr><td>${fmtDate(p.date)}</td><td>${esc(p.name)}</td><td>${esc(p.partNo||"—")}</td><td>${Number(p.qty)||0} used</td><td>${money(p.unitPrice)}</td><td>${money(partTotal(p))}</td><td>${esc(p.supplier||"—")}</td><td><button type="button" class="job-link" data-edit-job="${esc(p.jobNo)}">${esc(p.jobNo)}</button></td><td>${esc(machineLabel(p))}</td><td><div class="manage-actions"><button type="button" class="btn secondary compact" data-part-usage-edit data-job-no="${esc(p.jobNo)}" data-usage-index="${p.usageIndex}">Edit</button><button type="button" class="btn danger compact" data-part-usage-delete data-job-no="${esc(p.jobNo)}" data-usage-index="${p.usageIndex}">Delete</button></div></td></tr>`).join("") : `<tr><td colspan="10">${partsAll.length?"No parts usage matches the current search/filter.":`No parts recorded for ${esc(profileContext())}.`}</td></tr>`;
@@ -1193,7 +1199,7 @@ function addPartRow(data={}) {
   row.innerHTML = `<div class="part-entry-head"><strong>Used part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
   $("#partsEditor").appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
-  if (selected) row.querySelector('.part-number').value = selected.partNo || "";
+  if (selected) { row.querySelector('.part-number').value = selected.partNo || ""; if(data.unitPrice===undefined){const remembered=lastPurchasePrice(selected.name,selected.partNo,data.supplier||"");if(remembered)row.querySelector('.part-price').value=Number(remembered.price).toFixed(2);} }
   updatePartRowStockNote(row);
 }
 
@@ -1205,7 +1211,7 @@ function addOrderedPartRow(data={}) {
   row.innerHTML = `<div class="part-entry-head"><strong>Ordered part ${orderedPartRowCounter}</strong><button type="button" class="remove-ordered-part-btn" title="Remove ordered part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity ordered<input class="part-ordered-qty" type="number" min="0" step="1" value="${data.orderedQty!==undefined?Math.max(0,Number(data.orderedQty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date ordered<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">This records what was ordered for the job. It does <strong>not</strong> change stock. Stock only changes when parts are received through ordering or recorded as used.</div><div class="part-stock-note"></div>`;
   $("#partsOrderedEditor")?.appendChild(row);
   const selected = partCatalog.find(p=>p.id===data.partId);
-  if (selected) row.querySelector('.part-number').value = selected.partNo || "";
+  if (selected) { row.querySelector('.part-number').value = selected.partNo || ""; if(data.unitPrice===undefined){const remembered=lastPurchasePrice(selected.name,selected.partNo,data.supplier||"");if(remembered)row.querySelector('.part-price').value=Number(remembered.price).toFixed(2);} }
   updatePartRowStockNote(row);
 }
 
@@ -1530,6 +1536,7 @@ function addProjectDirectPartRow(kind,data={}){
   const qty=kind==="ordered"?Math.max(0,Number(data.orderedQty)||0):Math.max(0,Number(data.usedQty??data.qty)||0);
   row.innerHTML=`<div class="part-entry-head"><strong>${kind==="ordered"?"Ordered part":"Used part"} ${projectDirectPartCounter}</strong><button type="button" class="remove-part-btn" data-project-direct-remove>Remove</button></div><div class="part-entry-grid project-part-entry-grid"><label>Part<select data-project-catalog>${projectCatalogOptions(data.catalogPartId||"")}</select></label><label>Part name<input data-project-name maxlength="180" value="${esc(data.name||"")}" placeholder="e.g. Anvil"></label><label>Part code<input data-project-code maxlength="100" value="${esc(data.partNo||"")}" placeholder="Optional"></label><label>${kind==="ordered"?"Quantity ordered":"Quantity used"}<input data-project-qty type="number" min="0" step="0.01" value="${qty||1}"></label><label>Unit cost (${currencySymbol()})<input data-project-price type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?Math.max(0,Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label>Supplier<select data-project-supplier-select>${supplierOptions(selectedSupplier)}</select></label></div><label class="project-manual-stock"><input data-project-add-parts type="checkbox" ${data.addToInventory||alreadyInParts?'checked':''}> ${alreadyInParts?'In Parts inventory':'Add to Parts inventory'}</label>`;
   host.appendChild(row);
+  if(data.unitPrice===undefined&&data.catalogPartId){const part=partCatalog.find(item=>String(item.id)===String(data.catalogPartId));const remembered=part?lastPurchasePrice(part.name,part.partNo,selectedSupplier):null;if(remembered){const price=row.querySelector("[data-project-price]");if(price)price.value=Number(remembered.price).toFixed(2);}}
 }
 function renderProjectDirectParts(project){
   const ordered=$("#projectOrderedPartsEditor"),used=$("#projectUsedPartsEditor");if(!ordered||!used)return;ordered.innerHTML="";used.innerHTML="";projectDirectPartCounter=0;
@@ -1634,6 +1641,8 @@ function purchaseOrderSupplierOptions(selected=""){const wanted=String(selected|
 function lastPurchasePrice(partName,partCode,supplier=""){
   const name=String(partName||"").trim().toLowerCase(),code=String(partCode||"").trim().toLowerCase(),wantedSupplier=String(supplier||"").trim().toLowerCase();
   if(!name&&!code)return null;
+  const catalogPart=partCatalog.find(part=>{const pn=String(part.partNo||"").trim().toLowerCase(),n=String(part.name||"").trim().toLowerCase();return (code&&pn===code)||(!code&&name&&n===name)||(code&&name&&n===name);});
+  if(hasLastKnownPrice(catalogPart))return {price:Number(catalogPart.lastKnownPrice),supplier:String(catalogPart.preferredSupplier||"").trim().toLowerCase(),date:"",source:"catalog"};
   const ordered=[...purchaseOrders].filter(order=>order.status==="Ordered").sort((a,b)=>String(b.orderedAt||b.updatedAt||b.createdAt||"").localeCompare(String(a.orderedAt||a.updatedAt||a.createdAt||"")));
   const matches=[];
   for(const order of ordered){
@@ -1643,7 +1652,7 @@ function lastPurchasePrice(partName,partCode,supplier=""){
       if(!same)continue;
       const price=Number(line.unitPrice);
       if(!Number.isFinite(price)||price<0)continue;
-      matches.push({price,supplier:String(order.supplier||"").trim().toLowerCase(),date:order.orderedAt||order.updatedAt||order.createdAt||""});
+      matches.push({price,supplier:String(order.supplier||"").trim().toLowerCase(),date:order.orderedAt||order.updatedAt||order.createdAt||"",source:"history"});
     }
   }
   if(!matches.length)return null;
@@ -1657,7 +1666,7 @@ function autofillPurchaseOrderPrice(row,part){
   const remembered=lastPurchasePrice(partName,partCode,String($("#poSupplierSelect")?.value||"").replace(/^__add_supplier__$/, ""));
   if(!remembered)return;
   priceInput.value=Number(remembered.price).toFixed(2);
-  priceInput.title=`Last ordered price: ${money(remembered.price)}`;
+  priceInput.title=`Last known price: ${money(remembered.price)}`;
 }
 function addPurchaseOrderLine(data={}){const lines=$("#poLines");if(!lines)return;const row=document.createElement("div");row.className="po-line";row.innerHTML=`<label class="po-name-cell">Part name<input class="po-part-name" list="poPartNames" maxlength="180" value="${esc(data.partName||"")}" placeholder="Bearing 6204" required></label><label class="po-code-cell">Part code<input class="po-part-code" maxlength="120" value="${esc(data.partCode||"")}" placeholder="6204-2RS"></label><label>Qty<input class="po-qty" type="number" min="1" step="1" value="${Math.max(1,Number(data.qty)||1)}"></label><label>Unit price (${currencySymbol()})<input class="po-unit-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label class="po-total-cell">Line total<span class="po-line-total">${money((Number(data.qty)||1)*(Number(data.unitPrice)||0))}</span></label><div class="po-remove-cell"><button type="button" class="btn danger compact" data-po-remove-line>Remove</button></div>`;lines.appendChild(row);updatePurchaseOrderTotals();}
 function collectPurchaseOrderLines(){return $$("#poLines .po-line").map(row=>({partName:String(row.querySelector('.po-part-name')?.value||"").trim(),partCode:String(row.querySelector('.po-part-code')?.value||"").trim(),qty:Math.max(1,Number(row.querySelector('.po-qty')?.value)||1),unitPrice:Math.max(0,Number(row.querySelector('.po-unit-price')?.value)||0)})).filter(row=>row.partName);}
@@ -2364,7 +2373,7 @@ async function handleJobPartEditorChange(e){
       const part=await promptAddCatalogPart();
       if(!part){e.target.value="";return;}
       refreshAllPartRowOptions(); row.querySelector('.part-select').value=part.id; row.querySelector('.part-number').value=part.partNo||""; updatePartRowStockNote(row);
-    } else { const part=partCatalog.find(p=>p.id===e.target.value);row.querySelector('.part-number').value=part?.partNo||"";row.querySelector('.part-price').value=""; updatePartRowStockNote(row); }
+    } else { const part=partCatalog.find(p=>p.id===e.target.value);row.querySelector('.part-number').value=part?.partNo||"";const price=row.querySelector('.part-price');if(price){const remembered=part?lastPurchasePrice(part.name,part.partNo,""):null;price.value=remembered?Number(remembered.price).toFixed(2):"";} updatePartRowStockNote(row); }
   }
   if (e.target.classList.contains('supplier-select') && e.target.value === "__add_supplier__") {
     const name=prompt("New supplier name:");if(!name?.trim()){e.target.value="";return;}
@@ -2615,6 +2624,7 @@ function openStockDialog(partId) {
   form.elements.stockTracked.checked=part.stockTracked===true;
   if(form.elements.partName)form.elements.partName.value=part.name||"";
   if(form.elements.partNo)form.elements.partNo.value=part.partNo||"";
+  if(form.elements.lastKnownPrice)form.elements.lastKnownPrice.value=hasLastKnownPrice(part)?Number(part.lastKnownPrice).toFixed(2):"";
   form.elements.currentStock.value=stockNumber(part.currentStock);
   form.elements.minStock.value=hasMinimumStock(part)?stockNumber(part.minStock):"";
   form.elements.binLocation.value=part.binLocation||"";
@@ -2640,11 +2650,14 @@ $("#stockForm")?.addEventListener("submit",async e=>{
   const min=tracked?(minRaw===""?null:Number(minRaw)):(hasMinimumStock(part)?Number(part.minStock):null);
   if(tracked && !Number.isFinite(current)){alert("Enter a valid current stock.");return;}
   if(tracked && min!==null && (!Number.isFinite(min) || min<0)){alert("Minimum stock must be blank or zero or more.");return;}
+  const priceRaw=String(form.elements.lastKnownPrice?.value||"").trim();
+  const lastKnownPrice=priceRaw===""?null:Number(priceRaw);
+  if(lastKnownPrice!==null&&(!Number.isFinite(lastKnownPrice)||lastKnownPrice<0)){alert("Last known price must be blank or zero or more.");return;}
   const btn=$("#stockSaveBtn");btn.disabled=true;btn.textContent="Saving…";
   try{
     const partName=String(form.elements.partName?.value??part.name??"").trim();
     if(!partName){alert("Part name is required.");return;}
-    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:partName,partNo:String(form.elements.partNo?.value??part.partNo??"").trim(),stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||"",preferredSupplier:tracked?String(form.elements.preferredSupplier?.value||"").trim():part.preferredSupplier||"",reorderQty:tracked?Math.max(1,Number(form.elements.reorderQty?.value)||1):Math.max(1,Number(part.reorderQty)||1)});
+    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:partName,partNo:String(form.elements.partNo?.value??part.partNo??"").trim(),lastKnownPrice,stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||"",preferredSupplier:tracked?String(form.elements.preferredSupplier?.value||"").trim():part.preferredSupplier||"",reorderQty:tracked?Math.max(1,Number(form.elements.reorderQty?.value)||1):Math.max(1,Number(part.reorderQty)||1)});
     if(!result)return;
     editingStockPartId=null;
     stockTrackingTouched=false;
