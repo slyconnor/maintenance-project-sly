@@ -393,7 +393,7 @@ function ensureV58Ui(){
   const style=document.createElement("style");style.id="v58Styles";style.textContent=`
   #profileSelect{position:relative;top:-7px!important;}
   #mainNav .nav-item[data-view="openOrders"],#mainNav .nav-item[data-view="ordered"],#mainNav .nav-item[data-view="projects"],#mainNav .nav-item[data-view="preventive"],#mainNav .nav-item[data-view="downtime"]{display:flex!important;align-items:center!important;justify-content:flex-start!important;gap:12px!important;text-align:left!important}#mainNav .nav-item[data-view="openOrders"]>span:first-child,#mainNav .nav-item[data-view="ordered"]>span:first-child,#mainNav .nav-item[data-view="projects"]>span:first-child,#mainNav .nav-item[data-view="preventive"]>span:first-child,#mainNav .nav-item[data-view="downtime"]>span:first-child{display:inline-flex!important;align-items:center;justify-content:center;width:22px!important;min-width:22px!important;flex:0 0 22px!important;text-align:center}#mainNav .nav-item[data-view="openOrders"]>span:last-child,#mainNav .nav-item[data-view="ordered"]>span:last-child,#mainNav .nav-item[data-view="projects"]>span:last-child,#mainNav .nav-item[data-view="preventive"]>span:last-child,#mainNav .nav-item[data-view="downtime"]>span:last-child{margin:0!important;flex:0 1 auto!important;text-align:left!important}
-  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9px;margin:0 0 10px;min-width:0}.machine-list-controls .machine-search-wrap{grid-column:1/-1;min-width:0}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machine-download-qrs{grid-column:1/-1;width:100%}.parts-list-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.45fr);gap:9px;margin:14px 0 8px;min-width:0}.parts-list-controls input,.parts-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.parts-list-count{font-size:.78rem;color:#667085;margin:0 0 10px}.machines-layout>*{min-width:0}.machine-list-panel,.machine-detail{min-width:0}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.stock-order-nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stock-order-tab{border:1px solid #cfd6e1;background:#fff;color:#344054;border-radius:999px;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}.stock-order-tab.active{background:#101828;color:#fff;border-color:#101828}.stock-order-tab span{opacity:.72;font-size:.78rem;margin-left:5px}.stock-order-panel[hidden]{display:none}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}.machine-tooling-editor{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:12px;padding:14px;background:var(--card,#fff)}.machine-tooling-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.machine-tooling-head small{display:block;color:#667085;margin-top:3px}.machine-tooling-rows{display:grid;gap:9px}.machine-tooling-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.3fr) auto;gap:8px;align-items:end}.machine-tooling-row label{min-width:0}.machine-tooling-row input{width:100%;min-width:0}.machine-tooling-empty{color:#667085;font-size:.82rem;padding:5px 0}.machine-tooling-overview{margin:14px 0;border:1px solid #e2e7ef;border-radius:12px;padding:14px}.machine-tooling-overview h3{margin:0 0 10px}.machine-tooling-list{display:grid;gap:8px}.machine-tooling-item{padding:9px 10px;border:1px solid #e6eaf0;border-radius:9px}.machine-tooling-item small{display:block;color:#667085;margin-top:3px}.job-ordered-parts-section{margin:18px 0 22px;padding:14px;border:1px solid #dfe4ec;border-radius:12px;background:var(--card,#fff)}.job-ordered-parts-section h3{margin:0 0 6px}.job-ordered-parts-section>p{margin:0 0 12px;color:#667085;font-size:.86rem}.job-ordered-parts-section .price-note{margin-top:8px}
+  .v58-card{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:18px;margin:16px 0}.v58-grid{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}.v58-kpi{border:1px solid #e2e7ef;border-radius:12px;padding:14px}.v58-kpi span{display:block;color:#667085;font-size:.82rem}.v58-kpi strong{display:block;font-size:1.35rem;margin-top:6px}.v58-two{display:grid;grid-template-columns:1fr 1fr;gap:16px}.v58-pie-wrap{display:grid;grid-template-columns:180px 1fr;gap:18px;align-items:center}.v58-pie{width:180px;height:180px;border-radius:50%;background:#e7ebf1}.v58-controls{display:flex;gap:10px;flex-wrap:wrap;align-items:end}.v58-controls label{display:grid;gap:5px;font-size:.82rem}.v58-controls select,.v58-controls input{padding:9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:#fff}.machine-list-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(0,1fr);gap:9px;margin:0 0 10px;min-width:0}.machine-list-controls .machine-search-wrap{grid-column:1/-1;min-width:0}.machine-list-controls input,.machine-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.machine-download-qrs{grid-column:1/-1;width:100%}.parts-list-controls{display:grid;grid-template-columns:minmax(0,1fr) minmax(180px,.35fr) auto;gap:9px;margin:14px 0 8px;min-width:0;align-items:stretch}.parts-list-controls input,.parts-list-controls select{width:100%;min-width:0;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:var(--card,#fff);font:inherit;color:inherit}.parts-list-controls #partsAddPartBtn{white-space:nowrap;min-height:44px}.parts-list-count{font-size:.78rem;color:#667085;margin:0 0 10px}.machines-layout>*{min-width:0}.machine-list-panel,.machine-detail{min-width:0}.machine-list-count{font-size:.78rem;color:#667085;margin:0 0 9px}.machine-list-empty{padding:18px 12px;text-align:center;color:#667085;border:1px dashed #cfd6e1;border-radius:10px}.v58-down{border-left:4px solid #d92d20}.v58-down-list{display:grid;gap:10px}.v58-down-row{display:flex;justify-content:space-between;gap:12px;align-items:center;border:1px solid #f1c7c2;background:#fff7f6;border-radius:10px;padding:12px}.v58-order-tabs{display:grid;grid-template-columns:1fr;gap:16px}.stock-order-nav{display:flex;gap:8px;flex-wrap:wrap;margin:14px 0}.stock-order-tab{border:1px solid #cfd6e1;background:#fff;color:#344054;border-radius:999px;padding:9px 13px;font:inherit;font-weight:700;cursor:pointer}.stock-order-tab.active{background:#101828;color:#fff;border-color:#101828}.stock-order-tab span{opacity:.72;font-size:.78rem;margin-left:5px}.stock-order-panel[hidden]{display:none}.v58-status{font-weight:700}.v58-status.ordered{color:#175cd3}.v58-status.received{color:#067647}.v58-status.cancelled{color:#667085}.v58-form-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:12px}.v58-downtime-editor{border:1px solid #e2e7ef;border-radius:12px;padding:14px;margin:14px 0}.v58-inline-actions{display:flex;gap:8px;flex-wrap:wrap;margin-top:8px}.v58-mini-note{font-size:.82rem;color:#667085}.v58-table-actions{display:flex;gap:6px;flex-wrap:wrap}.v58-alert{background:#fff5f4;border:1px solid #fecdca}.v58-order-card{margin-top:20px}.machine-tooling-editor{grid-column:1/-1;border:1px solid #dfe4ec;border-radius:12px;padding:14px;background:var(--card,#fff)}.machine-tooling-head{display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}.machine-tooling-head small{display:block;color:#667085;margin-top:3px}.machine-tooling-rows{display:grid;gap:9px}.machine-tooling-row{display:grid;grid-template-columns:minmax(160px,.7fr) minmax(220px,1.3fr) auto;gap:8px;align-items:end}.machine-tooling-row label{min-width:0}.machine-tooling-row input{width:100%;min-width:0}.machine-tooling-empty{color:#667085;font-size:.82rem;padding:5px 0}.machine-tooling-overview{margin:14px 0;border:1px solid #e2e7ef;border-radius:12px;padding:14px}.machine-tooling-overview h3{margin:0 0 10px}.machine-tooling-list{display:grid;gap:8px}.machine-tooling-item{padding:9px 10px;border:1px solid #e6eaf0;border-radius:9px}.machine-tooling-item small{display:block;color:#667085;margin-top:3px}.job-ordered-parts-section{margin:18px 0 22px;padding:14px;border:1px solid #dfe4ec;border-radius:12px;background:var(--card,#fff)}.job-ordered-parts-section h3{margin:0 0 6px}.job-ordered-parts-section>p{margin:0 0 12px;color:#667085;font-size:.86rem}.job-ordered-parts-section .price-note{margin-top:8px}
   @media(max-width:900px){.v58-grid{grid-template-columns:1fr 1fr}.v58-two{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:140px 1fr}.v58-pie{width:140px;height:140px}.v58-form-grid{grid-template-columns:1fr}.machine-list-controls{grid-template-columns:1fr 1fr}.machine-list-controls .machine-search-wrap{grid-column:1/-1}}@media(max-width:520px){.v58-grid{grid-template-columns:1fr}.v58-pie-wrap{grid-template-columns:1fr}.v58-pie{margin:auto}.machine-list-controls{grid-template-columns:1fr}.machine-list-controls .machine-search-wrap{grid-column:auto}.parts-list-controls{grid-template-columns:1fr}.machine-tooling-head{align-items:flex-start}.machine-tooling-row{grid-template-columns:1fr}.machine-tooling-row button{width:100%}}}
   `;document.head.appendChild(style);
   const nav=document.getElementById("mainNav");if(nav){const b=document.createElement("button");b.type="button";b.className="nav-item";b.dataset.view="downtime";b.innerHTML=`<span>⏱</span><span>Downtime</span>`;const report=nav.querySelector('[data-view="reports"]');nav.insertBefore(b,report||null);}
@@ -880,11 +880,12 @@ function ensurePartsFilterUi(){
   if(!tableWrap)return;
   if(!$("#partsListControls")){
     const controls=document.createElement("div");controls.id="partsListControls";controls.className="parts-list-controls";
-    controls.innerHTML=`<input id="partsListSearch" type="search" autocomplete="off" placeholder="Search part name, part number, bin or supplier…" aria-label="Search parts"><select id="partsSupplierFilter" aria-label="Filter parts by supplier"><option value="all">All suppliers</option></select>`;
+    controls.innerHTML=`<input id="partsListSearch" type="search" autocomplete="off" placeholder="Search part name, part number, bin or supplier…" aria-label="Search parts"><select id="partsSupplierFilter" aria-label="Filter parts by supplier"><option value="all">All suppliers</option></select><button type="button" class="btn primary compact" id="partsAddPartBtn">＋ Add Part</button>`;
     tableWrap.parentNode.insertBefore(controls,tableWrap);
     const count=document.createElement("p");count.id="partsListCount";count.className="parts-list-count";controls.insertAdjacentElement("afterend",count);
     $("#partsListSearch")?.addEventListener("input",event=>{partsSearchQuery=String(event.target.value||"");renderParts();});
     $("#partsSupplierFilter")?.addEventListener("change",event=>{partsSupplierFilter=String(event.target.value||"all");renderParts();});
+    $("#partsAddPartBtn")?.addEventListener("click",addPartFromPartsPage);
   }
 }
 function partCatalogMatchesFilters(part){
@@ -1155,6 +1156,30 @@ function updatePartRowStockNote(row) {
   note.textContent=`Current known stock: ${stockNumber(part.currentStock)} · minimum: ${minimumStockText(part)}${part.binLocation?` · ${part.binLocation}`:""}${!["In stock","Tracked"].includes(status.label)?` · ${status.label}`:""}`;
   if(status.className==="stock-low")note.classList.add("low");
   if(status.className==="stock-out")note.classList.add("out");
+}
+
+async function promptAddCatalogPart() {
+  const name=prompt("New part name (for example: Anvil):");
+  if(!name?.trim()) return null;
+  const clean=name.trim();
+  let part=partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase());
+  if(part) return part;
+  const partNo=prompt("Part number (optional):")||"";
+  try {
+    const payload=await saveMutation("/api/catalog",{type:"part",name:clean,partNo:partNo.trim(),stockTracked:true,minStock:null},{render:false});
+    return payload.part || partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase()) || null;
+  } catch(error) {
+    showSaveError(error);
+    return null;
+  }
+}
+
+async function addPartFromPartsPage() {
+  const part=await promptAddCatalogPart();
+  if(!part) return;
+  renderAll();
+  switchView("parts");
+  if(part.id) openStockDialog(part.id);
 }
 
 function addPartRow(data={}) {
@@ -2323,20 +2348,20 @@ $("#jobMachineSelect").addEventListener("change",async e=>{
 $("#addTimeRowBtn").addEventListener("click",()=>addTimeRow({date:$("#jobForm").elements.raised.value||defaultFormDate()}));
 $("#timeEditor").addEventListener("click",e=>{ const b=e.target.closest('.remove-time-btn'); if(b)b.closest('.time-entry').remove(); });
 $("#addPartRowBtn").addEventListener("click",()=>addPartRow({date:$("#jobForm").elements.raised.value || defaultFormDate()}));
-$("#addOrderedPartRowBtn")?.addEventListener("click",()=>addOrderedPartRow({date:$("#jobForm").elements.raised.value || defaultFormDate()}));
 $("#partsEditor").addEventListener("click",e=>{ const remove=e.target.closest('.remove-part-btn'); if(remove)remove.closest('.part-entry').remove(); });
-$("#partsOrderedEditor")?.addEventListener("click",e=>{ const remove=e.target.closest('.remove-ordered-part-btn'); if(remove)remove.closest('.part-entry').remove(); });
+// The ordered-parts section is injected dynamically, so use delegation from the job dialog.
+jobDialog.addEventListener("click",e=>{
+  const add=e.target.closest("#addOrderedPartRowBtn");
+  if(add){ addOrderedPartRow({date:$("#jobForm").elements.raised.value || defaultFormDate()}); return; }
+  const remove=e.target.closest("#partsOrderedEditor .remove-ordered-part-btn");
+  if(remove) remove.closest('.part-entry')?.remove();
+});
 async function handleJobPartEditorChange(e){
   const row=e.target.closest('.part-entry'); if(!row)return;
   if (e.target.classList.contains('part-select')) {
     if (e.target.value === "__add_part__") {
-      const name=prompt("New part name (for example: Anvil):"); if(!name?.trim()){e.target.value="";return;}
-      const clean=name.trim(); let part=partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase());
-      if(!part){
-        const partNo=prompt("Part number (optional):")||"";
-        try { const payload=await saveMutation("/api/catalog",{type:"part",name:clean,partNo:partNo.trim(),stockTracked:true,minStock:null},{render:false}); part=payload.part; }
-        catch(error){ e.target.value=""; showSaveError(error); return; }
-      }
+      const part=await promptAddCatalogPart();
+      if(!part){e.target.value="";return;}
       refreshAllPartRowOptions(); row.querySelector('.part-select').value=part.id; row.querySelector('.part-number').value=part.partNo||""; updatePartRowStockNote(row);
     } else { const part=partCatalog.find(p=>p.id===e.target.value);row.querySelector('.part-number').value=part?.partNo||"";row.querySelector('.part-price').value=""; updatePartRowStockNote(row); }
   }
@@ -2347,7 +2372,9 @@ async function handleJobPartEditorChange(e){
   }
 }
 $("#partsEditor").addEventListener("change",handleJobPartEditorChange);
-$("#partsOrderedEditor")?.addEventListener("change",handleJobPartEditorChange);
+jobDialog.addEventListener("change",e=>{
+  if(e.target.closest("#partsOrderedEditor") && (e.target.classList.contains("part-select") || e.target.classList.contains("supplier-select"))) handleJobPartEditorChange(e);
+});
 
 $("#deleteJobBtn").addEventListener("click",async()=>{
   if(!editingJobNo)return;
