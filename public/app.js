@@ -224,6 +224,147 @@ function showSaveError(error) {
   alert(error?.message || "The shared database could not be updated. Please try again.");
 }
 
+// Searchable / predictive selectors for lists that can grow large (parts, machines,
+// jobs, projects, suppliers, sections, etc.). The original <select> stays in the
+// form so all existing save/change handlers continue to work.
+const predictiveSelectState = new WeakMap();
+let predictiveObserver = null;
+let predictiveRefreshQueued = false;
+function ensurePredictiveSelectStyles(){
+  if(document.getElementById("predictiveSelectStyles"))return;
+  const style=document.createElement("style");
+  style.id="predictiveSelectStyles";
+  style.textContent=`
+    select.predictive-native-select{display:none!important}
+    .predictive-select{position:relative;width:100%;min-width:0}
+    .predictive-select-input{width:100%;min-width:0;box-sizing:border-box;padding:9px 34px 9px 10px;border:1px solid #cfd6e1;border-radius:8px;background:var(--card,#fff);color:inherit;font:inherit;min-height:38px}
+    .predictive-select-input:focus{outline:2px solid rgba(37,99,235,.18);outline-offset:1px;border-color:#7aa2e8}
+    .predictive-select-input:disabled{opacity:.65;cursor:not-allowed;background:#f2f4f7}
+    .predictive-select-chevron{position:absolute;right:10px;top:50%;transform:translateY(-50%);pointer-events:none;color:#667085;font-size:.72rem}
+    .predictive-select-menu{position:absolute;z-index:5000;left:0;right:0;top:calc(100% + 4px);max-height:290px;overflow:auto;background:var(--card,#fff);border:1px solid #cfd6e1;border-radius:10px;box-shadow:0 12px 30px rgba(16,24,40,.16);padding:5px;display:none}
+    .predictive-select.open .predictive-select-menu{display:block}
+    .predictive-select-option{display:block;width:100%;border:0;background:transparent;color:inherit;text-align:left;padding:9px 10px;border-radius:7px;font:inherit;cursor:pointer;line-height:1.25}
+    .predictive-select-option:hover,.predictive-select-option.active{background:#f2f4f7}
+    .predictive-select-option.selected{font-weight:750;background:#eef4ff}
+    .predictive-select-option.add-new{border-top:1px solid #eaecf0;margin-top:4px;padding-top:10px;font-weight:700}
+    .predictive-select-empty,.predictive-select-more{padding:9px 10px;color:#667085;font-size:.78rem}
+    @media(max-width:520px){.predictive-select-menu{max-height:240px}}
+  `;
+  document.head.appendChild(style);
+}
+function predictiveSelectSemantic(select){
+  return [select.id,select.name,select.className,[...select.attributes].filter(a=>a.name.startsWith("data-")).map(a=>`${a.name} ${a.value}`).join(" ")].join(" ").toLowerCase();
+}
+function shouldEnhancePredictiveSelect(select){
+  if(!select||select.tagName!=="SELECT"||select.multiple||select.dataset.noPredictive==="1")return false;
+  if(select.classList.contains("part-select")||select.hasAttribute("data-project-catalog"))return true;
+  const count=[...select.options].filter(option=>!option.disabled).length;
+  if(count<8)return false;
+  const semantic=predictiveSelectSemantic(select);
+  return /(part|machine|supplier|project|job|section|profile|engineer|assignee|requestedby|requested-by|po-option-field)/.test(semantic);
+}
+function predictiveOptionText(option){return String(option?.textContent||"").replace(/\s+/g," ").trim();}
+function predictiveSelectedText(select){
+  const option=select.options[select.selectedIndex];
+  if(!option||!String(select.value||"").trim()||String(select.value).startsWith("__"))return "";
+  return predictiveOptionText(option);
+}
+function predictivePlaceholder(select){
+  const first=[...select.options].find(option=>!String(option.value||"").trim());
+  const text=predictiveOptionText(first);
+  if(text&&!/^(—|-)$/.test(text))return text;
+  const label=select.closest("label");
+  if(label){
+    const clone=label.cloneNode(true);clone.querySelectorAll("select,input,textarea,button,.predictive-select").forEach(node=>node.remove());
+    const labelText=String(clone.textContent||"").replace(/\s+/g," ").trim();
+    if(labelText)return `Search ${labelText.toLowerCase()}…`;
+  }
+  return "Type to search…";
+}
+function renderPredictiveMenu(select,query=""){
+  const state=predictiveSelectState.get(select);if(!state)return;
+  const needle=String(query||"").trim().toLowerCase();
+  const options=[...select.options].filter(option=>!option.disabled);
+  const addOptions=options.filter(option=>String(option.value||"").startsWith("__add"));
+  let regular=options.filter(option=>!String(option.value||"").startsWith("__add"));
+  if(needle)regular=regular.filter(option=>predictiveOptionText(option).toLowerCase().includes(needle));
+  const total=regular.length;
+  regular=regular.slice(0,50);
+  const rows=[...regular,...addOptions];
+  state.menu.innerHTML=rows.length?rows.map((option,index)=>{
+    const value=String(option.value||"");const add=value.startsWith("__add");
+    return `<button type="button" class="predictive-select-option${value===String(select.value||"")?" selected":""}${add?" add-new":""}" data-predictive-index="${index}" data-predictive-value="${esc(value)}">${esc(predictiveOptionText(option))}</button>`;
+  }).join(""):`<div class="predictive-select-empty">No matches. Keep typing or add a new item where available.</div>`;
+  if(total>50)state.menu.insertAdjacentHTML("beforeend",`<div class="predictive-select-more">${total-50} more matches — type more to narrow the list.</div>`);
+  state.activeIndex=-1;
+}
+function syncPredictiveSelect(select){
+  const state=predictiveSelectState.get(select);if(!state)return;
+  state.input.disabled=Boolean(select.disabled);
+  state.input.placeholder=predictivePlaceholder(select);
+  if(document.activeElement!==state.input||!state.wrapper.classList.contains("open"))state.input.value=predictiveSelectedText(select);
+}
+function closePredictiveSelect(select,{restore=true}={}){
+  const state=predictiveSelectState.get(select);if(!state)return;
+  state.wrapper.classList.remove("open");state.input.setAttribute("aria-expanded","false");
+  if(restore)state.input.value=predictiveSelectedText(select);
+  state.activeIndex=-1;
+}
+function openPredictiveSelect(select){
+  const state=predictiveSelectState.get(select);if(!state||select.disabled)return;
+  state.wrapper.classList.add("open");state.input.setAttribute("aria-expanded","true");renderPredictiveMenu(select,state.input.value===predictiveSelectedText(select)?"":state.input.value);
+}
+function selectPredictiveValue(select,value){
+  const state=predictiveSelectState.get(select);if(!state)return;
+  select.value=value;
+  select.dispatchEvent(new Event("change",{bubbles:true}));
+  closePredictiveSelect(select,{restore:false});
+  requestAnimationFrame(()=>syncPredictiveSelect(select));
+}
+function enhancePredictiveSelect(select){
+  if(!shouldEnhancePredictiveSelect(select))return;
+  const existing=predictiveSelectState.get(select);if(existing){syncPredictiveSelect(select);return;}
+  ensurePredictiveSelectStyles();
+  const wrapper=document.createElement("div");wrapper.className="predictive-select";
+  const input=document.createElement("input");input.type="text";input.className="predictive-select-input";input.autocomplete="off";input.setAttribute("role","combobox");input.setAttribute("aria-autocomplete","list");input.setAttribute("aria-expanded","false");
+  const chevron=document.createElement("span");chevron.className="predictive-select-chevron";chevron.textContent="▼";
+  const menu=document.createElement("div");menu.className="predictive-select-menu";menu.setAttribute("role","listbox");
+  select.insertAdjacentElement("afterend",wrapper);wrapper.append(input,chevron,menu);select.classList.add("predictive-native-select");
+  const state={wrapper,input,menu,activeIndex:-1};predictiveSelectState.set(select,state);syncPredictiveSelect(select);
+  input.addEventListener("focus",()=>{openPredictiveSelect(select);requestAnimationFrame(()=>input.select());});
+  input.addEventListener("click",()=>openPredictiveSelect(select));
+  input.addEventListener("input",()=>{openPredictiveSelect(select);renderPredictiveMenu(select,input.value);});
+  input.addEventListener("keydown",event=>{
+    const buttons=[...menu.querySelectorAll(".predictive-select-option")];
+    if(event.key==="ArrowDown"||event.key==="ArrowUp"){
+      event.preventDefault();if(!wrapper.classList.contains("open"))openPredictiveSelect(select);
+      const refreshed=[...menu.querySelectorAll(".predictive-select-option")];if(!refreshed.length)return;
+      state.activeIndex=event.key==="ArrowDown"?Math.min(refreshed.length-1,state.activeIndex+1):Math.max(0,state.activeIndex<0?refreshed.length-1:state.activeIndex-1);
+      refreshed.forEach((button,index)=>button.classList.toggle("active",index===state.activeIndex));refreshed[state.activeIndex]?.scrollIntoView({block:"nearest"});
+    } else if(event.key==="Enter"&&wrapper.classList.contains("open")){
+      const current=[...menu.querySelectorAll(".predictive-select-option")];const button=current[state.activeIndex]||current[0];if(button){event.preventDefault();selectPredictiveValue(select,button.dataset.predictiveValue||"");}
+    } else if(event.key==="Escape"){event.preventDefault();closePredictiveSelect(select);input.blur();}
+  });
+  menu.addEventListener("mousedown",event=>event.preventDefault());
+  menu.addEventListener("click",event=>{const button=event.target.closest("[data-predictive-value]");if(button)selectPredictiveValue(select,button.dataset.predictiveValue||"");});
+  select.addEventListener("change",()=>requestAnimationFrame(()=>syncPredictiveSelect(select)));
+}
+function refreshPredictiveSelects(root=document){
+  const selects=root.querySelectorAll?root.querySelectorAll("select"):[];
+  selects.forEach(select=>enhancePredictiveSelect(select));
+  document.querySelectorAll("select.predictive-native-select").forEach(select=>syncPredictiveSelect(select));
+}
+function queuePredictiveSelectRefresh(){
+  if(predictiveRefreshQueued)return;predictiveRefreshQueued=true;
+  requestAnimationFrame(()=>{predictiveRefreshQueued=false;refreshPredictiveSelects();});
+}
+function initPredictiveSelects(){
+  ensurePredictiveSelectStyles();refreshPredictiveSelects();
+  if(!predictiveObserver&&document.body){predictiveObserver=new MutationObserver(()=>queuePredictiveSelectRefresh());predictiveObserver.observe(document.body,{childList:true,subtree:true});}
+  document.addEventListener("pointerdown",event=>{document.querySelectorAll("select.predictive-native-select").forEach(select=>{const state=predictiveSelectState.get(select);if(state&&!state.wrapper.contains(event.target))closePredictiveSelect(select);});});
+  document.addEventListener("reset",()=>setTimeout(refreshPredictiveSelects,0),true);
+}
+
 
 let inlineEntrySeq = 0;
 function ensureInlineDataEntryStyles(){
@@ -2116,6 +2257,7 @@ function renderAll() {
   renderPickLists();
   bindMonthTabs();
   bindJobEditors();
+  refreshPredictiveSelects();
 }
 
 function bindJobEditors() {
@@ -2821,6 +2963,7 @@ $("#downloadExcelBtn").addEventListener("click",downloadExcelReport);
 $("#printReportBtn").addEventListener("click",()=>window.print());
 
 async function initializeApp(){
+  initPredictiveSelects();
   try {
     const payload=await refreshSharedState({render:false});
     await refreshOperatorRequests({render:false});
