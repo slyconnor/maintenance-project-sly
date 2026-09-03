@@ -396,6 +396,21 @@ function showDataEntryDialog(dialog,viewName){
   switchView(viewName);
   requestAnimationFrame(()=>dialog.scrollIntoView({block:'start',behavior:'smooth'}));
 }
+function showMainEditorDialog(dialog,viewName){
+  if(!dialog)return;
+  // Main editors remain proper website modal boxes. Only small auxiliary data-entry
+  // prompts use the inline quick-entry panels.
+  dialog.classList.remove('data-entry-inline');
+  delete dialog.dataset.inlineView;
+  dialog.hidden=false;
+  document.querySelectorAll('.view.data-entry-open').forEach(view=>view.classList.remove('data-entry-open'));
+  switchView(viewName);
+  if(dialog.open)dialog.close();
+  requestAnimationFrame(()=>{
+    try{dialog.showModal();}catch{dialog.setAttribute('open','');}
+    refreshPredictiveSelects(dialog);
+  });
+}
 function inlineEntryHost(){
   const activeDialog=[...document.querySelectorAll('dialog.data-entry-inline[open]')].find(dialog=>dialog.closest('.view.active'))||document.querySelector('dialog.data-entry-inline[open]');
   return activeDialog?.querySelector('form')||document.querySelector('.view.active')||document.querySelector('main')||document.body;
@@ -1579,7 +1594,7 @@ function renderPmDialogOptions(selectedSchedule=null){
 }
 
 function openPreventiveDialog(scheduleId=""){
-  ensurePreventiveUi();const dialog=$("#pmDialog"),form=$("#pmForm");if(!dialog||!form)return;form.reset();const schedule=scheduleId?preventiveSchedules.find(item=>String(item.id)===String(scheduleId)):null;renderPmDialogOptions(schedule);form.elements.id.value=schedule?.id||"";form.elements.title.value=schedule?.title||"";form.elements.categoryId.value=schedule?.categoryId||pmActiveCategories()[0]?.id||"";form.elements.description.value=schedule?.description||"";form.elements.nextDueDate.value=schedule?.nextDueDate||pmDateOnly();form.elements.intervalValue.value=Math.max(1,Number(schedule?.intervalValue)||1);form.elements.intervalUnit.value=schedule?.intervalUnit||"month";form.elements.section.value=schedule?.section||"";form.elements.machineId.value=schedule?.machineId||"";form.elements.location.value=schedule?.location||"";form.elements.active.checked=schedule?.active!==false;$("#pmDialogTitle").textContent=schedule?`Edit · ${schedule.title}`:"New PM schedule";$("#pmDialogSubtitle").textContent=schedule?"Update the recurrence, assignment or next due date.":"Create a recurring site-wide or machine-specific preventive-maintenance job.";$("#pmDeleteBtn").hidden=!schedule;$("#pmSaveBtn").textContent=schedule?"Save changes":"Save schedule";showDataEntryDialog(dialog,"preventive");
+  ensurePreventiveUi();const dialog=$("#pmDialog"),form=$("#pmForm");if(!dialog||!form)return;form.reset();const schedule=scheduleId?preventiveSchedules.find(item=>String(item.id)===String(scheduleId)):null;renderPmDialogOptions(schedule);form.elements.id.value=schedule?.id||"";form.elements.title.value=schedule?.title||"";form.elements.categoryId.value=schedule?.categoryId||pmActiveCategories()[0]?.id||"";form.elements.description.value=schedule?.description||"";form.elements.nextDueDate.value=schedule?.nextDueDate||pmDateOnly();form.elements.intervalValue.value=Math.max(1,Number(schedule?.intervalValue)||1);form.elements.intervalUnit.value=schedule?.intervalUnit||"month";form.elements.section.value=schedule?.section||"";form.elements.machineId.value=schedule?.machineId||"";form.elements.location.value=schedule?.location||"";form.elements.active.checked=schedule?.active!==false;$("#pmDialogTitle").textContent=schedule?`Edit · ${schedule.title}`:"New PM schedule";$("#pmDialogSubtitle").textContent=schedule?"Update the recurrence, assignment or next due date.":"Create a recurring site-wide or machine-specific preventive-maintenance job.";$("#pmDeleteBtn").hidden=!schedule;$("#pmSaveBtn").textContent=schedule?"Save changes":"Save schedule";showMainEditorDialog(dialog,"preventive");
 }
 
 async function submitPreventiveSchedule(e){e.preventDefault();const form=e.currentTarget,assigned=[...$("#pmAssignees").querySelectorAll('input[type="checkbox"]:checked')].map(input=>input.value);if(!assigned.length){alert("Assign this PM job to at least one engineer.");return;}const schedule={id:String(form.elements.id.value||""),title:String(form.elements.title.value||"").trim(),categoryId:String(form.elements.categoryId.value||""),description:String(form.elements.description.value||"").trim(),nextDueDate:String(form.elements.nextDueDate.value||""),intervalValue:Number(form.elements.intervalValue.value)||1,intervalUnit:String(form.elements.intervalUnit.value||"month"),section:String(form.elements.section.value||""),machineId:String(form.elements.machineId.value||""),location:String(form.elements.location.value||"").trim(),assignedProfileIds:assigned,active:form.elements.active.checked};const btn=$("#pmSaveBtn");btn.disabled=true;btn.textContent="Saving…";try{await saveMutation("/api/preventive",{action:schedule.id?"update":"create",schedule});$("#pmDialog").close();switchView("preventive");}catch(error){showSaveError(error);}finally{btn.disabled=false;btn.textContent=schedule.id?"Save changes":"Save schedule";}}
@@ -2532,7 +2547,7 @@ async function openJob(jobNo=null) {
     addOrderedPartRow({date:defaultFormDate()});
     addPartRow({date:defaultFormDate()});
   }
-  showDataEntryDialog(jobDialog,"all");
+  showMainEditorDialog(jobDialog,"all");
   renderPendingJobFiles();
   if(job){
     loadAttachments("job",job.jobNo,$("#jobAttachmentsList"),$("#jobAttachmentStatus"));
@@ -2778,7 +2793,7 @@ function openMachineDialog(preselect="", machineId="") {
     if (preselect) $("#machineSectionSelect").value = preselect;
     $("#machineSaveBtn").textContent="Save Machine";
   }
-  showDataEntryDialog(machineDialog,"machines");
+  showMainEditorDialog(machineDialog,"machines");
 }
 $("#addMachineBtn").addEventListener("click",()=>openMachineDialog());
 $("#manageAddMachineBtn").addEventListener("click",()=>openMachineDialog());
