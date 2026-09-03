@@ -140,7 +140,7 @@ function applySharedState(payload) {
     minStock:(p.minStock===null||p.minStock===undefined||String(p.minStock).trim()==="")?null:Math.max(0,Number.isFinite(Number(p.minStock))?Number(p.minStock):0),
     binLocation:String(p.binLocation||""),
     preferredSupplier:String(p.preferredSupplier||""),
-    suppliers:Array.isArray(p.suppliers)?[...new Set(p.suppliers.map(value=>String(value||"").trim()).filter(Boolean))]:String(p.preferredSupplier||"").trim()?[String(p.preferredSupplier||"").trim()]:[],
+    suppliers:[...new Set([String(p.preferredSupplier||"").trim(),...(Array.isArray(p.suppliers)?p.suppliers:[])].map(value=>String(value||"").trim()).filter(Boolean))],
     lastKnownPrice:(p.lastKnownPrice===null||p.lastKnownPrice===undefined||String(p.lastKnownPrice).trim()==="")?null:Math.max(0,Number.isFinite(Number(p.lastKnownPrice))?Number(p.lastKnownPrice):0),
     reorderQty:Math.max(1,Number.isFinite(Number(p.reorderQty))?Number(p.reorderQty):1)
   })) : [];
@@ -422,7 +422,7 @@ function ensureV58Ui(){
     if(jobNoLabel)jobNoLabel.style.alignSelf="start";
     if(titleLabel)titleLabel.style.alignSelf="start";
     const box=document.createElement("div");box.className="v58-downtime-editor";box.id="jobDowntimeEditor";box.innerHTML=`<h3>Machine downtime</h3><label style="display:flex;gap:8px;align-items:center"><input type="checkbox" name="downtimeStopped" id="jobDowntimeStopped"> Machine stopped / production lost</label><div class="v58-form-grid" id="jobDowntimeFields"><label>Downtime started<input type="datetime-local" name="downtimeStart" id="jobDowntimeStart"></label><label>Back in production<input type="datetime-local" name="downtimeEnd" id="jobDowntimeEnd"></label></div><div class="v58-inline-actions"><button type="button" class="btn secondary compact" id="downtimeStartNowBtn">Start now</button><button type="button" class="btn secondary compact" id="downtimeEndNowBtn">Back in production now</button></div><p class="v58-mini-note">Leave the end time blank while the machine is still down. Downtime reports calculate the live duration automatically.</p>`;const anchor=jobForm.querySelector(".dialog-actions,.form-actions,.modal-actions");jobForm.insertBefore(box,anchor||null);}
-  const stockForm=document.getElementById("stockForm");if(stockForm){const minInput=stockForm.elements.minStock;if(minInput){minInput.placeholder="Optional";const minLabel=minInput.closest("label");if(minLabel){for(const node of minLabel.childNodes){if(node.nodeType===Node.TEXT_NODE&&/Minimum stock/i.test(node.textContent||"")){node.textContent="Minimum stock (optional)";break;}}}}const anchor=stockForm.querySelector(".dialog-actions,.form-actions,.modal-actions");if(!stockForm.elements.partName){const identity=document.createElement("div");identity.className="v58-form-grid";identity.id="stockPartIdentity";identity.innerHTML=`<label>Part name<input name="partName" id="stockEditablePartName" maxlength="180" required placeholder="Part name"></label><label>Part number<input name="partNo" id="stockEditablePartNumber" maxlength="100" placeholder="Optional"></label>`;stockForm.insertBefore(identity,anchor||null);}const extra=document.createElement("div");extra.className="v58-form-grid";extra.id="stockPurchasingDefaults";extra.innerHTML=`<label>Last known price (${currencySymbol()})<input name="lastKnownPrice" id="stockLastKnownPrice" type="number" min="0" step="0.01" placeholder="Optional"></label><label>Preferred supplier<input name="preferredSupplier" id="stockPreferredSupplier" list="v58SupplierList" placeholder="Optional"></label><label>Default reorder quantity<input name="reorderQty" id="stockReorderQty" type="number" min="1" step="1" value="1"></label><datalist id="v58SupplierList"></datalist>`;stockForm.insertBefore(extra,anchor||null);}
+  const stockForm=document.getElementById("stockForm");if(stockForm){const minInput=stockForm.elements.minStock;if(minInput){minInput.placeholder="Optional";const minLabel=minInput.closest("label");if(minLabel){for(const node of minLabel.childNodes){if(node.nodeType===Node.TEXT_NODE&&/Minimum stock/i.test(node.textContent||"")){node.textContent="Minimum stock (optional)";break;}}}}const anchor=stockForm.querySelector(".dialog-actions,.form-actions,.modal-actions");if(!stockForm.elements.partName){const identity=document.createElement("div");identity.className="v58-form-grid";identity.id="stockPartIdentity";identity.innerHTML=`<label>Part name<input name="partName" id="stockEditablePartName" maxlength="180" required placeholder="Part name"></label><label>Part number<input name="partNo" id="stockEditablePartNumber" maxlength="100" placeholder="Optional"></label>`;stockForm.insertBefore(identity,anchor||null);}const extra=document.createElement("div");extra.className="v58-form-grid";extra.id="stockPurchasingDefaults";extra.innerHTML=`<label>Last known price (${currencySymbol()})<input name="lastKnownPrice" id="stockLastKnownPrice" type="number" min="0" step="0.01" placeholder="Optional"></label><div class="part-suppliers-editor"><span class="part-suppliers-title">Suppliers <small>(first is default)</small></span><div id="stockSupplierRows" class="part-supplier-rows"></div><button type="button" class="btn secondary compact" id="stockAddSupplierRowBtn">+ Add supplier</button></div><label>Default reorder quantity<input name="reorderQty" id="stockReorderQty" type="number" min="1" step="1" value="1"></label><datalist id="v58SupplierList"></datalist>`;stockForm.insertBefore(extra,anchor||null);}
   const dlg=document.createElement("dialog");dlg.id="stockOrderDialog";dlg.innerHTML=`<form method="dialog" id="stockOrderForm" style="min-width:min(520px,90vw);padding:20px"><h2 id="stockOrderTitle">Create open order</h2><input type="hidden" name="partId"><div class="v58-form-grid"><label>Quantity ordered<input name="qty" type="number" min="1" step="1" required></label><label>Supplier<input name="supplier" list="v58SupplierList"></label><label>Expected date<input name="expectedDate" type="date"></label><label>Note<input name="note" maxlength="300"></label></div><div class="v58-inline-actions" style="justify-content:flex-end"><button type="button" class="btn secondary" id="stockOrderCancelBtn">Cancel</button><button type="submit" class="btn primary">Add to Open Orders</button></div></form>`;document.body.appendChild(dlg);
   bindV58Events();
 }
@@ -877,7 +877,25 @@ function renderMachines() {
 function partSupplierNames(part){
   return [...new Set([part?.preferredSupplier,...(Array.isArray(part?.suppliers)?part.suppliers:[])].map(value=>String(value||"").trim()).filter(Boolean))];
 }
+function supplierOptionsForPart(part,selected=""){
+  const wanted=String(selected||"").trim();
+  const values=partSupplierNames(part);
+  if(wanted&&!values.some(value=>value.toLowerCase()===wanted.toLowerCase()))values.push(wanted);
+  return `<option value="">Select supplier…</option>${values.map((name,index)=>`<option value="${esc(name)}" ${name===wanted?"selected":""}>${esc(name)}${index===0?" (default)":""}${isSupplierArchived(name)?" (archived)":""}</option>`).join("")}<option value="__add_supplier__">＋ Add supplier…</option>`;
+}
+async function linkSupplierToCatalogPart(partId,supplier,{makeDefault=false}={}){
+  const part=partCatalog.find(item=>String(item.id)===String(partId));
+  const clean=String(supplier||"").trim();
+  if(!part||!clean)return null;
+  const linked=partSupplierNames(part).filter(name=>name!==clean);
+  const next=makeDefault?[clean,...linked]:[...linked,clean];
+  try{
+    const payload=await saveMutation("/api/master-data",{entity:"part",action:"update",id:part.id,name:part.name,partNo:part.partNo||"",suppliers:next,preferredSupplier:next[0]||""},{render:false});
+    return payload;
+  }catch(error){showSaveError(error);return null;}
+}
 function ensurePartsFilterUi(){
+  if(!$("#partSupplierEditorStyles")){const style=document.createElement("style");style.id="partSupplierEditorStyles";style.textContent=`.part-suppliers-editor{display:grid;gap:7px}.part-suppliers-title{font-size:.84rem;font-weight:700}.part-suppliers-title small{font-weight:500;color:#667085}.part-supplier-rows{display:grid;gap:7px}.part-supplier-row{display:grid;grid-template-columns:58px minmax(0,1fr) auto;gap:7px;align-items:center}.part-supplier-kind{font-size:.75rem;font-weight:700;color:#667085}.part-supplier-row select{width:100%;box-sizing:border-box;padding:9px 10px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;color:inherit;font:inherit}@media(max-width:560px){.part-supplier-row{grid-template-columns:50px minmax(0,1fr)}.part-supplier-row button{grid-column:2}}`;document.head.appendChild(style);}
   const body=$("#stockPlaceholderBody");if(!body)return;
   const tableWrap=body.closest(".table-wrap")||body.closest("table")?.parentElement;
   if(!tableWrap)return;
@@ -1012,7 +1030,7 @@ function renderTeam() {
 
 function machineUsageCount(machine) { return jobs.filter(j=>jobBelongsToMachine(j,machine)).length; }
 function sectionUsageCount(name) { return machines.filter(m=>m.section===name).length + jobs.filter(j=>j.section===name).length; }
-function supplierUsageCount(name) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.supplier===name).length,0) + purchaseOrders.filter(order=>order.supplier===name).length; }
+function supplierUsageCount(name) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.supplier===name).length,0) + purchaseOrders.filter(order=>order.supplier===name).length + stockOrders.filter(order=>order.supplier===name).length + partCatalog.filter(part=>partSupplierNames(part).includes(name)).length; }
 function partUsageCount(part) { return jobs.reduce((n,j)=>n+(j.parts||[]).filter(p=>p.name===part.name).length,0); }
 function manageActions(entity, key, archived, used, edit=true) {
   const keyAttr = entity === "machine" || entity === "part" ? `data-id="${esc(key)}"` : `data-key="${esc(key)}"`;
@@ -1191,27 +1209,29 @@ async function addPartFromPartsPage() {
 
 function addPartRow(data={}) {
   partRowCounter += 1;
+  const selected = partCatalog.find(p=>p.id===data.partId);
+  const supplier = String(data.supplier||partSupplierNames(selected)[0]||"").trim();
   const row = document.createElement("div");
   row.className = "part-entry part-used-entry";
   row.dataset.partRow = String(partRowCounter);
   row.dataset.projectId = String(data.projectId||"");
   row.dataset.projectQty = String(data.projectQty||"");
-  row.innerHTML = `<div class="part-entry-head"><strong>Used part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
+  row.innerHTML = `<div class="part-entry-head"><strong>Used part ${partRowCounter}</strong><button type="button" class="remove-part-btn" title="Remove part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity used<input class="part-qty" type="number" min="0" step="1" value="${data.qty!==undefined?Math.max(0,Number(data.qty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptionsForPart(selected,supplier)}</select></label><label>Date used / fitted<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">Only <strong>Quantity used</strong> is deducted from tracked stock. Unit price is the price per item.</div><div class="part-stock-note"></div>`;
   $("#partsEditor").appendChild(row);
-  const selected = partCatalog.find(p=>p.id===data.partId);
-  if (selected) { row.querySelector('.part-number').value = selected.partNo || ""; if(data.unitPrice===undefined){const remembered=lastPurchasePrice(selected.name,selected.partNo,data.supplier||"");if(remembered)row.querySelector('.part-price').value=Number(remembered.price).toFixed(2);} }
+  if (selected) { row.querySelector('.part-number').value = selected.partNo || ""; if(data.unitPrice===undefined){const remembered=lastPurchasePrice(selected.name,selected.partNo,supplier);if(remembered)row.querySelector('.part-price').value=Number(remembered.price).toFixed(2);} }
   updatePartRowStockNote(row);
 }
 
 function addOrderedPartRow(data={}) {
   orderedPartRowCounter += 1;
+  const selected = partCatalog.find(p=>p.id===data.partId);
+  const supplier = String(data.supplier||partSupplierNames(selected)[0]||"").trim();
   const row = document.createElement("div");
   row.className = "part-entry part-ordered-entry";
   row.dataset.orderedPartRow = String(orderedPartRowCounter);
-  row.innerHTML = `<div class="part-entry-head"><strong>Ordered part ${orderedPartRowCounter}</strong><button type="button" class="remove-ordered-part-btn" title="Remove ordered part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity ordered<input class="part-ordered-qty" type="number" min="0" step="1" value="${data.orderedQty!==undefined?Math.max(0,Number(data.orderedQty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptions(data.supplier||"")}</select></label><label>Date ordered<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">This records what was ordered for the job. It does <strong>not</strong> change stock. Stock only changes when parts are received through ordering or recorded as used.</div><div class="part-stock-note"></div>`;
+  row.innerHTML = `<div class="part-entry-head"><strong>Ordered part ${orderedPartRowCounter}</strong><button type="button" class="remove-ordered-part-btn" title="Remove ordered part">Remove</button></div><div class="part-entry-grid"><label>Part<select class="part-select">${partOptions(data.partId||"")}</select></label><label>Part number<input class="part-number" value="${esc(data.partNo||"")}" readonly placeholder="From saved part" /></label><label>Quantity ordered<input class="part-ordered-qty" type="number" min="0" step="1" value="${data.orderedQty!==undefined?Math.max(0,Number(data.orderedQty)||0):1}" /></label><label>Unit price (${currencySymbol()})<input class="part-price" type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?esc(data.unitPrice):""}" placeholder="Price per item" /></label><label>Supplier<select class="supplier-select">${supplierOptionsForPart(selected,supplier)}</select></label><label>Date ordered<input class="part-date" type="date" value="${esc(data.date||defaultFormDate())}" /></label></div><div class="price-note">This records what was ordered for the job. It does <strong>not</strong> change stock. Stock only changes when parts are received through ordering or recorded as used.</div><div class="part-stock-note"></div>`;
   $("#partsOrderedEditor")?.appendChild(row);
-  const selected = partCatalog.find(p=>p.id===data.partId);
-  if (selected) { row.querySelector('.part-number').value = selected.partNo || ""; if(data.unitPrice===undefined){const remembered=lastPurchasePrice(selected.name,selected.partNo,data.supplier||"");if(remembered)row.querySelector('.part-price').value=Number(remembered.price).toFixed(2);} }
+  if (selected) { row.querySelector('.part-number').value = selected.partNo || ""; if(data.unitPrice===undefined){const remembered=lastPurchasePrice(selected.name,selected.partNo,supplier);if(remembered)row.querySelector('.part-price').value=Number(remembered.price).toFixed(2);} }
   updatePartRowStockNote(row);
 }
 
@@ -1222,7 +1242,8 @@ function refreshAllPartRowOptions() {
     if(!partSel||!supplierSel)return;
     const p = partSel.value, s = supplierSel.value;
     partSel.innerHTML = partOptions(p);
-    supplierSel.innerHTML = supplierOptions(s);
+    const part=partCatalog.find(item=>String(item.id)===String(p));
+    supplierSel.innerHTML = supplierOptionsForPart(part,s);
   });
 }
 
@@ -1518,7 +1539,7 @@ function ensureProjectsUi(){
   $("#projectPartsUsedList")?.addEventListener("change",event=>{const checkbox=event.target.closest('input[name="projectPartUsage"]');if(!checkbox)return;const qty=$("#projectPartsUsedList")?.querySelector(`[data-project-part-qty="${CSS.escape(checkbox.value)}"]`);if(qty&&!checkbox.disabled)qty.disabled=!checkbox.checked;});
   $("#projectAddOrderedPartBtn")?.addEventListener("click",()=>addProjectDirectPartRow("ordered"));
   $("#projectAddUsedPartBtn")?.addEventListener("click",()=>addProjectDirectPartRow("used"));
-  [$("#projectOrderedPartsEditor"),$("#projectUsedPartsEditor")].forEach(host=>{if(!host)return;host.addEventListener("click",event=>{const remove=event.target.closest("[data-project-direct-remove]");if(remove)remove.closest(".project-direct-part")?.remove();});host.addEventListener("change",async event=>{const row=event.target.closest(".project-direct-part");if(!row)return;const select=event.target.closest("[data-project-catalog]");if(select){const part=partCatalog.find(item=>String(item.id)===String(select.value));if(part){row.dataset.catalogPartId=String(part.id);const name=row.querySelector("[data-project-name]"),code=row.querySelector("[data-project-code]"),price=row.querySelector("[data-project-price]");if(name)name.value=part.name||"";if(code)code.value=part.partNo||"";if(price&&!String(price.value||"").trim()){const remembered=lastPurchasePrice(part.name,part.partNo,"");if(remembered)price.value=Number(remembered.price).toFixed(2);}}else{row.dataset.catalogPartId="";}return;}const supplierSelect=event.target.closest("[data-project-supplier-select]");if(supplierSelect&&supplierSelect.value==="__add_supplier__"){const name=prompt("New supplier name:");if(!name?.trim()){supplierSelect.value="";return;}try{const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false});const saved=payload.value||name.trim();supplierSelect.innerHTML=supplierOptions(saved);supplierSelect.value=saved;}catch(error){supplierSelect.value="";showSaveError(error);}}});});
+  [$("#projectOrderedPartsEditor"),$("#projectUsedPartsEditor")].forEach(host=>{if(!host)return;host.addEventListener("click",event=>{const remove=event.target.closest("[data-project-direct-remove]");if(remove)remove.closest(".project-direct-part")?.remove();});host.addEventListener("change",async event=>{const row=event.target.closest(".project-direct-part");if(!row)return;const select=event.target.closest("[data-project-catalog]");if(select){const part=partCatalog.find(item=>String(item.id)===String(select.value));const supplierSelect=row.querySelector("[data-project-supplier-select]");if(part){row.dataset.catalogPartId=String(part.id);const name=row.querySelector("[data-project-name]"),code=row.querySelector("[data-project-code]"),price=row.querySelector("[data-project-price]");const defaultSupplier=partSupplierNames(part)[0]||"";if(name)name.value=part.name||"";if(code)code.value=part.partNo||"";if(supplierSelect){supplierSelect.innerHTML=supplierOptionsForPart(part,defaultSupplier);supplierSelect.value=defaultSupplier;}if(price&&!String(price.value||"").trim()){const remembered=lastPurchasePrice(part.name,part.partNo,defaultSupplier);if(remembered)price.value=Number(remembered.price).toFixed(2);}}else{row.dataset.catalogPartId="";if(supplierSelect){supplierSelect.innerHTML=supplierOptions("");supplierSelect.value="";}}return;}const supplierSelect=event.target.closest("[data-project-supplier-select]");if(supplierSelect&&supplierSelect.value==="__add_supplier__"){const partId=String(row.dataset.catalogPartId||"");const part=partCatalog.find(item=>String(item.id)===partId);const name=prompt("New supplier name:");if(!name?.trim()){supplierSelect.value=partSupplierNames(part)[0]||"";return;}try{const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false});const saved=payload.value||name.trim();if(part)await linkSupplierToCatalogPart(part.id,saved,{makeDefault:partSupplierNames(part).length===0});const currentPart=partCatalog.find(item=>String(item.id)===partId);supplierSelect.innerHTML=currentPart?supplierOptionsForPart(currentPart,saved):supplierOptions(saved);supplierSelect.value=saved;}catch(error){supplierSelect.value=partSupplierNames(part)[0]||"";showSaveError(error);}}});});
   $("#projectsBody")?.addEventListener("click",e=>{const edit=e.target.closest("[data-project-edit]");if(edit)openProjectDialog(edit.dataset.projectEdit);});
   ensureJobProjectField();
 }
@@ -1531,12 +1552,13 @@ function addProjectDirectPartRow(kind,data={}){
   const host=$(kind==="ordered"?"#projectOrderedPartsEditor":"#projectUsedPartsEditor");if(!host)return;
   projectDirectPartCounter+=1;
   const row=document.createElement("div");row.className="project-direct-part part-entry";row.dataset.kind=kind;row.dataset.directId=String(data.id||"");row.dataset.catalogPartId=String(data.catalogPartId||"");
-  const selectedSupplier=String(data.supplier||(Array.isArray(data.suppliers)?data.suppliers[0]:"")||"").trim();
+  const selectedPart=partCatalog.find(item=>String(item.id)===String(data.catalogPartId||""));
+  const selectedSupplier=String(data.supplier||(Array.isArray(data.suppliers)?data.suppliers[0]:"")||partSupplierNames(selectedPart)[0]||"").trim();
   const alreadyInParts=Boolean(data.catalogPartId);
   const qty=kind==="ordered"?Math.max(0,Number(data.orderedQty)||0):Math.max(0,Number(data.usedQty??data.qty)||0);
-  row.innerHTML=`<div class="part-entry-head"><strong>${kind==="ordered"?"Ordered part":"Used part"} ${projectDirectPartCounter}</strong><button type="button" class="remove-part-btn" data-project-direct-remove>Remove</button></div><div class="part-entry-grid project-part-entry-grid"><label>Part<select data-project-catalog>${projectCatalogOptions(data.catalogPartId||"")}</select></label><label>Part name<input data-project-name maxlength="180" value="${esc(data.name||"")}" placeholder="e.g. Anvil"></label><label>Part code<input data-project-code maxlength="100" value="${esc(data.partNo||"")}" placeholder="Optional"></label><label>${kind==="ordered"?"Quantity ordered":"Quantity used"}<input data-project-qty type="number" min="0" step="0.01" value="${qty||1}"></label><label>Unit cost (${currencySymbol()})<input data-project-price type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?Math.max(0,Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label>Supplier<select data-project-supplier-select>${supplierOptions(selectedSupplier)}</select></label></div><label class="project-manual-stock"><input data-project-add-parts type="checkbox" ${data.addToInventory||alreadyInParts?'checked':''}> ${alreadyInParts?'In Parts inventory':'Add to Parts inventory'}</label>`;
+  row.innerHTML=`<div class="part-entry-head"><strong>${kind==="ordered"?"Ordered part":"Used part"} ${projectDirectPartCounter}</strong><button type="button" class="remove-part-btn" data-project-direct-remove>Remove</button></div><div class="part-entry-grid project-part-entry-grid"><label>Part<select data-project-catalog>${projectCatalogOptions(data.catalogPartId||"")}</select></label><label>Part name<input data-project-name maxlength="180" value="${esc(data.name||"")}" placeholder="e.g. Anvil"></label><label>Part code<input data-project-code maxlength="100" value="${esc(data.partNo||"")}" placeholder="Optional"></label><label>${kind==="ordered"?"Quantity ordered":"Quantity used"}<input data-project-qty type="number" min="0" step="0.01" value="${qty||1}"></label><label>Unit cost (${currencySymbol()})<input data-project-price type="number" min="0" step="0.01" value="${data.unitPrice!==undefined?Math.max(0,Number(data.unitPrice)||0):""}" placeholder="0.00"></label><label>Supplier<select data-project-supplier-select>${selectedPart?supplierOptionsForPart(selectedPart,selectedSupplier):supplierOptions(selectedSupplier)}</select></label></div><label class="project-manual-stock"><input data-project-add-parts type="checkbox" ${data.addToInventory||alreadyInParts?'checked':''}> ${alreadyInParts?'In Parts inventory':'Add to Parts inventory'}</label>`;
   host.appendChild(row);
-  if(data.unitPrice===undefined&&data.catalogPartId){const part=partCatalog.find(item=>String(item.id)===String(data.catalogPartId));const remembered=part?lastPurchasePrice(part.name,part.partNo,selectedSupplier):null;if(remembered){const price=row.querySelector("[data-project-price]");if(price)price.value=Number(remembered.price).toFixed(2);}}
+  if(data.unitPrice===undefined&&data.catalogPartId){const part=selectedPart;const remembered=part?lastPurchasePrice(part.name,part.partNo,selectedSupplier):null;if(remembered){const price=row.querySelector("[data-project-price]");if(price)price.value=Number(remembered.price).toFixed(2);}}
 }
 function renderProjectDirectParts(project){
   const ordered=$("#projectOrderedPartsEditor"),used=$("#projectUsedPartsEditor");if(!ordered||!used)return;ordered.innerHTML="";used.innerHTML="";projectDirectPartCounter=0;
@@ -1619,7 +1641,7 @@ function ensurePurchaseOrderUi(){
     updatePurchaseOrderPlaceState();
   });
   $("#poLines")?.addEventListener("input",updatePurchaseOrderTotals);
-  $("#poLines")?.addEventListener("change",e=>{const name=e.target.closest('.po-part-name');if(name){const part=activeParts().find(p=>String(p.name).toLowerCase()===String(name.value).trim().toLowerCase());const row=name.closest('.po-line');const code=row?.querySelector('.po-part-code');if(part&&code&&!code.value)code.value=part.partNo||"";autofillPurchaseOrderPrice(row,part);}updatePurchaseOrderTotals();});
+  $("#poLines")?.addEventListener("change",e=>{const name=e.target.closest('.po-part-name');if(name){const part=activeParts().find(p=>String(p.name).toLowerCase()===String(name.value).trim().toLowerCase());const row=name.closest('.po-line');const code=row?.querySelector('.po-part-code');if(part&&code&&!code.value)code.value=part.partNo||"";const supplierSelect=$("#poSupplierSelect");const defaultSupplier=partSupplierNames(part)[0]||"";if(part&&supplierSelect&&!String(supplierSelect.value||"").trim()&&defaultSupplier){supplierSelect.innerHTML=purchaseOrderSupplierOptions(defaultSupplier);supplierSelect.value=defaultSupplier;}autofillPurchaseOrderPrice(row,part);}updatePurchaseOrderTotals();});
   $("#poLines")?.addEventListener("click",e=>{const btn=e.target.closest('[data-po-remove-line]');if(!btn)return;btn.closest('.po-line')?.remove();if(!$("#poLines")?.children.length)addPurchaseOrderLine();updatePurchaseOrderTotals();});
   $("#poOpenList")?.addEventListener("click",handleOpenPurchaseOrderClick);
   $("#poOrderedList")?.addEventListener("click",handleOrderedPurchaseOrderClick);
@@ -2372,13 +2394,35 @@ async function handleJobPartEditorChange(e){
     if (e.target.value === "__add_part__") {
       const part=await promptAddCatalogPart();
       if(!part){e.target.value="";return;}
-      refreshAllPartRowOptions(); row.querySelector('.part-select').value=part.id; row.querySelector('.part-number').value=part.partNo||""; updatePartRowStockNote(row);
-    } else { const part=partCatalog.find(p=>p.id===e.target.value);row.querySelector('.part-number').value=part?.partNo||"";const price=row.querySelector('.part-price');if(price){const remembered=part?lastPurchasePrice(part.name,part.partNo,""):null;price.value=remembered?Number(remembered.price).toFixed(2):"";} updatePartRowStockNote(row); }
+      refreshAllPartRowOptions();
+      row.querySelector('.part-select').value=part.id;
+      row.querySelector('.part-number').value=part.partNo||"";
+      const supplier=row.querySelector('.supplier-select');
+      const defaultSupplier=partSupplierNames(part)[0]||"";
+      if(supplier){supplier.innerHTML=supplierOptionsForPart(part,defaultSupplier);supplier.value=defaultSupplier;}
+      const price=row.querySelector('.part-price');if(price){const remembered=lastPurchasePrice(part.name,part.partNo,defaultSupplier);price.value=remembered?Number(remembered.price).toFixed(2):"";}
+      updatePartRowStockNote(row);
+    } else {
+      const part=partCatalog.find(p=>p.id===e.target.value);
+      row.querySelector('.part-number').value=part?.partNo||"";
+      const defaultSupplier=partSupplierNames(part)[0]||"";
+      const supplier=row.querySelector('.supplier-select');if(supplier){supplier.innerHTML=supplierOptionsForPart(part,defaultSupplier);supplier.value=defaultSupplier;}
+      const price=row.querySelector('.part-price');if(price){const remembered=part?lastPurchasePrice(part.name,part.partNo,defaultSupplier):null;price.value=remembered?Number(remembered.price).toFixed(2):"";}
+      updatePartRowStockNote(row);
+    }
   }
   if (e.target.classList.contains('supplier-select') && e.target.value === "__add_supplier__") {
-    const name=prompt("New supplier name:");if(!name?.trim()){e.target.value="";return;}
-    try { const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false}); const saved=payload.value||name.trim();refreshAllPartRowOptions();row.querySelector('.supplier-select').value=saved; }
-    catch(error){e.target.value="";showSaveError(error);}
+    const partId=row.querySelector('.part-select')?.value||"";
+    const part=partCatalog.find(p=>String(p.id)===String(partId));
+    const name=prompt("New supplier name:");if(!name?.trim()){e.target.value=partSupplierNames(part)[0]||"";return;}
+    try {
+      const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false});
+      const saved=payload.value||name.trim();
+      if(part)await linkSupplierToCatalogPart(part.id,saved,{makeDefault:partSupplierNames(part).length===0});
+      const currentPart=partCatalog.find(p=>String(p.id)===String(partId));
+      e.target.innerHTML=supplierOptionsForPart(currentPart,saved);e.target.value=saved;
+    }
+    catch(error){e.target.value=partSupplierNames(part)[0]||"";showSaveError(error);}
   }
 }
 $("#partsEditor").addEventListener("change",handleJobPartEditorChange);
@@ -2602,12 +2646,33 @@ function closeInlineStockEditor(){
   const panel=$("#stockInlineEditor");if(panel)panel.hidden=true;
   $("#partsView")?.classList.remove("parts-editor-open");
 }
+function stockSupplierSelectOptions(selected=""){
+  return supplierOptions(selected);
+}
+function addStockSupplierRow(selected=""){
+  const host=$("#stockSupplierRows");if(!host)return;
+  const row=document.createElement("div");row.className="part-supplier-row";
+  const first=host.children.length===0;
+  row.innerHTML=`<span class="part-supplier-kind">${first?"Default":"Also"}</span><select class="stock-part-supplier">${stockSupplierSelectOptions(selected)}</select><button type="button" class="btn danger compact" data-remove-stock-supplier ${first?'title="Removing the default makes the next supplier the default"':""}>Remove</button>`;
+  host.appendChild(row);
+}
+function renderStockSupplierRows(part){
+  const host=$("#stockSupplierRows");if(!host)return;host.innerHTML="";
+  const values=partSupplierNames(part);
+  if(values.length)values.forEach(value=>addStockSupplierRow(value));else addStockSupplierRow("");
+}
+function collectStockPartSuppliers(){
+  return [...new Set($$("#stockSupplierRows .stock-part-supplier").map(select=>String(select.value||"").trim()).filter(value=>value&&!value.startsWith("__")))];
+}
+function relabelStockSupplierRows(){
+  $$("#stockSupplierRows .part-supplier-row").forEach((row,index)=>{const label=row.querySelector(".part-supplier-kind");if(label)label.textContent=index===0?"Default":"Also";});
+}
 const stockDialog=$("#stockDialog");
 function setStockFormEnabled() {
   const form=$("#stockForm");
   if(!form)return;
   const tracked=form.elements.stockTracked.checked;
-  [form.elements.currentStock,form.elements.minStock,form.elements.binLocation,form.elements.preferredSupplier,form.elements.reorderQty].filter(Boolean).forEach(el=>{el.disabled=!tracked;});
+  [form.elements.currentStock,form.elements.minStock,form.elements.binLocation,form.elements.reorderQty].filter(Boolean).forEach(el=>{el.disabled=!tracked;});
   const help=$("#stockTrackingHelp");
   if(help) help.textContent=tracked
     ? "This current-stock figure is treated as the known physical count now. Existing historical jobs are not deducted again; future job use is deducted automatically."
@@ -2628,7 +2693,7 @@ function openStockDialog(partId) {
   form.elements.currentStock.value=stockNumber(part.currentStock);
   form.elements.minStock.value=hasMinimumStock(part)?stockNumber(part.minStock):"";
   form.elements.binLocation.value=part.binLocation||"";
-  if(form.elements.preferredSupplier)form.elements.preferredSupplier.value=part.preferredSupplier||"";
+  renderStockSupplierRows(part);
   if(form.elements.reorderQty)form.elements.reorderQty.value=Math.max(1,Number(part.reorderQty)||1);
   $("#stockDialogTitle").textContent=`Stock · ${part.name}`;
   $("#stockPartName").textContent=part.name;
@@ -2638,6 +2703,17 @@ function openStockDialog(partId) {
 }
 $$('[data-close-stock]').forEach(b=>b.addEventListener('click',closeInlineStockEditor));
 $("#stockForm")?.elements.stockTracked.addEventListener("change",()=>{stockTrackingTouched=true;setStockFormEnabled();});
+$("#stockForm")?.addEventListener("click",event=>{
+  if(event.target.closest("#stockAddSupplierRowBtn")){addStockSupplierRow("");return;}
+  const remove=event.target.closest("[data-remove-stock-supplier]");if(remove){remove.closest(".part-supplier-row")?.remove();if(!$("#stockSupplierRows")?.children.length)addStockSupplierRow("");relabelStockSupplierRows();}
+});
+$("#stockForm")?.addEventListener("change",async event=>{
+  const select=event.target.closest(".stock-part-supplier");if(!select||select.value!=="__add_supplier__")return;
+  const name=String(prompt("New supplier name:")||"").trim();
+  if(!name){select.value="";return;}
+  try{const payload=await saveMutation("/api/catalog",{type:"supplier",value:name},{render:false});const saved=String(payload.value||name);select.innerHTML=stockSupplierSelectOptions(saved);select.value=saved;}
+  catch(error){select.value="";showSaveError(error);}
+});
 $("#stockForm")?.addEventListener("submit",async e=>{
   e.preventDefault();
   const form=e.currentTarget;
@@ -2657,7 +2733,8 @@ $("#stockForm")?.addEventListener("submit",async e=>{
   try{
     const partName=String(form.elements.partName?.value??part.name??"").trim();
     if(!partName){alert("Part name is required.");return;}
-    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:partName,partNo:String(form.elements.partNo?.value??part.partNo??"").trim(),lastKnownPrice,stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||"",preferredSupplier:tracked?String(form.elements.preferredSupplier?.value||"").trim():part.preferredSupplier||"",reorderQty:tracked?Math.max(1,Number(form.elements.reorderQty?.value)||1):Math.max(1,Number(part.reorderQty)||1)});
+    const linkedSuppliers=collectStockPartSuppliers();
+    const result=await masterMutation({entity:"part",action:"update",id:part.id,name:partName,partNo:String(form.elements.partNo?.value??part.partNo??"").trim(),lastKnownPrice,stockTracked:tracked,currentStock:current,minStock:min,binLocation:tracked?String(form.elements.binLocation.value||"").trim():part.binLocation||"",suppliers:linkedSuppliers,preferredSupplier:linkedSuppliers[0]||"",reorderQty:tracked?Math.max(1,Number(form.elements.reorderQty?.value)||1):Math.max(1,Number(part.reorderQty)||1)});
     if(!result)return;
     editingStockPartId=null;
     stockTrackingTouched=false;

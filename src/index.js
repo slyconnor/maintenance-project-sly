@@ -303,6 +303,11 @@ function attachmentExtensionAllowed(fileName, state) {
 
 function normalizeCatalogPart(part) {
   const p = part && typeof part === "object" ? part : {};
+  const preferredSupplier = String(p.preferredSupplier || "").trim();
+  const supplierValues = [...new Set([
+    preferredSupplier,
+    ...(Array.isArray(p.suppliers) ? p.suppliers : [])
+  ].map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50);
   return {
     ...p,
     id: String(p.id || `p-${slug(p.name || "part")}-${Date.now()}`),
@@ -313,8 +318,8 @@ function normalizeCatalogPart(part) {
     currentStock: Number.isFinite(Number(p.currentStock)) ? Number(p.currentStock) : 0,
     minStock: (p.minStock === null || p.minStock === undefined || String(p.minStock).trim() === "") ? null : Math.max(0, Number.isFinite(Number(p.minStock)) ? Number(p.minStock) : 0),
     binLocation: String(p.binLocation || "").trim(),
-    preferredSupplier: String(p.preferredSupplier || "").trim(),
-    suppliers: [...new Set((Array.isArray(p.suppliers) ? p.suppliers : (String(p.preferredSupplier || "").trim() ? [p.preferredSupplier] : [])).map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50),
+    preferredSupplier: supplierValues[0] || "",
+    suppliers: supplierValues,
     lastKnownPrice: (p.lastKnownPrice === null || p.lastKnownPrice === undefined || String(p.lastKnownPrice).trim() === "") ? null : Math.max(0, Number.isFinite(Number(p.lastKnownPrice)) ? Number(p.lastKnownPrice) : 0),
     reorderQty: Math.max(1, Number.isFinite(Number(p.reorderQty)) ? Number(p.reorderQty) : 1)
   };
@@ -337,11 +342,17 @@ function catalogPartForPrice(state, row) {
 }
 
 function rememberCatalogPartPrice(state, row) {
-  const price = Number(row?.unitPrice);
-  if (!Number.isFinite(price) || price < 0) return null;
   const part = catalogPartForPrice(state, row);
   if (!part) return null;
-  part.lastKnownPrice = Math.round(price * 100) / 100;
+  const price = Number(row?.unitPrice);
+  if (Number.isFinite(price) && price >= 0) part.lastKnownPrice = Math.round(price * 100) / 100;
+  const supplier = String(row?.supplier || (Array.isArray(row?.suppliers) ? row.suppliers[0] : "") || "").trim();
+  if (supplier) {
+    ensureUniqueString(state.suppliers, supplier);
+    part.suppliers = [...new Set([...(Array.isArray(part.suppliers) ? part.suppliers : []), supplier].map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50);
+    if (!String(part.preferredSupplier || "").trim()) part.preferredSupplier = part.suppliers[0] || supplier;
+    part.suppliers = [...new Set([String(part.preferredSupplier || "").trim(), ...part.suppliers].filter(Boolean))].slice(0, 50);
+  }
   return part;
 }
 
@@ -2096,7 +2107,7 @@ async function handleApi(request, env, routeOverride = "") {
           if (action === "place" && !details.dateQuoteNeeded) throw new Error("Enter the Date goods needed before placing the order.");
           if (action === "place" && !details.requestedBy) throw new Error("Enter who raised the requisition before placing the order.");
           ensureUniqueString(state.suppliers, supplier);
-          for (const line of lines) rememberCatalogPartPrice(state, line);
+          for (const line of lines) rememberCatalogPartPrice(state, { ...line, supplier });
         }
         let order = state.purchaseOrders.find((row) => String(row.id) === String(body.orderId || ""));
         const applyDetails = (target) => {
@@ -2343,8 +2354,8 @@ async function handleApi(request, env, routeOverride = "") {
           if (!Number.isFinite(unitPrice) || unitPrice < 0) throw new Error("Unit price must be zero or more.");
           existing.qty = qty;
           existing.unitPrice = unitPrice;
-          rememberCatalogPartPrice(state, existing);
           existing.supplier = String(body.supplier || "").trim().slice(0, 160);
+          rememberCatalogPartPrice(state, existing);
           existing.date = cleanDateOnly(body.date);
           if (!existing.date) throw new Error("Choose the date the part was used.");
           if (existing.supplier) ensureUniqueString(state.suppliers, existing.supplier);
@@ -2390,8 +2401,12 @@ async function handleApi(request, env, routeOverride = "") {
           const orderedQty = Number(body.qty);
           if (!Number.isFinite(orderedQty) || orderedQty <= 0) throw new Error("Order quantity must be greater than zero.");
           const supplier = String(body.supplier || part.preferredSupplier || "").trim();
-          if (supplier) ensureUniqueString(state.suppliers, supplier);
-          part.preferredSupplier = supplier || String(part.preferredSupplier || "");
+          if (supplier) {
+            ensureUniqueString(state.suppliers, supplier);
+            part.suppliers = [...new Set([...(Array.isArray(part.suppliers) ? part.suppliers : []), supplier].map((value) => String(value || "").trim()).filter(Boolean))].slice(0, 50);
+            if (!String(part.preferredSupplier || "").trim()) part.preferredSupplier = part.suppliers[0] || supplier;
+            part.suppliers = [...new Set([String(part.preferredSupplier || "").trim(), ...part.suppliers].filter(Boolean))].slice(0, 50);
+          }
           part.reorderQty = Math.max(1, Number(body.reorderQty || part.reorderQty || orderedQty) || 1);
           const createdAt = new Date().toISOString();
           const order = {
@@ -2639,8 +2654,15 @@ async function handleApi(request, env, routeOverride = "") {
             if (state.suppliers.some((s) => s !== oldName && s.toLowerCase() === name.toLowerCase())) throw new Error("That supplier already exists.");
             state.suppliers = state.suppliers.map((s) => s === oldName ? name : s).sort((a,b)=>a.localeCompare(b));
             state.archivedSuppliers = state.archivedSuppliers.map((s) => s === oldName ? name : s);
+            for (const part of (state.partCatalog || [])) {
+              if (String(part.preferredSupplier || "") === oldName) part.preferredSupplier = name;
+              part.suppliers = [...new Set((Array.isArray(part.suppliers) ? part.suppliers : []).map((supplier) => supplier === oldName ? name : supplier).filter(Boolean))].slice(0, 50);
+              if (part.preferredSupplier) part.suppliers = [...new Set([part.preferredSupplier, ...part.suppliers])].slice(0, 50);
+            }
             for (const job of state.jobs) for (const part of (job.parts || [])) if (part.supplier === oldName) part.supplier = name;
+            for (const project of (state.projects || [])) for (const row of (project.projectParts || [])) if (Array.isArray(row.suppliers)) row.suppliers = row.suppliers.map((supplier) => supplier === oldName ? name : supplier);
             for (const order of (state.purchaseOrders || [])) if (order.supplier === oldName) order.supplier = name;
+            for (const order of (state.stockOrders || [])) if (order.supplier === oldName) order.supplier = name;
             return { oldName, name };
           }
           if (action === "archive") {
@@ -2652,8 +2674,8 @@ async function handleApi(request, env, routeOverride = "") {
             return { name: oldName, archived: false };
           }
           if (action === "delete") {
-            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName)) || (state.purchaseOrders || []).some((order) => order.supplier === oldName);
-            if (used) throw new Error("This supplier appears in historical parts or purchase-order records, so it cannot be permanently deleted. Archive it instead.");
+            const used = state.jobs.some((j) => (j.parts || []).some((p) => p.supplier === oldName)) || (state.purchaseOrders || []).some((order) => order.supplier === oldName) || (state.stockOrders || []).some((order) => order.supplier === oldName) || (state.partCatalog || []).some((part) => String(part.preferredSupplier || "") === oldName || (Array.isArray(part.suppliers) && part.suppliers.includes(oldName)));
+            if (used) throw new Error("This supplier is linked to parts or historical order/use records, so it cannot be permanently deleted. Remove it from the linked parts or archive it instead.");
             state.suppliers = state.suppliers.filter((s) => s !== oldName);
             state.archivedSuppliers = state.archivedSuppliers.filter((s) => s !== oldName);
             return { name: oldName, deleted: true };
@@ -2690,9 +2712,15 @@ async function handleApi(request, env, routeOverride = "") {
             part.minStock = minStock === null ? null : Math.max(0, minStock);
             part.lastKnownPrice = lastKnownPrice === null ? null : Math.round(lastKnownPrice * 100) / 100;
             part.binLocation = body.binLocation === undefined ? String(part.binLocation || "").trim() : String(body.binLocation || "").trim();
-            part.preferredSupplier = body.preferredSupplier === undefined ? String(part.preferredSupplier || "").trim() : String(body.preferredSupplier || "").trim();
+            let linkedSuppliers = Array.isArray(part.suppliers) ? part.suppliers.map((value) => String(value || "").trim()).filter(Boolean) : [];
+            if (body.suppliers !== undefined) linkedSuppliers = (Array.isArray(body.suppliers) ? body.suppliers : []).map((value) => String(value || "").trim()).filter(Boolean);
+            const requestedPreferred = body.preferredSupplier === undefined ? String(part.preferredSupplier || "").trim() : String(body.preferredSupplier || "").trim();
+            if (requestedPreferred) linkedSuppliers = [requestedPreferred, ...linkedSuppliers.filter((value) => value !== requestedPreferred)];
+            linkedSuppliers = [...new Set(linkedSuppliers)].slice(0, 50);
+            part.suppliers = linkedSuppliers;
+            part.preferredSupplier = linkedSuppliers[0] || "";
             part.reorderQty = body.reorderQty === undefined ? Math.max(1, Number(part.reorderQty) || 1) : Math.max(1, Number(body.reorderQty) || 1);
-            if (part.preferredSupplier) ensureUniqueString(state.suppliers, part.preferredSupplier);
+            for (const supplier of part.suppliers) ensureUniqueString(state.suppliers, supplier);
             if (!wasTracked && stockTracked) resetHistoricalStockBaseline(state, part);
             if (wasTracked && stockTracked && currentStock !== previousStock) pushStockTransaction(state, { partId: part.id, type: "adjustment", qty: currentStock - previousStock, balanceAfter: currentStock, note: "Manual stock count adjustment" });
             for (const job of state.jobs) {
