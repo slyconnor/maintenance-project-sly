@@ -2654,9 +2654,17 @@ async function handleApi(request, env, routeOverride = "") {
             if (wasTracked && stockTracked && currentStock !== previousStock) pushStockTransaction(state, { partId: part.id, type: "adjustment", qty: currentStock - previousStock, balanceAfter: currentStock, note: "Manual stock count adjustment" });
             for (const job of state.jobs) {
               for (const used of (job.parts || [])) {
-                if (used.name === oldName) {
+                if (String(used.partId || "") === String(part.id) || (!used.partId && used.name === oldName)) {
                   used.name = name;
                   used.partNo = partNo;
+                }
+              }
+            }
+            for (const project of (state.projects || [])) {
+              for (const row of (project.projectParts || [])) {
+                if (String(row.catalogPartId || "") === String(part.id)) {
+                  row.name = name;
+                  row.partNo = partNo;
                 }
               }
             }
