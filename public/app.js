@@ -80,7 +80,12 @@ const partOrderedTotal = p => partOrderedQty(p)*(Number(p?.unitPrice)||0);
 const jobPartsCost = j => (j.parts||[]).reduce((a,p)=>a+partTotal(p),0);
 const jobHours = j => Array.isArray(j.timeEntries) ? j.timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0) : Number(j.hours)||0;
 const machineForJob = j => machines.find(m=>String(m.id)===String(j?.machineId||"")) || machines.find(m=>m.name===j?.machine && (!j?.section || m.section===j.section)) || machines.find(m=>m.name===j?.machine) || null;
-const machineLabel = j => { const m=machineForJob(j); return m ? `${m.assetId} · ${m.name}` : j?.machine || "Unknown machine"; };
+const machineLabel = j => { const m=machineForJob(j); return m ? `${m.assetId} · ${m.name}` : j?.machine || "General work"; };
+const jobMachineCategory = j => {
+  const m = machineForJob(j);
+  if (m) return m.category || "Other";
+  return (j?.machineId || j?.machine) ? "Other" : "General work";
+};
 const jobBelongsToMachine = (j,machine) => Boolean(machine && (String(j?.machineId||"")===String(machine.id) || (!j?.machineId && j?.machine===machine.name && (!j?.section || j.section===machine.section))));
 const selectedPrefix = () => `${selectedYear}-${String(selectedMonth+1).padStart(2,"0")}`;
 const inSelectedMonth = d => Boolean(d && d.startsWith(selectedPrefix()));
@@ -804,9 +809,9 @@ function renderDashboard() {
   $("#sideHours").textContent = hours.toFixed(1);
   $("#openBadge").textContent = open.length;
 
-  const cats = [...new Set(machines.map(m=>m.category || "Other"))];
-  const hourRows = cats.map(c=>({name:c,value:base.filter(j=>machineForJob(j)?.category===c).reduce((a,j)=>a+workHoursThisMonth(j),0)})).filter(x=>x.value>0);
-  const spendRows = cats.map(c=>({name:c,value:base.filter(j=>machineForJob(j)?.category===c).reduce((a,j)=>a+spendThisMonth(j),0)})).filter(x=>x.value>0);
+  const cats = [...new Set([...machines.map(m=>m.category || "Other"), ...base.map(jobMachineCategory)])];
+  const hourRows = cats.map(c=>({name:c,value:base.filter(j=>jobMachineCategory(j)===c).reduce((a,j)=>a+workHoursThisMonth(j),0)})).filter(x=>x.value>0);
+  const spendRows = cats.map(c=>({name:c,value:base.filter(j=>jobMachineCategory(j)===c).reduce((a,j)=>a+spendThisMonth(j),0)})).filter(x=>x.value>0);
   renderPie($("#hoursPie"),$("#hoursLegend"),hourRows,v=>`${v.toFixed(1)} hrs`);
   renderPie($("#spendPie"),$("#spendLegend"),spendRows,v=>money(v));
 
