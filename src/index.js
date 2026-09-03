@@ -476,6 +476,7 @@ function normalizeProject(project) {
     name: String(value.name || "").trim().slice(0, 180),
     status,
     budget: Math.max(0, Number(value.budget) || 0),
+    timeSpentHours: (value.timeSpentHours === null || value.timeSpentHours === undefined || String(value.timeSpentHours).trim() === "") ? null : Math.max(0, Number(value.timeSpentHours) || 0),
     startDate: cleanDateOnly(value.startDate),
     expectedEndDate: cleanDateOnly(value.expectedEndDate),
     endDate: cleanDateOnly(value.endDate),
