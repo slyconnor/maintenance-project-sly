@@ -1330,8 +1330,9 @@ function renderMachineSelect(section, selected="") {
   const selectedValue=String(selected||"");
   const selectedMachine=machines.find(m=>String(m.id)===selectedValue) || machines.find(m=>m.name===selectedValue && m.section===section);
   const list = machines.filter(m=>m.section===section && (!isMachineArchived(m) || m.id===selectedMachine?.id));
-  select.innerHTML = section ? `<option value="">Select machine…</option>${list.map(m=>`<option value="${esc(m.id)}" ${m.id===selectedMachine?.id?"selected":""}>${esc(m.assetId)} · ${esc(m.name)}${isMachineArchived(m)?" (archived)":""}</option>`).join("")}<option value="__add_machine__">＋ Add new machine in ${esc(section)}…</option>` : `<option value="">Select a section first…</option>`;
+  select.innerHTML = section ? `<option value="">No machine / general work</option>${list.map(m=>`<option value="${esc(m.id)}" ${m.id===selectedMachine?.id?"selected":""}>${esc(m.assetId)} · ${esc(m.name)}${isMachineArchived(m)?" (archived)":""}</option>`).join("")}<option value="__add_machine__">＋ Add new machine in ${esc(section)}…</option>` : `<option value="">Select a section first…</option>`;
   select.disabled = !section;
+  select.required = false;
 }
 function renderAssignedSelect(selected="") {
   const list = activeProfiles();
@@ -2506,6 +2507,16 @@ function catalogPartId(part) {
 async function openJob(jobNo=null) {
   const form=$("#jobForm");
   form.reset();
+  const machineSelect=$("#jobMachineSelect");
+  if(machineSelect){
+    machineSelect.required=false;
+    const machineLabel=machineSelect.closest("label");
+    if(machineLabel && !machineLabel.dataset.optionalLabelApplied){
+      const textNode=[...machineLabel.childNodes].find(node=>node.nodeType===3 && /Machine\s*\/\s*Equipment/i.test(String(node.textContent||"")));
+      if(textNode) textNode.textContent=String(textNode.textContent||"").replace(/\s*\*?\s*$/,"").trim()+" (optional) ";
+      machineLabel.dataset.optionalLabelApplied="1";
+    }
+  }
   pendingJobFiles=[];
   editingJobNo=jobNo;
   $("#jobAttachmentsList").innerHTML="";
@@ -2692,12 +2703,14 @@ $("#jobForm").addEventListener("submit",async e=>{
   const fd=new FormData(e.currentTarget),obj=Object.fromEntries(fd.entries());
   const cleanNo=String(obj.jobNo||"").trim();
   if (jobs.some(j=>j.jobNo!==editingJobNo && j.jobNo.toLowerCase()===cleanNo.toLowerCase())) { alert("That job number already exists."); e.currentTarget.elements.jobNo.focus(); return; }
-  if (!obj.section || !obj.machine || String(obj.machine).startsWith('__')) { alert("Select a section and machine."); return; }
+  if (!obj.section) { alert("Select a section."); return; }
+  if (String(obj.machine||"").startsWith('__')) { alert("Select a valid machine or leave Machine / Equipment blank."); return; }
   const timeEntries=collectTimeEntries(); if(timeEntries===null)return;
   const parts=collectPartsFromEditor(); if(parts===null)return;
-  const selectedMachine=machines.find(m=>String(m.id)===String(obj.machine));
-  if(!selectedMachine){alert("Select a valid machine.");return;}
-  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:selectedMachine.section,machineId:selectedMachine.id,machine:selectedMachine.name,projectId:String(obj.projectId||""),priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
+  const selectedMachine=obj.machine?machines.find(m=>String(m.id)===String(obj.machine)):null;
+  if(obj.machine && !selectedMachine){alert("Select a valid machine or leave Machine / Equipment blank.");return;}
+  if(fd.has("downtimeStopped") && !selectedMachine){alert("Select a machine before recording machine downtime.");return;}
+  const updated={jobNo:cleanNo,title:obj.title,description:obj.description,section:selectedMachine?.section||String(obj.section||""),machineId:selectedMachine?.id||"",machine:selectedMachine?.name||"",projectId:String(obj.projectId||""),priority:obj.priority,status:obj.status,raised:obj.raised,target:obj.target,completed:obj.completed,hours:timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0),timeEntries,notes:obj.notes,assigned:obj.assigned,pinned:fd.has("pinned"),parts,downtimeStopped:fd.has("downtimeStopped"),downtimeStart:obj.downtimeStart||"",downtimeEnd:obj.downtimeEnd||""};
   const originalJobNo=editingJobNo;
   const submit=$("#jobSubmitBtn"); submit.disabled=true; submit.textContent="Saving…";
   try {

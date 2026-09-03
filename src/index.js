@@ -945,26 +945,33 @@ function validateJob(state, job, originalJobNo = "") {
     else if (!(Number(usage.projectQty) > 0)) usage.projectQty = Math.max(0, Number(usage.qty) || 0);
   }
 
-  if (!out.jobNo || !out.title || !out.section || !out.machine || !out.assigned || !out.raised) {
-    throw new Error("Job number, title, section, machine, assigned engineer and date raised are required.");
+  if (!out.jobNo || !out.title || !out.section || !out.assigned || !out.raised) {
+    throw new Error("Job number, title, section, assigned engineer and date raised are required. Machine / equipment is optional.");
   }
   if ((state.jobs || []).some((j) => String(j.jobNo).toLowerCase() === out.jobNo.toLowerCase() && String(j.jobNo) !== String(originalJobNo))) {
     throw new Error("That job number already exists.");
   }
-  let selectedMachine = out.machineId ? (state.machines || []).find((m) => String(m.id) === out.machineId) : null;
-  if (!selectedMachine) {
-    const legacyMatches = (state.machines || []).filter((m) => m.name === out.machine && (!out.section || m.section === out.section));
-    if (legacyMatches.length === 1) selectedMachine = legacyMatches[0];
+  const hasMachineSelection = Boolean(out.machineId || out.machine);
+  if (hasMachineSelection) {
+    let selectedMachine = out.machineId ? (state.machines || []).find((m) => String(m.id) === out.machineId) : null;
+    if (!selectedMachine) {
+      const legacyMatches = (state.machines || []).filter((m) => m.name === out.machine && (!out.section || m.section === out.section));
+      if (legacyMatches.length === 1) selectedMachine = legacyMatches[0];
+    }
+    if (!selectedMachine) throw new Error("Select a valid machine or leave Machine / Equipment blank.");
+    if (out.section && selectedMachine.section !== out.section) throw new Error("The selected machine does not belong to the selected section.");
+    out.machineId = String(selectedMachine.id);
+    out.machine = selectedMachine.name;
+    out.section = selectedMachine.section;
+  } else {
+    out.machineId = "";
+    out.machine = "";
   }
-  if (!selectedMachine) throw new Error("Select a valid machine. Jobs are linked by the machine asset ID so identical machine names are supported.");
-  if (out.section && selectedMachine.section !== out.section) throw new Error("The selected machine does not belong to the selected section.");
-  out.machineId = String(selectedMachine.id);
-  out.machine = selectedMachine.name;
-  out.section = selectedMachine.section;
   if (!(state.profiles || []).some((p) => p.name === out.assigned)) {
     throw new Error("The assigned engineer profile does not exist.");
   }
   out.downtimeStopped = out.downtimeStopped === true;
+  if (out.downtimeStopped && !out.machineId) throw new Error("Select a machine before recording machine downtime.");
   out.downtimeStart = cleanDateTime(out.downtimeStart);
   out.downtimeEnd = cleanDateTime(out.downtimeEnd);
   if (out.downtimeStopped && !out.downtimeStart) throw new Error("Enter when the machine downtime started.");
