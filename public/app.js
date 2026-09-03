@@ -224,6 +224,70 @@ function showSaveError(error) {
   alert(error?.message || "The shared database could not be updated. Please try again.");
 }
 
+
+let inlineEntrySeq = 0;
+function ensureInlineDataEntryStyles(){
+  if(document.getElementById("inlineDataEntryStyles"))return;
+  const style=document.createElement("style");style.id="inlineDataEntryStyles";style.textContent=`
+  dialog.data-entry-inline{position:static!important;inset:auto!important;display:none;width:100%!important;max-width:1120px!important;max-height:none!important;margin:14px 0 28px!important;padding:0!important;border:0!important;border-radius:0!important;background:transparent!important;color:inherit!important;box-shadow:none!important;overflow:visible!important}
+  dialog.data-entry-inline[open]{display:block!important}dialog.data-entry-inline::backdrop{display:none!important}
+  .view.data-entry-open> :not(dialog.data-entry-inline[open]){display:none!important}
+  dialog.data-entry-inline>form{background:var(--card,#fff);border:1px solid #e2e7ef;border-radius:16px;padding:20px!important;box-sizing:border-box;max-width:none!important;min-width:0!important;width:100%!important;margin:0!important;box-shadow:none!important}
+  .inline-quick-entry{border:1px solid #cfd6e1;border-radius:12px;background:var(--card,#fff);padding:14px;margin:14px 0;display:grid;gap:12px}
+  .inline-quick-entry-head{display:flex;justify-content:space-between;gap:12px;align-items:flex-start}.inline-quick-entry-head h3{margin:0 0 3px}.inline-quick-entry-head p{margin:0;color:#667085;font-size:.84rem}
+  .inline-quick-entry-grid{display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:10px}.inline-quick-entry label{display:grid;gap:5px;font-size:.82rem;font-weight:600;min-width:0}.inline-quick-entry input,.inline-quick-entry textarea,.inline-quick-entry select{width:100%;min-width:0;box-sizing:border-box;padding:10px 11px;border:1px solid #cfd6e1;border-radius:9px;background:#fff;color:inherit;font:inherit}.inline-quick-entry textarea{resize:vertical}.inline-quick-entry .inline-check{display:flex;grid-template-columns:auto 1fr;align-items:center;gap:8px}.inline-quick-entry .inline-check input{width:auto}.inline-quick-entry-actions{display:flex;justify-content:flex-end;gap:8px;flex-wrap:wrap}.inline-quick-entry-error{color:#b42318;font-size:.8rem;min-height:1em}
+  @media(max-width:700px){.inline-quick-entry-grid{grid-template-columns:1fr}}
+  `;document.head.appendChild(style);
+}
+function cleanupInlineDataDialog(dialog){
+  const view=dialog?.dataset?.inlineView?document.getElementById(`${dialog.dataset.inlineView}View`):dialog?.closest?.('.view');
+  if(view&&!view.querySelector('dialog.data-entry-inline[open]'))view.classList.remove('data-entry-open');
+}
+function showDataEntryDialog(dialog,viewName){
+  if(!dialog)return;
+  ensureInlineDataEntryStyles();
+  const view=document.getElementById(`${viewName}View`);if(!view)return;
+  dialog.classList.add('data-entry-inline');dialog.dataset.inlineView=viewName;dialog.hidden=false;
+  if(dialog.parentElement!==view)view.appendChild(dialog);
+  if(!dialog.dataset.inlineCloseBound){dialog.dataset.inlineCloseBound='1';dialog.addEventListener('close',()=>cleanupInlineDataDialog(dialog));}
+  if(!dialog.open)dialog.show();
+  view.classList.add('data-entry-open');
+  switchView(viewName);
+  requestAnimationFrame(()=>dialog.scrollIntoView({block:'start',behavior:'smooth'}));
+}
+function inlineEntryHost(){
+  const activeDialog=[...document.querySelectorAll('dialog.data-entry-inline[open]')].find(dialog=>dialog.closest('.view.active'))||document.querySelector('dialog.data-entry-inline[open]');
+  return activeDialog?.querySelector('form')||document.querySelector('.view.active')||document.querySelector('main')||document.body;
+}
+function requestInlineFields({title='Enter details',description='',fields=[],submitLabel='Save'}={}){
+  ensureInlineDataEntryStyles();
+  return new Promise(resolve=>{
+    const host=inlineEntryHost();if(!host){resolve(null);return;}
+    host.querySelector(':scope > .inline-quick-entry')?.remove();
+    const id=`inline-entry-${++inlineEntrySeq}`;const panel=document.createElement('section');panel.className='inline-quick-entry';panel.id=id;
+    const fieldHtml=fields.map((field,index)=>{
+      const key=esc(field.name||`field${index}`),label=esc(field.label||field.name||'Value'),value=field.value??'',placeholder=esc(field.placeholder||''),required=field.required?' required':'';
+      if(field.type==='textarea')return `<label style="grid-column:1/-1">${label}${field.required?' *':''}<textarea data-inline-field="${key}" rows="${Number(field.rows)||4}" placeholder="${placeholder}"${required}>${esc(value)}</textarea></label>`;
+      if(field.type==='checkbox')return `<label class="inline-check" style="grid-column:1/-1"><input data-inline-field="${key}" type="checkbox" ${field.checked?'checked':''}> <span>${label}</span></label>`;
+      return `<label>${label}${field.required?' *':''}<input data-inline-field="${key}" type="${esc(field.type||'text')}" value="${esc(value)}" placeholder="${placeholder}"${field.min!==undefined?` min="${esc(field.min)}"`:''}${field.max!==undefined?` max="${esc(field.max)}"`:''}${field.step!==undefined?` step="${esc(field.step)}"`:''}${required}></label>`;
+    }).join('');
+    panel.innerHTML=`<div class="inline-quick-entry-head"><div><h3>${esc(title)}</h3>${description?`<p>${esc(description)}</p>`:''}</div></div><div class="inline-quick-entry-grid">${fieldHtml}</div><div class="inline-quick-entry-error" aria-live="polite"></div><div class="inline-quick-entry-actions"><button type="button" class="btn secondary" data-inline-cancel>Cancel</button><button type="button" class="btn primary" data-inline-save>${esc(submitLabel)}</button></div>`;
+    const parentForm=host.matches('form')?host:null;const submitButtons=parentForm?[...parentForm.querySelectorAll('button[type="submit"],input[type="submit"]')]:[];const prior=submitButtons.map(btn=>btn.disabled);submitButtons.forEach(btn=>btn.disabled=true);
+    const actions=parentForm?.querySelector('.dialog-actions,.form-actions,.modal-actions,.pm-dialog-actions,.project-dialog-actions');if(actions)parentForm.insertBefore(panel,actions);else host.prepend(panel);
+    const finish=value=>{submitButtons.forEach((btn,i)=>btn.disabled=prior[i]);panel.remove();resolve(value);};
+    panel.querySelector('[data-inline-cancel]').addEventListener('click',()=>finish(null));
+    panel.querySelector('[data-inline-save]').addEventListener('click',()=>{
+      const result={};let missing='';
+      for(const field of fields){const input=panel.querySelector(`[data-inline-field="${CSS.escape(field.name)}"]`);if(!input)continue;let value=field.type==='checkbox'?input.checked:String(input.value??'');if(field.trim!==false&&typeof value==='string')value=value.trim();if(field.required&&String(value).trim()===''){missing=field.label||field.name;input.focus();break;}result[field.name]=value;}
+      const error=panel.querySelector('.inline-quick-entry-error');if(missing){error.textContent=`${missing} is required.`;return;}finish(result);
+    });
+    panel.querySelector('[data-inline-field]')?.focus();panel.scrollIntoView({block:'nearest',behavior:'smooth'});
+  });
+}
+async function requestInlineText(title,{value='',description='',label='Value',placeholder='',required=true,multiline=false,submitLabel='Save'}={}){
+  const result=await requestInlineFields({title,description,submitLabel,fields:[{name:'value',label,value,placeholder,required,type:multiline?'textarea':'text'}]});return result===null?null:String(result.value??'');
+}
+
 function formatBytes(bytes) {
   const n=Number(bytes)||0;
   if(n<1024)return `${n} B`;
@@ -297,7 +361,7 @@ async function loadAttachments(entityType, entityId, listEl, statusEl=null) {
         try{await saveMutation("/api/attachments/delete",{id:del.dataset.attachmentDelete},{render:false});await loadAttachments(entityType,entityId,listEl,statusEl);}catch(error){showSaveError(error);del.disabled=false;}
       }
       if(edit){
-        const label=prompt("File description (leave blank to show just the filename):",edit.dataset.label||"");
+        const label=await requestInlineText("Edit file description",{value:edit.dataset.label||"",label:"Description",required:false,description:"Leave blank to show just the filename."});
         if(label===null)return;
         try{await saveMutation("/api/attachments/update",{id:edit.dataset.attachmentEdit,label:label.trim()},{render:false});await loadAttachments(entityType,entityId,listEl,statusEl);}catch(error){showSaveError(error);}
       }
@@ -460,10 +524,10 @@ function renderStockPurchasing(){
   const tx=[...stockTransactions].sort((a,b)=>String(b.createdAt||"").localeCompare(String(a.createdAt||""))).slice(0,60);$("#stockTransactionsBody").innerHTML=tx.length?tx.map(t=>{const part=partCatalog.find(p=>p.id===t.partId);const sign=(Number(t.qty)||0)>0?"+":"";const label={receipt:"Received","job-use":"Used on job","job-return":"Returned","project-use":"Used on project","project-return":"Returned from project",adjustment:"Adjusted"}[t.type]||t.type;return `<tr><td>${esc(new Date(t.createdAt).toLocaleString("en-GB"))}</td><td>${esc(part?.name||"Unknown part")}</td><td>${esc(label)}</td><td><strong>${sign}${stockNumber(t.qty)}</strong></td><td>${t.balanceAfter==null?"—":stockNumber(t.balanceAfter)}</td><td>${esc(t.jobNo||t.orderId||t.note||"—")}</td></tr>`;}).join(""):`<tr><td colspan="6">No stock movements recorded yet.</td></tr>`;
   const list=$("#v58SupplierList");if(list)list.innerHTML=suppliers.map(s=>`<option value="${esc(s)}"></option>`).join("");setStockPurchasingTab();
 }
-function openStockOrderDialog(partId){const part=partCatalog.find(p=>p.id===partId);if(!part)return;const form=$("#stockOrderForm");form.reset();form.elements.partId.value=part.id;const shortage=Math.max(1,(hasMinimumStock(part)?Number(part.minStock):0)-(Number(part.currentStock)||0));form.elements.qty.value=Math.max(shortage,Number(part.reorderQty)||1);form.elements.supplier.value=part.preferredSupplier||"";$("#stockOrderTitle").textContent=`Create open order · ${part.name}`;$("#stockOrderDialog").showModal();}
+function openStockOrderDialog(partId){const part=partCatalog.find(p=>p.id===partId);if(!part)return;const form=$("#stockOrderForm");form.reset();form.elements.partId.value=part.id;const shortage=Math.max(1,(hasMinimumStock(part)?Number(part.minStock):0)-(Number(part.currentStock)||0));form.elements.qty.value=Math.max(shortage,Number(part.reorderQty)||1);form.elements.supplier.value=part.preferredSupplier||"";$("#stockOrderTitle").textContent=`Create open order · ${part.name}`;showDataEntryDialog($("#stockOrderDialog"),"parts");}
 async function submitStockOrder(e){e.preventDefault();const form=e.currentTarget,fd=new FormData(form);const body={action:"order",partId:fd.get("partId"),qty:Number(fd.get("qty")),supplier:String(fd.get("supplier")||"").trim(),expectedDate:String(fd.get("expectedDate")||""),note:String(fd.get("note")||"")};try{stockPurchasingTab="open";await saveMutation("/api/stock/orders",body);$("#stockOrderDialog").close();switchView("parts");}catch(error){showSaveError(error);}}
 async function placeStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order)return;try{stockPurchasingTab="ordered";await saveMutation("/api/stock/orders",{action:"place",orderId});switchView("parts");}catch(error){showSaveError(error);}}
-async function receiveStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order)return;const remaining=Math.max(0,(Number(order.orderedQty)||0)-(Number(order.receivedQty)||0));const raw=prompt(`How many ${order.partName||"items"} arrived?`,String(remaining));if(raw===null)return;const qty=Number(raw);if(!Number.isFinite(qty)||qty<=0||qty>remaining){alert(`Enter a quantity between 1 and ${remaining}.`);return;}try{stockPurchasingTab="ordered";await saveMutation("/api/stock/orders",{action:"receive",orderId,qty});switchView("parts");}catch(error){showSaveError(error);}}
+async function receiveStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order)return;const remaining=Math.max(0,(Number(order.orderedQty)||0)-(Number(order.receivedQty)||0));const values=await requestInlineFields({title:`Receive ${order.partName||"stock"}`,description:`${stockNumber(remaining)} remaining on this order.`,submitLabel:"Mark received",fields:[{name:"qty",label:"Quantity received",type:"number",value:String(remaining),min:1,max:remaining,step:1,required:true}]});if(!values)return;const qty=Number(values.qty);if(!Number.isFinite(qty)||qty<=0||qty>remaining){alert(`Enter a quantity between 1 and ${remaining}.`);return;}try{stockPurchasingTab="ordered";await saveMutation("/api/stock/orders",{action:"receive",orderId,qty});switchView("parts");}catch(error){showSaveError(error);}}
 async function deleteStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order)return;if((Number(order.receivedQty)||0)>0){alert("This order already has received stock, so it cannot be deleted. Cancel or keep it for stock history.");return;}if(!confirm(`Delete the ${String(order.status||"").toLowerCase()||"stock"} order for ${order.partName||"this part"}?`))return;try{await saveMutation("/api/stock/orders",{action:"delete",orderId});switchView("parts");}catch(error){showSaveError(error);}}
 async function cancelStockOrder(orderId){const order=stockOrders.find(o=>o.id===orderId);if(!order||!confirm(`Cancel the open order for ${order.partName||"this part"}?`))return;try{await saveMutation("/api/stock/orders",{action:"cancel",orderId});switchView("parts");}catch(error){showSaveError(error);}}
 
@@ -948,7 +1012,7 @@ function openPartUsageEdit(jobNo,usageIndex){
   editingPartUsageRef={jobNo,usageIndex};const form=$("#partUsageForm");form.elements.jobNo.value=jobNo;form.elements.usageIndex.value=String(usageIndex);form.elements.qty.value=String(Number(usage.qty)||0);form.elements.unitPrice.value=String(Number(usage.unitPrice)||0);form.elements.supplier.value=usage.supplier||"";form.elements.date.value=usage.date||job.raised||defaultFormDate();
   $("#partUsageSummary").textContent=`${jobNo} · ${usage.name||"Part"}${usage.partNo?` · ${usage.partNo}`:""}`;
   $("#partUsageSuppliers").innerHTML=activeSuppliers().map(name=>`<option value="${esc(name)}"></option>`).join("");
-  $("#partUsageDialog").showModal();
+  showDataEntryDialog($("#partUsageDialog"),"parts");
 }
 async function submitPartUsageEdit(e){
   e.preventDefault();const form=e.currentTarget,fd=new FormData(form);
@@ -1063,18 +1127,17 @@ async function handleMasterAction(button) {
   if(action==="edit") {
     if(entity==="machine") { openMachineDialog("",id); return; }
     if(entity==="section") {
-      const name=prompt("Rename section:",key); if(!name?.trim()||name.trim()===key)return;
+      const name=await requestInlineText("Rename section",{label:"Section name",value:key,submitLabel:"Save name"}); if(!name?.trim()||name.trim()===key)return;
       await masterMutation({entity,action:"update",key,name:name.trim()}); return;
     }
     if(entity==="supplier") {
-      const name=prompt("Rename supplier:",key); if(!name?.trim()||name.trim()===key)return;
+      const name=await requestInlineText("Rename supplier",{label:"Supplier name",value:key,submitLabel:"Save name"}); if(!name?.trim()||name.trim()===key)return;
       await masterMutation({entity,action:"update",key,name:name.trim()}); return;
     }
     if(entity==="part") {
       const part=partCatalog.find(p=>p.id===id); if(!part)return;
-      const name=prompt("Part name:",part.name); if(!name?.trim())return;
-      const partNo=prompt("Part number (optional):",part.partNo||""); if(partNo===null)return;
-      await masterMutation({entity,action:"update",id,name:name.trim(),partNo:partNo.trim()}); return;
+      const values=await requestInlineFields({title:"Edit part",submitLabel:"Save part",fields:[{name:"name",label:"Part name",value:part.name,required:true},{name:"partNo",label:"Part number",value:part.partNo||"",required:false}]});if(!values)return;
+      await masterMutation({entity,action:"update",id,name:String(values.name).trim(),partNo:String(values.partNo||"").trim()}); return;
     }
   }
   if(action==="delete") {
@@ -1119,7 +1182,7 @@ function renderAssignedSelect(selected="") {
 }
 
 async function addSectionInteractive(selectEl, onAdded) {
-  const name = prompt("New section name (for example: Smokeshield):");
+  const name = await requestInlineText("Add section",{label:"Section name",placeholder:"e.g. Smokeshield",submitLabel:"Add section"});
   if (!name?.trim()) { selectEl.value=""; return; }
   try {
     const payload = await saveMutation("/api/catalog", {type:"section", value:name.trim()}, {render:false});
@@ -1131,20 +1194,11 @@ async function addSectionInteractive(selectEl, onAdded) {
 }
 
 async function quickAddMachine(section) {
-  const assetRaw = prompt(`Machine number / ID for the new machine in ${section} (for example 101 or RM-124):`);
-  if (!assetRaw?.trim()) return null;
-  const assetId = assetRaw.trim();
+  const values=await requestInlineFields({title:`Add machine · ${section}`,description:"Enter the new machine details without leaving the job editor.",submitLabel:"Add machine",fields:[{name:"assetId",label:"Machine number / ID",placeholder:"e.g. 101 or RM-124",required:true},{name:"name",label:"Machine / equipment name",required:true},{name:"assetNumber",label:"Asset number",placeholder:"Optional",required:false},{name:"manufacturer",label:"Manufacturer",placeholder:"Optional",required:false}]});
+  if(!values)return null;
+  const assetId=String(values.assetId||"").trim();const clean=String(values.name||"").trim();const assetNumber=String(values.assetNumber||"").trim();const manufacturer=String(values.manufacturer||"").trim();
   if (machines.some(m=>String(m.assetId).toLowerCase()===assetId.toLowerCase())) { alert("That machine number already exists."); return null; }
-  const name = prompt(`Machine / equipment name for ${assetId}:`);
-  if (!name?.trim()) return null;
-  const clean = name.trim();
-  const assetNumberRaw = prompt(`Asset number for ${assetId} (optional):`,"");
-  if (assetNumberRaw===null) return null;
-  const assetNumber=assetNumberRaw.trim();
   if(assetNumber&&machines.some(m=>String(m.assetNumber||"").toLowerCase()===assetNumber.toLowerCase())){alert("That asset number already exists.");return null;}
-  const manufacturerRaw=prompt(`Manufacturer for ${assetId} (optional):`,"");
-  if(manufacturerRaw===null)return null;
-  const manufacturer=manufacturerRaw.trim();
   try {
     const machine = {assetId,assetNumber,name:clean,section,category:section,location:"",purchaseCost:null,manufacturer,make:manufacturer,status:"Active"};
     const payload = await saveMutation("/api/machines", {machine}, {render:false});
@@ -1184,19 +1238,19 @@ function updatePartRowStockNote(row) {
 }
 
 async function promptAddCatalogPart() {
-  const name=prompt("New part name (for example: Anvil):");
-  if(!name?.trim()) return null;
-  const clean=name.trim();
-  let part=partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase());
-  if(part) return part;
-  const partNo=prompt("Part number (optional):")||"";
+  const values=await requestInlineFields({title:"Add new part",description:"The part will be saved to Parts and selected automatically when finished.",submitLabel:"Save part & select",fields:[{name:"name",label:"Part name",placeholder:"e.g. Anvil",required:true},{name:"partNo",label:"Part number",placeholder:"Optional",required:false},{name:"lastKnownPrice",label:`Last known price (${currencySymbol()})`,type:"number",min:0,step:"0.01",placeholder:"Optional",required:false},{name:"supplier",label:"Supplier",placeholder:"Optional",required:false},{name:"currentStock",label:"Current stock",type:"number",min:0,step:"0.01",value:"0",required:false},{name:"minStock",label:"Minimum stock",type:"number",min:0,step:"0.01",placeholder:"Optional",required:false},{name:"binLocation",label:"Bin / location",placeholder:"Optional",required:false},{name:"stockTracked",label:"Track stock",type:"checkbox",checked:true}]});
+  if(!values)return null;
+  const clean=String(values.name||"").trim();let part=partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase());if(part)return part;
+  const supplier=String(values.supplier||"").trim();const priceRaw=String(values.lastKnownPrice||"").trim();const minRaw=String(values.minStock||"").trim();
   try {
-    const payload=await saveMutation("/api/catalog",{type:"part",name:clean,partNo:partNo.trim(),stockTracked:true,minStock:null},{render:false});
-    return payload.part || partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase()) || null;
-  } catch(error) {
-    showSaveError(error);
-    return null;
-  }
+    const payload=await saveMutation("/api/catalog",{type:"part",name:clean,partNo:String(values.partNo||"").trim(),stockTracked:Boolean(values.stockTracked),minStock:minRaw===""?null:Number(minRaw),lastKnownPrice:priceRaw===""?null:Number(priceRaw),suppliers:supplier?[supplier]:[]},{render:false});
+    part=payload.part || partCatalog.find(p=>p.name.toLowerCase()===clean.toLowerCase()) || null;
+    if(part&&(String(values.currentStock||"").trim()!==""||String(values.binLocation||"").trim())){
+      const update=await api("/api/master-data",{method:"POST",body:JSON.stringify({entity:"part",action:"update",id:part.id,name:part.name,partNo:part.partNo||"",stockTracked:Boolean(values.stockTracked),currentStock:Number(values.currentStock)||0,minStock:minRaw===""?null:Number(minRaw),binLocation:String(values.binLocation||"").trim(),suppliers:supplier?[supplier]:[],preferredSupplier:supplier,lastKnownPrice:priceRaw===""?null:Number(priceRaw),reorderQty:1})});
+      if(update.state)applySharedState(update);part=partCatalog.find(p=>p.id===part.id)||part;
+    }
+    return part;
+  } catch(error) { showSaveError(error); return null; }
 }
 
 async function addPartFromPartsPage() {
@@ -1384,12 +1438,12 @@ function renderPmDialogOptions(selectedSchedule=null){
 }
 
 function openPreventiveDialog(scheduleId=""){
-  ensurePreventiveUi();const dialog=$("#pmDialog"),form=$("#pmForm");if(!dialog||!form)return;form.reset();const schedule=scheduleId?preventiveSchedules.find(item=>String(item.id)===String(scheduleId)):null;renderPmDialogOptions(schedule);form.elements.id.value=schedule?.id||"";form.elements.title.value=schedule?.title||"";form.elements.categoryId.value=schedule?.categoryId||pmActiveCategories()[0]?.id||"";form.elements.description.value=schedule?.description||"";form.elements.nextDueDate.value=schedule?.nextDueDate||pmDateOnly();form.elements.intervalValue.value=Math.max(1,Number(schedule?.intervalValue)||1);form.elements.intervalUnit.value=schedule?.intervalUnit||"month";form.elements.section.value=schedule?.section||"";form.elements.machineId.value=schedule?.machineId||"";form.elements.location.value=schedule?.location||"";form.elements.active.checked=schedule?.active!==false;$("#pmDialogTitle").textContent=schedule?`Edit · ${schedule.title}`:"New PM schedule";$("#pmDialogSubtitle").textContent=schedule?"Update the recurrence, assignment or next due date.":"Create a recurring site-wide or machine-specific preventive-maintenance job.";$("#pmDeleteBtn").hidden=!schedule;$("#pmSaveBtn").textContent=schedule?"Save changes":"Save schedule";dialog.showModal();
+  ensurePreventiveUi();const dialog=$("#pmDialog"),form=$("#pmForm");if(!dialog||!form)return;form.reset();const schedule=scheduleId?preventiveSchedules.find(item=>String(item.id)===String(scheduleId)):null;renderPmDialogOptions(schedule);form.elements.id.value=schedule?.id||"";form.elements.title.value=schedule?.title||"";form.elements.categoryId.value=schedule?.categoryId||pmActiveCategories()[0]?.id||"";form.elements.description.value=schedule?.description||"";form.elements.nextDueDate.value=schedule?.nextDueDate||pmDateOnly();form.elements.intervalValue.value=Math.max(1,Number(schedule?.intervalValue)||1);form.elements.intervalUnit.value=schedule?.intervalUnit||"month";form.elements.section.value=schedule?.section||"";form.elements.machineId.value=schedule?.machineId||"";form.elements.location.value=schedule?.location||"";form.elements.active.checked=schedule?.active!==false;$("#pmDialogTitle").textContent=schedule?`Edit · ${schedule.title}`:"New PM schedule";$("#pmDialogSubtitle").textContent=schedule?"Update the recurrence, assignment or next due date.":"Create a recurring site-wide or machine-specific preventive-maintenance job.";$("#pmDeleteBtn").hidden=!schedule;$("#pmSaveBtn").textContent=schedule?"Save changes":"Save schedule";showDataEntryDialog(dialog,"preventive");
 }
 
 async function submitPreventiveSchedule(e){e.preventDefault();const form=e.currentTarget,assigned=[...$("#pmAssignees").querySelectorAll('input[type="checkbox"]:checked')].map(input=>input.value);if(!assigned.length){alert("Assign this PM job to at least one engineer.");return;}const schedule={id:String(form.elements.id.value||""),title:String(form.elements.title.value||"").trim(),categoryId:String(form.elements.categoryId.value||""),description:String(form.elements.description.value||"").trim(),nextDueDate:String(form.elements.nextDueDate.value||""),intervalValue:Number(form.elements.intervalValue.value)||1,intervalUnit:String(form.elements.intervalUnit.value||"month"),section:String(form.elements.section.value||""),machineId:String(form.elements.machineId.value||""),location:String(form.elements.location.value||"").trim(),assignedProfileIds:assigned,active:form.elements.active.checked};const btn=$("#pmSaveBtn");btn.disabled=true;btn.textContent="Saving…";try{await saveMutation("/api/preventive",{action:schedule.id?"update":"create",schedule});$("#pmDialog").close();switchView("preventive");}catch(error){showSaveError(error);}finally{btn.disabled=false;btn.textContent=schedule.id?"Save changes":"Save schedule";}}
 async function deletePreventiveFromDialog(){const id=String($("#pmForm")?.elements.id.value||"");const schedule=preventiveSchedules.find(item=>String(item.id)===id);if(!schedule||!confirm(`Delete the PM schedule “${schedule.title}”?\n\nIts existing completion history will be kept.`))return;try{await saveMutation("/api/preventive",{action:"delete",id});$("#pmDialog").close();switchView("preventive");}catch(error){showSaveError(error);}}
-async function completePreventive(id){const schedule=preventiveSchedules.find(item=>String(item.id)===String(id));if(!schedule)return;const notes=prompt(`Complete “${schedule.title}” due ${fmtDate(schedule.nextDueDate)}.\n\nCompletion notes (optional):`,"");if(notes===null)return;try{await saveMutation("/api/preventive",{action:"complete",id:schedule.id,notes});switchView("preventive");}catch(error){showSaveError(error);}}
+async function completePreventive(id){const schedule=preventiveSchedules.find(item=>String(item.id)===String(id));if(!schedule)return;const notes=await requestInlineText(`Complete “${schedule.title}”`,{description:`Due ${fmtDate(schedule.nextDueDate)}`,label:"Completion notes",required:false,multiline:true,submitLabel:"Complete PM"});if(notes===null)return;try{await saveMutation("/api/preventive",{action:"complete",id:schedule.id,notes});switchView("preventive");}catch(error){showSaveError(error);}}
 async function togglePreventive(id){const schedule=preventiveSchedules.find(item=>String(item.id)===String(id));if(!schedule)return;const active=schedule.active===false;if(!active&&!confirm(`Pause “${schedule.title}”? It will stop appearing as due and will not be included in Monday emails.`))return;try{await saveMutation("/api/preventive",{action:"toggle",id:schedule.id,active});switchView("preventive");}catch(error){showSaveError(error);}}
 async function deletePreventiveHistory(id){if(!signedInIdentity?.admin)return;const row=preventiveHistory.find(item=>String(item.id)===String(id));if(!row)return;const label=row.title||"this completion";if(!confirm(`Delete the completion history record for “${label}”?\n\nThis only removes this history row. It will not delete the PM schedule or change its current next due date.`))return;try{await saveMutation("/api/preventive",{action:"history-delete",id:row.id,scheduleId:row.scheduleId||"",completedAt:row.completedAt||"",dueDate:row.dueDate||"",title:row.title||""});switchView("preventive");}catch(error){showSaveError(error);}}
 function handlePreventiveViewClick(e){const category=e.target.closest("[data-pm-category]");if(category){selectedPmCategory=String(category.dataset.pmCategory||"all");renderPreventive();return;}const historyDelete=e.target.closest("[data-pm-history-delete]");if(historyDelete){deletePreventiveHistory(historyDelete.dataset.pmHistoryDelete);return;}const complete=e.target.closest("[data-pm-complete]");if(complete){completePreventive(complete.dataset.pmComplete);return;}const edit=e.target.closest("[data-pm-edit]");if(edit){openPreventiveDialog(edit.dataset.pmEdit);return;}const toggle=e.target.closest("[data-pm-toggle]");if(toggle){togglePreventive(toggle.dataset.pmToggle);return;}}
@@ -1402,10 +1456,10 @@ function renderPmCategoryTabs(){
 function renderPmCategoryManager(){
   const host=$("#pmCategoryList");if(!host)return;host.innerHTML=preventiveCategories.length?preventiveCategories.map(c=>{const used=preventiveSchedules.filter(s=>String(s.categoryId||"")===String(c.id)).length;return `<div class="pm-category-row ${c.active===false?"archived":""}"><div><strong>${esc(c.name)}</strong><div class="muted">${used} schedule${used===1?"":"s"}${c.active===false?" · Archived":""}</div></div><div class="pm-category-row-actions"><button type="button" class="btn secondary compact" data-pm-category-edit="${esc(c.id)}">Rename</button><button type="button" class="btn secondary compact" data-pm-category-toggle="${esc(c.id)}">${c.active===false?"Restore":"Archive"}</button></div></div>`;}).join(""):`<div class="pm-empty">No categories found.</div>`;
 }
-function openPmCategoryDialog(){if(!signedInIdentity?.admin)return;renderPmCategoryManager();$("#pmCategoryForm")?.reset();$("#pmCategoryDialog")?.showModal();}
+function openPmCategoryDialog(){if(!signedInIdentity?.admin)return;renderPmCategoryManager();$("#pmCategoryForm")?.reset();showDataEntryDialog($("#pmCategoryDialog"),"preventive");}
 async function submitPmCategory(e){e.preventDefault();const form=e.currentTarget;const name=String(form.elements.name.value||"").trim();if(!name)return;try{await saveMutation("/api/preventive",{action:"category-add",name});form.reset();renderPmCategoryManager();renderPreventive();}catch(error){showSaveError(error);}}
 async function handlePmCategoryManagerClick(e){
-  const edit=e.target.closest("[data-pm-category-edit]");if(edit){const c=preventiveCategories.find(x=>String(x.id)===String(edit.dataset.pmCategoryEdit));if(!c)return;const name=prompt(`Rename “${c.name}” to:`,c.name);if(name===null||!String(name).trim())return;try{await saveMutation("/api/preventive",{action:"category-rename",id:c.id,name:String(name).trim()});renderPmCategoryManager();renderPreventive();}catch(error){showSaveError(error);}return;}
+  const edit=e.target.closest("[data-pm-category-edit]");if(edit){const c=preventiveCategories.find(x=>String(x.id)===String(edit.dataset.pmCategoryEdit));if(!c)return;const name=await requestInlineText(`Rename “${c.name}”`,{label:"Category name",value:c.name,submitLabel:"Save name"});if(name===null||!String(name).trim())return;try{await saveMutation("/api/preventive",{action:"category-rename",id:c.id,name:String(name).trim()});renderPmCategoryManager();renderPreventive();}catch(error){showSaveError(error);}return;}
   const toggle=e.target.closest("[data-pm-category-toggle]");if(toggle){const c=preventiveCategories.find(x=>String(x.id)===String(toggle.dataset.pmCategoryToggle));if(!c)return;const active=c.active===false;if(!active&&!confirm(`Archive “${c.name}”? Existing schedules keep their category and remain available under All, but this tab will be hidden until restored.`))return;try{await saveMutation("/api/preventive",{action:"category-toggle",id:c.id,active});renderPmCategoryManager();renderPreventive();}catch(error){showSaveError(error);}}
 }
 async function sendPreventiveEmailsNow(){if(!signedInIdentity?.admin)return;if(!confirm("Send each engineer their preventive-maintenance list for this week now?\n\nOnly engineers with overdue or due-this-week work will receive an email."))return;const btn=$("#pmEmailNowBtn");btn.disabled=true;btn.textContent="Sending…";try{const payload=await api("/api/preventive/send-weekly",{method:"POST",body:JSON.stringify({})});if(payload.state)applySharedState(payload);renderAll();switchView("preventive");const result=payload.result||{};const sent=Number(result.sentEmails)||0;alert(sent?`Sent ${sent} weekly PM email${sent===1?"":"s"}.`:`No emails were sent because no engineers currently have overdue or due-this-week PM jobs.`);}catch(error){showSaveError(error);}finally{btn.disabled=false;btn.textContent="✉ Send this week's emails";}}
@@ -1539,7 +1593,7 @@ function ensureProjectsUi(){
   $("#projectPartsUsedList")?.addEventListener("change",event=>{const checkbox=event.target.closest('input[name="projectPartUsage"]');if(!checkbox)return;const qty=$("#projectPartsUsedList")?.querySelector(`[data-project-part-qty="${CSS.escape(checkbox.value)}"]`);if(qty&&!checkbox.disabled)qty.disabled=!checkbox.checked;});
   $("#projectAddOrderedPartBtn")?.addEventListener("click",()=>addProjectDirectPartRow("ordered"));
   $("#projectAddUsedPartBtn")?.addEventListener("click",()=>addProjectDirectPartRow("used"));
-  [$("#projectOrderedPartsEditor"),$("#projectUsedPartsEditor")].forEach(host=>{if(!host)return;host.addEventListener("click",event=>{const remove=event.target.closest("[data-project-direct-remove]");if(remove)remove.closest(".project-direct-part")?.remove();});host.addEventListener("change",async event=>{const row=event.target.closest(".project-direct-part");if(!row)return;const select=event.target.closest("[data-project-catalog]");if(select){const part=partCatalog.find(item=>String(item.id)===String(select.value));const supplierSelect=row.querySelector("[data-project-supplier-select]");if(part){row.dataset.catalogPartId=String(part.id);const name=row.querySelector("[data-project-name]"),code=row.querySelector("[data-project-code]"),price=row.querySelector("[data-project-price]");const defaultSupplier=partSupplierNames(part)[0]||"";if(name)name.value=part.name||"";if(code)code.value=part.partNo||"";if(supplierSelect){supplierSelect.innerHTML=supplierOptionsForPart(part,defaultSupplier);supplierSelect.value=defaultSupplier;}if(price&&!String(price.value||"").trim()){const remembered=lastPurchasePrice(part.name,part.partNo,defaultSupplier);if(remembered)price.value=Number(remembered.price).toFixed(2);}}else{row.dataset.catalogPartId="";if(supplierSelect){supplierSelect.innerHTML=supplierOptions("");supplierSelect.value="";}}return;}const supplierSelect=event.target.closest("[data-project-supplier-select]");if(supplierSelect&&supplierSelect.value==="__add_supplier__"){const partId=String(row.dataset.catalogPartId||"");const part=partCatalog.find(item=>String(item.id)===partId);const name=prompt("New supplier name:");if(!name?.trim()){supplierSelect.value=partSupplierNames(part)[0]||"";return;}try{const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false});const saved=payload.value||name.trim();if(part)await linkSupplierToCatalogPart(part.id,saved,{makeDefault:partSupplierNames(part).length===0});const currentPart=partCatalog.find(item=>String(item.id)===partId);supplierSelect.innerHTML=currentPart?supplierOptionsForPart(currentPart,saved):supplierOptions(saved);supplierSelect.value=saved;}catch(error){supplierSelect.value=partSupplierNames(part)[0]||"";showSaveError(error);}}});});
+  [$("#projectOrderedPartsEditor"),$("#projectUsedPartsEditor")].forEach(host=>{if(!host)return;host.addEventListener("click",event=>{const remove=event.target.closest("[data-project-direct-remove]");if(remove)remove.closest(".project-direct-part")?.remove();});host.addEventListener("change",async event=>{const row=event.target.closest(".project-direct-part");if(!row)return;const select=event.target.closest("[data-project-catalog]");if(select){const part=partCatalog.find(item=>String(item.id)===String(select.value));const supplierSelect=row.querySelector("[data-project-supplier-select]");if(part){row.dataset.catalogPartId=String(part.id);const name=row.querySelector("[data-project-name]"),code=row.querySelector("[data-project-code]"),price=row.querySelector("[data-project-price]");const defaultSupplier=partSupplierNames(part)[0]||"";if(name)name.value=part.name||"";if(code)code.value=part.partNo||"";if(supplierSelect){supplierSelect.innerHTML=supplierOptionsForPart(part,defaultSupplier);supplierSelect.value=defaultSupplier;}if(price&&!String(price.value||"").trim()){const remembered=lastPurchasePrice(part.name,part.partNo,defaultSupplier);if(remembered)price.value=Number(remembered.price).toFixed(2);}}else{row.dataset.catalogPartId="";if(supplierSelect){supplierSelect.innerHTML=supplierOptions("");supplierSelect.value="";}}return;}const supplierSelect=event.target.closest("[data-project-supplier-select]");if(supplierSelect&&supplierSelect.value==="__add_supplier__"){const partId=String(row.dataset.catalogPartId||"");const part=partCatalog.find(item=>String(item.id)===partId);const name=await requestInlineText("Add supplier",{label:"Supplier name",submitLabel:"Add supplier"});if(!name?.trim()){supplierSelect.value=partSupplierNames(part)[0]||"";return;}try{const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false});const saved=payload.value||name.trim();if(part)await linkSupplierToCatalogPart(part.id,saved,{makeDefault:partSupplierNames(part).length===0});const currentPart=partCatalog.find(item=>String(item.id)===partId);supplierSelect.innerHTML=currentPart?supplierOptionsForPart(currentPart,saved):supplierOptions(saved);supplierSelect.value=saved;}catch(error){supplierSelect.value=partSupplierNames(part)[0]||"";showSaveError(error);}}});});
   $("#projectsBody")?.addEventListener("click",e=>{const edit=e.target.closest("[data-project-edit]");if(edit)openProjectDialog(edit.dataset.projectEdit);});
   ensureJobProjectField();
 }
@@ -1584,7 +1638,7 @@ function openProjectDialog(id=""){
   form.elements.id.value=project?.id||"";form.elements.name.value=project?.name||"";form.elements.code.value=project?.code||"";form.elements.status.value=project?.status||"Active";form.elements.budget.value=project?.budget?String(project.budget):"";form.elements.startDate.value=project?.startDate||"";form.elements.expectedEndDate.value=project?.expectedEndDate||"";form.elements.endDate.value=project?.endDate||"";form.elements.notes.value=project?.notes||"";
   const links=$("#projectLinksWrap");if(links)links.hidden=!project;
   if(project){const lists=projectLinkLists(project);$("#projectPartsUsedList").innerHTML=lists.partHtml;$("#projectOrdersList").innerHTML=lists.orderHtml;$("#projectPartSearch").value="";$("#projectOrderSearch").value="";renderProjectDirectParts(project);}else{renderProjectDirectParts(null);}
-  $("#projectDialog")?.showModal();
+  showDataEntryDialog($("#projectDialog"),"projects");
 }
 async function submitProject(e){
   e.preventDefault();const form=e.currentTarget,fd=new FormData(form);const project={id:String(fd.get("id")||"")||undefined,name:String(fd.get("name")||"").trim(),code:String(fd.get("code")||"").trim(),status:String(fd.get("status")||"Active"),budget:Number(fd.get("budget"))||0,startDate:String(fd.get("startDate")||""),expectedEndDate:String(fd.get("expectedEndDate")||""),endDate:String(fd.get("endDate")||""),notes:String(fd.get("notes")||"").trim(),projectParts:collectProjectDirectParts(),manualParts:[]};
@@ -1766,7 +1820,7 @@ function purchaseOrderJobOptions(selected=""){
 }
 async function addPurchaseOrderOption(field,label,rawValue=""){
   let value=String(rawValue||"").trim();
-  if(!value)value=String(prompt(`New ${label}:`)||"").trim();
+  if(!value){const entered=await requestInlineText(`Add ${label}`,{label,submitLabel:`Add ${label}`});value=String(entered||"").trim();}
   if(!value)return "";
   if(field==="currency")value=value.toUpperCase();
   try{
@@ -1776,7 +1830,7 @@ async function addPurchaseOrderOption(field,label,rawValue=""){
   }catch(error){showSaveError(error);return "";}
 }
 async function addPurchaseOrderProject(){
-  const name=String(prompt("New project name:")||"").trim();if(!name)return "";
+  const name=String((await requestInlineText("Add project",{label:"Project name",submitLabel:"Add project"}))||"").trim();if(!name)return "";
   try{const payload=await saveMutation("/api/projects",{action:"save",project:{name,status:"Active",code:"",budget:0,notes:""}});return String(payload.project?.id||"");}catch(error){showSaveError(error);return "";}
 }
 function refreshPurchaseOrderSelects(values={}){
@@ -1859,7 +1913,7 @@ function renderPurchaseOrderBuilder(){
   $("#poBuilderRef").textContent=order?`Editing ${order.orderNo||"open order"}`:"New open order";
   updatePurchaseOrderTotals();
 }
-async function addPurchaseOrderSupplier(){const name=prompt("Supplier name:");if(!name?.trim())return "";try{const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"supplier",value:name.trim()})});if(payload.state)applySharedState(payload);return String(payload.value||name.trim());}catch(error){showSaveError(error);return "";}}
+async function addPurchaseOrderSupplier(){const name=await requestInlineText("Add supplier",{label:"Supplier name",submitLabel:"Add supplier"});if(!name?.trim())return "";try{const payload=await api("/api/catalog",{method:"POST",body:JSON.stringify({type:"supplier",value:name.trim()})});if(payload.state)applySharedState(payload);return String(payload.value||name.trim());}catch(error){showSaveError(error);return "";}}
 async function submitPurchaseOrder(action){
   const supplier=String($("#poSupplierSelect")?.value||"").trim().replace(/^__add_supplier__$/,"").trim(),lines=collectPurchaseOrderLines(),meta=purchaseOrderMeta();
   if(!supplier){alert("Choose or add a supplier first.");return;}
@@ -2336,7 +2390,7 @@ async function openJob(jobNo=null) {
     addOrderedPartRow({date:defaultFormDate()});
     addPartRow({date:defaultFormDate()});
   }
-  jobDialog.showModal();
+  showDataEntryDialog(jobDialog,"all");
   renderPendingJobFiles();
   if(job){
     loadAttachments("job",job.jobNo,$("#jobAttachmentsList"),$("#jobAttachmentStatus"));
@@ -2414,7 +2468,7 @@ async function handleJobPartEditorChange(e){
   if (e.target.classList.contains('supplier-select') && e.target.value === "__add_supplier__") {
     const partId=row.querySelector('.part-select')?.value||"";
     const part=partCatalog.find(p=>String(p.id)===String(partId));
-    const name=prompt("New supplier name:");if(!name?.trim()){e.target.value=partSupplierNames(part)[0]||"";return;}
+    const name=await requestInlineText("Add supplier",{label:"Supplier name",submitLabel:"Add supplier"});if(!name?.trim()){e.target.value=partSupplierNames(part)[0]||"";return;}
     try {
       const payload=await saveMutation("/api/catalog",{type:"supplier",value:name.trim()},{render:false});
       const saved=payload.value||name.trim();
@@ -2582,7 +2636,7 @@ function openMachineDialog(preselect="", machineId="") {
     if (preselect) $("#machineSectionSelect").value = preselect;
     $("#machineSaveBtn").textContent="Save Machine";
   }
-  machineDialog.showModal();
+  showDataEntryDialog(machineDialog,"machines");
 }
 $("#addMachineBtn").addEventListener("click",()=>openMachineDialog());
 $("#manageAddMachineBtn").addEventListener("click",()=>openMachineDialog());
@@ -2709,7 +2763,7 @@ $("#stockForm")?.addEventListener("click",event=>{
 });
 $("#stockForm")?.addEventListener("change",async event=>{
   const select=event.target.closest(".stock-part-supplier");if(!select||select.value!=="__add_supplier__")return;
-  const name=String(prompt("New supplier name:")||"").trim();
+  const name=String((await requestInlineText("Add supplier",{label:"Supplier name",submitLabel:"Add supplier"}))||"").trim();
   if(!name){select.value="";return;}
   try{const payload=await saveMutation("/api/catalog",{type:"supplier",value:name},{render:false});const saved=String(payload.value||name);select.innerHTML=stockSupplierSelectOptions(saved);select.value=saved;}
   catch(error){select.value="";showSaveError(error);}
@@ -2747,17 +2801,16 @@ $("#partsView")?.addEventListener("click",e=>{
 });
 
 $("#manageAddSectionBtn").addEventListener("click",async()=>{
-  const name=prompt("New section name:"); if(!name?.trim())return;
+  const name=await requestInlineText("Add section",{label:"Section name",submitLabel:"Add section"}); if(!name?.trim())return;
   try{await saveMutation("/api/catalog",{type:"section",value:name.trim()});}catch(error){showSaveError(error);}
 });
 $("#manageAddSupplierBtn").addEventListener("click",async()=>{
-  const name=prompt("New supplier name:"); if(!name?.trim())return;
+  const name=await requestInlineText("Add supplier",{label:"Supplier name",submitLabel:"Add supplier"}); if(!name?.trim())return;
   try{await saveMutation("/api/catalog",{type:"supplier",value:name.trim()});}catch(error){showSaveError(error);}
 });
 $("#manageAddPartBtn").addEventListener("click",async()=>{
-  const name=prompt("New part name:"); if(!name?.trim())return;
-  const partNo=prompt("Part number (optional):")||"";
-  try{await saveMutation("/api/catalog",{type:"part",name:name.trim(),partNo:partNo.trim()});}catch(error){showSaveError(error);}
+  const values=await requestInlineFields({title:"Add part",submitLabel:"Add part",fields:[{name:"name",label:"Part name",required:true},{name:"partNo",label:"Part number",required:false}]});if(!values)return;
+  try{await saveMutation("/api/catalog",{type:"part",name:String(values.name).trim(),partNo:String(values.partNo||"").trim(),stockTracked:true,minStock:null});}catch(error){showSaveError(error);}
 });
 $("#dataView").addEventListener("click",e=>{
   const button=e.target.closest('[data-master-action]');
