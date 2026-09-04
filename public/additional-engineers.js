@@ -172,3 +172,34 @@ if (typeof renderDashboard === "function") {
     return result;
   };
 }
+
+// Show the formatted total in the middle of every shared pie chart.
+if (typeof renderPie === "function") {
+  renderPie = function(el, legendEl, rows, format) {
+    if (!el || !legendEl) return;
+    const colors = ["#2f7eea","#36ae68","#f2a01f","#7959d7","#e05b53","#5aa6a6"];
+    const total = (rows || []).reduce((sum, row) => sum + (Number(row?.value) || 0), 0);
+    let acc = 0;
+    const stops = [];
+    (rows || []).forEach((row, index) => {
+      const value = Number(row?.value) || 0;
+      const start = total ? acc / total * 100 : 0;
+      acc += value;
+      const end = total ? acc / total * 100 : 0;
+      stops.push(`${colors[index % colors.length]} ${start}% ${end}%`);
+    });
+    el.style.background = rows?.length ? `conic-gradient(${stops.join(",")})` : "#e7ebf1";
+    el.style.position = "relative";
+    el.innerHTML = `<div class="pie-total-center"><span>Total</span><strong>${esc(format(total))}</strong></div>`;
+    legendEl.innerHTML = rows?.length ? rows.map((row,index)=>`<div class="legend-row"><span class="swatch" style="background:${colors[index%colors.length]}"></span><span>${esc(row.name)}</span><strong>${format(row.value)}</strong></div>`).join("") : `<span class="empty-note">No data for this period.</span>`;
+  };
+
+  const pieTotalStyle = document.createElement("style");
+  pieTotalStyle.id = "pieTotalStyles";
+  pieTotalStyle.textContent = `
+    .pie-total-center{position:absolute;inset:24%;border-radius:50%;background:var(--card,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-shadow:0 0 0 1px rgba(15,23,42,.04);pointer-events:none;padding:6px;box-sizing:border-box}
+    .pie-total-center span{font-size:.72rem;line-height:1;color:#667085;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
+    .pie-total-center strong{display:block;margin-top:4px;font-size:clamp(.78rem,1.6vw,1.15rem);line-height:1.15;color:#182230;max-width:100%;overflow-wrap:anywhere}
+  `;
+  document.head.appendChild(pieTotalStyle);
+}
