@@ -127,3 +127,48 @@ if (typeof purchaseRequisitionDescription === "function") {
     return code ? `${name}. Part code: ${code}` : name;
   };
 }
+
+// Dashboard job lists: newest raised jobs first.
+function newestJobFirst(a, b) {
+  const byRaised = String(b?.raised || "").localeCompare(String(a?.raised || ""));
+  if (byRaised) return byRaised;
+  return String(b?.jobNo || "").localeCompare(String(a?.jobNo || ""), undefined, { numeric: true, sensitivity: "base" });
+}
+
+if (typeof renderMonthTable === "function") {
+  renderMonthTable = function() {
+    let rows = selectedDashboardJobs().slice().sort(newestJobFirst);
+    const sf = $("#statusFilter").value, pf = $("#priorityFilter").value, q = $("#jobSearch").value.trim().toLowerCase();
+    if (sf !== "all") rows = rows.filter(j => j.status === sf);
+    if (pf !== "all") rows = rows.filter(j => j.priority === pf);
+    if (q) rows = rows.filter(j => [j.jobNo,j.title,j.machine,j.section,j.assigned].join(" ").toLowerCase().includes(q));
+    $("#jobsTableTitle").textContent = dashboardPeriod === "all" ? "All Jobs" : dashboardPeriod === "year" ? `${selectedYear} Jobs` : `${FULL_MONTHS[selectedMonth]} Jobs`;
+    $("#monthJobsBody").innerHTML = rows.length ? rows.map(j => jobRow(j,true,true,true)).join("") : `<tr><td colspan="12">No jobs match these filters.</td></tr>`;
+    bindPins();
+    bindJobEditors();
+  };
+}
+
+if (typeof renderDashboard === "function") {
+  const originalRenderDashboard = renderDashboard;
+  renderDashboard = function(...args) {
+    const result = originalRenderDashboard.apply(this, args);
+    const body = $("#pinnedJobsBody");
+    if (body && typeof jobs !== "undefined") {
+      const rows = [...body.querySelectorAll("tr")];
+      if (rows.length > 1) {
+        const jobForRow = row => {
+          const jobNo = String(row.querySelector("td strong")?.textContent || "").replace("📌", "").trim();
+          return jobs.find(job => String(job?.jobNo || "") === jobNo) || null;
+        };
+        rows.sort((a,b) => {
+          const jobA = jobForRow(a), jobB = jobForRow(b);
+          if (!jobA || !jobB) return 0;
+          return newestJobFirst(jobA, jobB);
+        });
+        rows.forEach(row => body.appendChild(row));
+      }
+    }
+    return result;
+  };
+}
