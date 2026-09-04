@@ -157,7 +157,18 @@
       <div class="modal-actions"><button type="button" class="btn secondary" data-close-stock>Cancel</button><button id="stockSaveBtn" class="btn primary" type="submit">Save Stock</button></div>
     </form>
   </dialog>
-
   <script src="app.js"></script>
+  <script>
+    (() => {
+      const renameDashboardOrderedLabel = () => {
+        const value = document.getElementById('kpiOrderedSpend');
+        const label = value?.nextElementSibling;
+        if (label && label.textContent.trim() === 'Parts ordered') label.textContent = 'Parts ordered for jobs';
+      };
+      renameDashboardOrderedLabel();
+      const dashboard = document.getElementById('dashboardView');
+      if (dashboard) new MutationObserver(renameDashboardOrderedLabel).observe(dashboard, {childList:true, subtree:true, characterData:true});
+    })();
+  </script>
 </body>
 </html>
