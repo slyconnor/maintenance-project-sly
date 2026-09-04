@@ -1,7 +1,7 @@
 {
   "$schema": "./node_modules/wrangler/config-schema.json",
   "name": "maintenance",
-  "main": "./src/index.js",
+  "main": "./src/index-wrapper.js",
   "compatibility_date": "2026-08-29",
   "workers_dev": false,
   "keep_vars": true,
