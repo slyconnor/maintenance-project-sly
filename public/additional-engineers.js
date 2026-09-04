@@ -197,7 +197,8 @@ if (typeof renderPie === "function") {
   const pieTotalStyle = document.createElement("style");
   pieTotalStyle.id = "pieTotalStyles";
   pieTotalStyle.textContent = `
-    .pie-total-center{position:absolute;inset:24%;border-radius:50%;background:var(--card,#fff);display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-shadow:0 0 0 1px rgba(15,23,42,.04);pointer-events:none;padding:6px;box-sizing:border-box}
+    .pie:after{z-index:1}
+    .pie-total-center{position:absolute;top:50%;left:50%;width:52%;aspect-ratio:1;transform:translate(-50%,-50%);z-index:2;border-radius:50%;background:var(--panel,var(--card,#fff));display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center;box-shadow:0 0 0 1px rgba(15,23,42,.04);pointer-events:none;padding:6px;box-sizing:border-box}
     .pie-total-center span{font-size:.72rem;line-height:1;color:#667085;font-weight:700;text-transform:uppercase;letter-spacing:.04em}
     .pie-total-center strong{display:block;margin-top:4px;font-size:clamp(.78rem,1.6vw,1.15rem);line-height:1.15;color:#182230;max-width:100%;overflow-wrap:anywhere}
   `;
