@@ -324,3 +324,36 @@ if (typeof renderDashboard === "function" && typeof renderPie === "function") {
   ensureDashboardPieSelectors();
   if (typeof jobs !== "undefined" && typeof machines !== "undefined") renderDashboardPieBreakdowns();
 }
+
+// Saved open-order cards: show the PO number and supplier together in the title.
+if (typeof renderPurchaseOrders === "function") {
+  const originalRenderPurchaseOrdersForTitles = renderPurchaseOrders;
+
+  function formatSavedOpenOrderTitles() {
+    const list = document.getElementById("poOpenList");
+    if (!list || typeof purchaseOrders === "undefined") return;
+
+    list.querySelectorAll(".po-list-card").forEach(card => {
+      const id = card.querySelector("[data-po-edit]")?.dataset.poEdit
+        || card.querySelector("[data-po-place]")?.dataset.poPlace
+        || card.querySelector("[data-po-download]")?.dataset.poDownload;
+      const order = purchaseOrders.find(row => String(row?.id || "") === String(id || ""));
+      if (!order) return;
+
+      const heading = card.querySelector(".po-list-head h3");
+      const meta = card.querySelector(".po-meta");
+      const orderNo = String(order.orderNo || "Open order").trim();
+      const supplier = String(order.supplier || "No supplier").trim();
+      if (heading) heading.textContent = `${orderNo} ${supplier}`;
+      if (meta) meta.textContent = `Updated ${purchaseOrderDate(order.updatedAt || order.createdAt)}`;
+    });
+  }
+
+  renderPurchaseOrders = function(...args) {
+    const result = originalRenderPurchaseOrdersForTitles.apply(this, args);
+    formatSavedOpenOrderTitles();
+    return result;
+  };
+
+  formatSavedOpenOrderTitles();
+}
