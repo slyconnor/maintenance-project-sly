@@ -204,3 +204,123 @@ if (typeof renderPie === "function") {
   `;
   document.head.appendChild(pieTotalStyle);
 }
+
+// Dashboard pie charts can be grouped independently by machine category, machine name, or section.
+if (typeof renderDashboard === "function" && typeof renderPie === "function") {
+  const DASHBOARD_PIE_GROUPS = new Set(["category", "machine", "section"]);
+  const dashboardPieLabels = { category: "machine category", machine: "machine name", section: "section" };
+  const dashboardPieOptions = `
+    <option value="category">Machine category</option>
+    <option value="machine">Machine name</option>
+    <option value="section">Section</option>
+  `;
+
+  const savedPieGroup = key => {
+    const value = localStorage.getItem(key);
+    return DASHBOARD_PIE_GROUPS.has(value) ? value : "category";
+  };
+
+  let hoursPieGroup = savedPieGroup("dashboardHoursPieGroup");
+  let spendPieGroup = savedPieGroup("dashboardSpendPieGroup");
+
+  function dashboardPieName(job, group) {
+    const machine = typeof machineForJob === "function" ? machineForJob(job) : null;
+    if (group === "machine") {
+      if (machine) return `${machine.assetId ? `${machine.assetId} · ` : ""}${machine.name || job?.machine || "Unnamed machine"}`;
+      return job?.machine || "General work";
+    }
+    if (group === "section") return job?.section || machine?.section || "Other";
+    return typeof jobMachineCategory === "function" ? jobMachineCategory(job) : (machine?.category || (job?.machine ? "Other" : "General work"));
+  }
+
+  function dashboardPieRows(group, valueForJob) {
+    const grouped = new Map();
+    const source = typeof visibleJobs === "function" ? visibleJobs() : (Array.isArray(jobs) ? jobs : []);
+    for (const job of source) {
+      const value = Number(valueForJob(job)) || 0;
+      if (!value) continue;
+      const name = dashboardPieName(job, group);
+      grouped.set(name, (grouped.get(name) || 0) + value);
+    }
+    return [...grouped.entries()]
+      .map(([name, value]) => ({ name, value }))
+      .sort((a, b) => b.value - a.value || String(a.name).localeCompare(String(b.name)));
+  }
+
+  function ensureDashboardPieSelector(pieId, selectId, storageKey, getGroup, setGroup) {
+    const pie = document.getElementById(pieId);
+    const panel = pie?.closest(".chart-panel");
+    const heading = panel?.querySelector("h2");
+    if (!panel || !heading) return;
+
+    let head = panel.querySelector(".dashboard-pie-head");
+    if (!head) {
+      head = document.createElement("div");
+      head.className = "dashboard-pie-head";
+      heading.parentElement.insertBefore(head, heading);
+      head.appendChild(heading);
+    }
+
+    let select = document.getElementById(selectId);
+    if (!select) {
+      const label = document.createElement("label");
+      label.className = "dashboard-pie-picker";
+      label.innerHTML = `<span>View by</span><select id="${selectId}" aria-label="Choose pie chart breakdown">${dashboardPieOptions}</select>`;
+      head.appendChild(label);
+      select = label.querySelector("select");
+      select.addEventListener("change", event => {
+        const next = String(event.target.value || "");
+        if (!DASHBOARD_PIE_GROUPS.has(next)) return;
+        setGroup(next);
+        localStorage.setItem(storageKey, next);
+        renderDashboardPieBreakdowns();
+      });
+    }
+    select.value = getGroup();
+  }
+
+  function ensureDashboardPieSelectors() {
+    ensureDashboardPieSelector("hoursPie", "hoursPieGroupSelect", "dashboardHoursPieGroup", () => hoursPieGroup, value => { hoursPieGroup = value; });
+    ensureDashboardPieSelector("spendPie", "spendPieGroupSelect", "dashboardSpendPieGroup", () => spendPieGroup, value => { spendPieGroup = value; });
+  }
+
+  function renderDashboardPieBreakdowns() {
+    ensureDashboardPieSelectors();
+    const hoursPie = document.getElementById("hoursPie");
+    const spendPie = document.getElementById("spendPie");
+    if (!hoursPie || !spendPie || typeof workHoursInDashboardPeriod !== "function" || typeof spendInDashboardPeriod !== "function") return;
+
+    const hourRows = dashboardPieRows(hoursPieGroup, workHoursInDashboardPeriod);
+    const spendRows = dashboardPieRows(spendPieGroup, spendInDashboardPeriod);
+    const hoursHeading = hoursPie.closest(".chart-panel")?.querySelector("h2");
+    const spendHeading = spendPie.closest(".chart-panel")?.querySelector("h2");
+    if (hoursHeading) hoursHeading.textContent = `Maintenance time by ${dashboardPieLabels[hoursPieGroup]}`;
+    if (spendHeading) spendHeading.textContent = `Parts spend by ${dashboardPieLabels[spendPieGroup]}`;
+    const hoursSelect = document.getElementById("hoursPieGroupSelect");
+    const spendSelect = document.getElementById("spendPieGroupSelect");
+    if (hoursSelect) hoursSelect.value = hoursPieGroup;
+    if (spendSelect) spendSelect.value = spendPieGroup;
+    renderPie(hoursPie, document.getElementById("hoursLegend"), hourRows, value => `${Number(value).toFixed(1)} hrs`);
+    renderPie(spendPie, document.getElementById("spendLegend"), spendRows, value => money(value));
+  }
+
+  const pieBreakdownRenderDashboard = renderDashboard;
+  renderDashboard = function(...args) {
+    const result = pieBreakdownRenderDashboard.apply(this, args);
+    renderDashboardPieBreakdowns();
+    return result;
+  };
+
+  const dashboardPieStyle = document.createElement("style");
+  dashboardPieStyle.id = "dashboardPieBreakdownStyles";
+  dashboardPieStyle.textContent = `
+    .dashboard-pie-head{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-bottom:2px}
+    .dashboard-pie-head h2{margin:0}
+    .dashboard-pie-picker{display:flex;align-items:center;gap:7px;font-size:11px;font-weight:700;color:var(--muted);white-space:nowrap}
+    .dashboard-pie-picker select{border:1px solid var(--border);background:#fff;color:var(--ink);border-radius:7px;padding:6px 8px;font:inherit;font-weight:700;max-width:180px}
+    @media(max-width:720px){.dashboard-pie-head{align-items:flex-start;flex-direction:column}.dashboard-pie-picker{width:100%;justify-content:space-between}.dashboard-pie-picker select{max-width:65%}}
+  `;
+  document.head.appendChild(dashboardPieStyle);
+  ensureDashboardPieSelectors();
+  if (typeof jobs !== "undefined" && typeof machines !== "undefined") renderDashboardPieBreakdowns();
+}
