@@ -2232,13 +2232,14 @@ async function buildPurchaseRequisitionPdf(order){
   setText("Notes",order?.notes||"",10);
   setText("Requisition raised by",order?.requestedBy||"",10);
   setText("Date goods neededRequisition raised by",purchaseRequisitionDate(order?.dateQuoteNeeded),10);
-  // Preserve the original AcroForm instead of flattening it. Acrobat will render the fields using
-  // their original default appearance/font/format actions, keeping the PDF editable like the old form.
+  // Keep the AcroForm editable, but write stable appearance streams before saving.
+  // Leaving NeedAppearances enabled makes some PDF viewers repaint the form widgets dynamically
+  // while mouse-wheel scrolling, which can make the thin table lines appear to flicker/disappear.
+  try{form.updateFieldAppearances(font);}catch{}
   try{
     const acroRef=doc.catalog.get(PDFLib.PDFName.of("AcroForm"));
     const acro=doc.context.lookup(acroRef);
-    const trueValue=PDFLib.PDFBool?.True||PDFLib.PDFBool?.of?.(true);
-    if(acro?.set&&trueValue)acro.set(PDFLib.PDFName.of("NeedAppearances"),trueValue);
+    if(acro?.delete)acro.delete(PDFLib.PDFName.of("NeedAppearances"));
   }catch{}
   return doc.save({useObjectStreams:false,addDefaultPage:false,updateFieldAppearances:false});
 }
