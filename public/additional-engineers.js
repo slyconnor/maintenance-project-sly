@@ -118,3 +118,12 @@
   `;
   document.head.appendChild(style);
 })();
+
+// Keep the purchase requisition part code beside the part name in the PDF description.
+if (typeof purchaseRequisitionDescription === "function") {
+  purchaseRequisitionDescription = function(line) {
+    const name = String(line?.partName || "").trim();
+    const code = String(line?.partCode || "").trim();
+    return code ? `${name}. Part code: ${code}` : name;
+  };
+}
