@@ -21,11 +21,11 @@
     let field = document.getElementById(FIELD_ID);
     if (field) return field;
 
-    field = document.createElement("label");
+    field = document.createElement("div");
     field.id = FIELD_ID;
     field.className = "span-2 additional-engineers-field";
     field.innerHTML = `
-      <span>Additional engineers (optional)</span>
+      <span class="additional-engineers-title">Additional engineers (optional)</span>
       <div id="${LIST_ID}" class="additional-engineers-list"></div>
       <small class="field-help">Select any other engineers who are helping with this job.</small>
     `;
@@ -110,6 +110,7 @@
   const style = document.createElement("style");
   style.textContent = `
     .additional-engineers-field{align-self:start}
+    .additional-engineers-title{display:block;font-weight:600}
     .additional-engineers-list{display:flex;flex-wrap:wrap;gap:8px;margin-top:7px;padding:10px;border:1px solid #d7dde7;border-radius:10px;background:#f8fafc}
     .additional-engineer-option{display:inline-flex!important;align-items:center;gap:6px;width:auto!important;margin:0!important;padding:6px 9px;border:1px solid #d7dde7;border-radius:999px;background:#fff;cursor:pointer;font-weight:600}
     .additional-engineer-option input{width:auto!important;margin:0}
