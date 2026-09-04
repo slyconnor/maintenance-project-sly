@@ -34,6 +34,7 @@ let appSettings = {
 const now = new Date();
 let selectedYear = now.getFullYear();
 let selectedMonth = now.getMonth();
+let dashboardPeriod = "month"; // month | year | all
 let selectedMachineId = null;
 let selectedProfileId = "all"; // Cloudflare login proves access; profile choice is only a filter.
 let machineDetailTab = "overview";
@@ -126,6 +127,21 @@ const visibleJobs = () => selectedProfileId === "all" ? jobs : jobs.filter(j=>j.
 const profileContext = () => selectedProfileId === "all" ? "All Jobs" : selectedProfileName() || "All Jobs";
 const selectedMonthJobs = () => visibleJobs().filter(j => inSelectedMonth(j.raised) || (!["Completed","Cancelled"].includes(j.status) && j.raised < `${selectedPrefix()}-32`) || inSelectedMonth(j.completed) || (j.parts||[]).some(p=>inSelectedMonth(p.date)) || (j.timeEntries||[]).some(t=>inSelectedMonth(t.date)));
 const workHoursThisMonth = j => Array.isArray(j.timeEntries) ? j.timeEntries.filter(t=>inSelectedMonth(t.date)).reduce((a,t)=>a+(Number(t.hours)||0),0) : 0;
+const inSelectedYear = d => Boolean(d && String(d).startsWith(`${selectedYear}-`));
+const inDashboardPeriod = d => dashboardPeriod === "all" ? Boolean(d) : dashboardPeriod === "year" ? inSelectedYear(d) : inSelectedMonth(d);
+const partsInDashboardPeriod = j => dashboardPeriod === "all" ? (j.parts||[]) : (j.parts||[]).filter(p=>inDashboardPeriod(p.date));
+const spendInDashboardPeriod = j => partsInDashboardPeriod(j).reduce((a,p)=>a+partTotal(p),0);
+const orderedSpendInDashboardPeriod = j => partsInDashboardPeriod(j).reduce((a,p)=>a+partOrderedTotal(p),0);
+const workHoursInDashboardPeriod = j => dashboardPeriod === "all" ? jobHours(j) : (Array.isArray(j.timeEntries) ? j.timeEntries.filter(t=>inDashboardPeriod(t.date)).reduce((a,t)=>a+(Number(t.hours)||0),0) : 0);
+const dashboardPeriodLabel = () => dashboardPeriod === "all" ? "All time" : dashboardPeriod === "year" ? String(selectedYear) : `${FULL_MONTHS[selectedMonth]} ${selectedYear}`;
+const dashboardPeriodDescription = () => dashboardPeriod === "all" ? "all recorded maintenance history" : dashboardPeriod === "year" ? `the whole of ${selectedYear}` : "this month";
+const selectedDashboardJobs = () => {
+  const base=visibleJobs();
+  if(dashboardPeriod === "all") return base;
+  if(dashboardPeriod === "month") return selectedMonthJobs();
+  const yearEnd=`${selectedYear}-12-32`;
+  return base.filter(j => inSelectedYear(j.raised) || (!["Completed","Cancelled"].includes(j.status) && j.raised && j.raised < yearEnd) || inSelectedYear(j.completed) || (j.parts||[]).some(p=>inSelectedYear(p.date)) || (j.timeEntries||[]).some(t=>inSelectedYear(t.date)));
+};
 
 function inferSection(machineName) {
   return machines.find(m => m.name === machineName)?.section || "General";
@@ -714,8 +730,8 @@ function renderProfileSelector() {
 function statusPill(s) { return `<span class="pill s-${esc(String(s).toLowerCase().replaceAll(" ","-"))}">${esc(s)}</span>`; }
 function priorityPill(p) { return `<span class="pill p-${esc(String(p).toLowerCase())}">${esc(p)}</span>`; }
 function machineCell(j) { const m=machineForJob(j); return `<strong class="cell-main">${esc(m?.assetId || "No asset ID")} · ${esc(j.machine)}</strong><span class="cell-sub">${esc(j.section || inferSection(j.machine))}${m?.location?` · ${esc(m.location)}`:""}</span>`; }
-function jobRow(j, withCompleted=true, withPin=true, monthScope=false) {
-  return `<tr><td><button type="button" class="job-link" data-edit-job="${esc(j.jobNo)}" title="Open / edit job">${esc(j.jobNo)}</button></td><td>${esc(j.title)}</td><td>${machineCell(j)}</td><td>${priorityPill(j.priority)}</td><td>${statusPill(j.status)}</td><td>${fmtDate(j.raised)}</td><td>${fmtDate(j.target)}</td>${withCompleted?`<td>${fmtDate(j.completed)}</td>`:""}<td>${(monthScope?workHoursThisMonth(j):jobHours(j)).toFixed(1)}</td>${withCompleted?`<td>${money(monthScope?spendThisMonth(j):jobPartsCost(j))}</td>`:""}<td>${esc(j.assigned||"—")}</td>${withPin?`<td><button class="pin-btn" data-pin="${esc(j.jobNo)}" title="Pin/unpin">${j.pinned?"📌":"○"}</button></td>`:""}</tr>`;
+function jobRow(j, withCompleted=true, withPin=true, periodScope=false) {
+  return `<tr><td><button type="button" class="job-link" data-edit-job="${esc(j.jobNo)}" title="Open / edit job">${esc(j.jobNo)}</button></td><td>${esc(j.title)}</td><td>${machineCell(j)}</td><td>${priorityPill(j.priority)}</td><td>${statusPill(j.status)}</td><td>${fmtDate(j.raised)}</td><td>${fmtDate(j.target)}</td>${withCompleted?`<td>${fmtDate(j.completed)}</td>`:""}<td>${(periodScope?workHoursInDashboardPeriod(j):jobHours(j)).toFixed(1)}</td>${withCompleted?`<td>${money(periodScope?spendInDashboardPeriod(j):jobPartsCost(j))}</td>`:""}<td>${esc(j.assigned||"—")}</td>${withPin?`<td><button class="pin-btn" data-pin="${esc(j.jobNo)}" title="Pin/unpin">${j.pinned?"📌":"○"}</button></td>`:""}</tr>`;
 }
 
 function renderPie(el, legendEl, rows, format) {
@@ -730,7 +746,7 @@ function renderPie(el, legendEl, rows, format) {
     stops.push(`${colors[i%colors.length]} ${start}% ${end}%`);
   });
   el.style.background = rows.length ? `conic-gradient(${stops.join(",")})` : "#e7ebf1";
-  legendEl.innerHTML = rows.length ? rows.map((r,i)=>`<div class="legend-row"><span class="swatch" style="background:${colors[i%colors.length]}"></span><span>${esc(r.name)}</span><strong>${format(r.value)}</strong></div>`).join("") : `<span class="empty-note">No data for this month.</span>`;
+  legendEl.innerHTML = rows.length ? rows.map((r,i)=>`<div class="legend-row"><span class="swatch" style="background:${colors[i%colors.length]}"></span><span>${esc(r.name)}</span><strong>${format(r.value)}</strong></div>`).join("") : `<span class="empty-note">No data for this period.</span>`;
 }
 
 function ensureDashboardSpendSplit() {
@@ -780,22 +796,52 @@ function ensureDashboardSpendSplit() {
   }
 }
 
+function ensureDashboardPeriodSelector() {
+  if(!document.getElementById("dashboardPeriodStyles")){
+    const style=document.createElement("style");
+    style.id="dashboardPeriodStyles";
+    style.textContent=`
+      .dashboard-period-switch{display:inline-flex;gap:4px;flex-wrap:wrap;padding:4px;border:1px solid #d7dde7;border-radius:10px;background:#f7f9fc;margin-top:10px}
+      .dashboard-period-btn{border:0;background:transparent;color:inherit;font:inherit;font-size:.82rem;font-weight:700;padding:7px 11px;border-radius:7px;cursor:pointer}
+      .dashboard-period-btn.active{background:#fff;box-shadow:0 1px 4px rgba(16,24,40,.12);color:#245cc5}
+      @media(max-width:520px){.dashboard-period-switch{display:flex;width:100%;box-sizing:border-box}.dashboard-period-btn{flex:1;padding:7px 6px}}
+    `;
+    document.head.appendChild(style);
+  }
+  let wrap=document.getElementById("dashboardPeriodSelector");
+  if(!wrap){
+    wrap=document.createElement("div");
+    wrap.id="dashboardPeriodSelector";
+    wrap.className="dashboard-period-switch";
+    wrap.setAttribute("aria-label","Dashboard period");
+    wrap.innerHTML=`<button type="button" class="dashboard-period-btn" data-dashboard-period="month">This Month</button><button type="button" class="dashboard-period-btn" data-dashboard-period="year">This Year</button><button type="button" class="dashboard-period-btn" data-dashboard-period="all">All Time</button>`;
+    const subtitle=$("#dashboardSubtitle");
+    if(subtitle) subtitle.insertAdjacentElement("afterend",wrap);
+    else $("#monthTitle")?.insertAdjacentElement("afterend",wrap);
+    wrap.querySelectorAll("[data-dashboard-period]").forEach(button=>button.addEventListener("click",()=>{
+      dashboardPeriod=button.dataset.dashboardPeriod||"month";
+      renderDashboard();
+    }));
+  }
+  wrap.querySelectorAll("[data-dashboard-period]").forEach(button=>button.classList.toggle("active",button.dataset.dashboardPeriod===dashboardPeriod));
+}
+
 function renderDashboard() {
   const base = visibleJobs();
-  const monthJobs = selectedMonthJobs();
-  const raised = base.filter(j=>inSelectedMonth(j.raised));
+  const periodJobs = selectedDashboardJobs();
+  const raised = dashboardPeriod === "all" ? base : base.filter(j=>inDashboardPeriod(j.raised));
   const open = base.filter(j=>!["Completed","Cancelled"].includes(j.status));
-  const hours = monthJobs.reduce((a,j)=>a+workHoursThisMonth(j),0);
-  const usedSpend = base.reduce((a,j)=>a+spendThisMonth(j),0);
-  const orderedSpend = base.reduce((a,j)=>a+orderedSpendThisMonth(j),0);
-  $("#monthTitle").textContent = `${FULL_MONTHS[selectedMonth]} ${selectedYear}`;
-  $("#dashboardSubtitle").textContent = selectedProfileId === "all" ? "Overview of maintenance activity for the whole team this month." : `Showing only jobs and activity assigned to ${profileContext()}.`;
-  $("#sideMonthLabel").textContent = `${FULL_MONTHS[selectedMonth]} ${selectedYear} · ${profileContext()}`;
+  const hours = base.reduce((a,j)=>a+workHoursInDashboardPeriod(j),0);
+  const usedSpend = base.reduce((a,j)=>a+spendInDashboardPeriod(j),0);
+  const orderedSpend = base.reduce((a,j)=>a+orderedSpendInDashboardPeriod(j),0);
+  ensureDashboardPeriodSelector();
+  $("#monthTitle").textContent = dashboardPeriodLabel();
+  $("#dashboardSubtitle").textContent = selectedProfileId === "all" ? `Overview of maintenance activity for the whole team across ${dashboardPeriodDescription()}.` : `Showing ${profileContext()} activity across ${dashboardPeriodDescription()}.`;
+  $("#sideMonthLabel").textContent = `${dashboardPeriodLabel()} · ${profileContext()}`;
   $("#kpiJobs").textContent = raised.length;
   $("#kpiOpen").textContent = open.length;
   $("#kpiHours").textContent = hours.toFixed(1);
   ensureDashboardSpendSplit();
-  // The sidebar summary uses the same value as actual parts consumed.
   const sideSpendValue = $("#sideSpend");
   if (sideSpendValue?.parentElement) {
     const sideLabel = [...sideSpendValue.parentElement.querySelectorAll("span,small,p,div")].find(el =>
@@ -810,23 +856,23 @@ function renderDashboard() {
   $("#openBadge").textContent = open.length;
 
   const cats = [...new Set([...machines.map(m=>m.category || "Other"), ...base.map(jobMachineCategory)])];
-  const hourRows = cats.map(c=>({name:c,value:base.filter(j=>jobMachineCategory(j)===c).reduce((a,j)=>a+workHoursThisMonth(j),0)})).filter(x=>x.value>0);
-  const spendRows = cats.map(c=>({name:c,value:base.filter(j=>jobMachineCategory(j)===c).reduce((a,j)=>a+spendThisMonth(j),0)})).filter(x=>x.value>0);
+  const hourRows = cats.map(c=>({name:c,value:base.filter(j=>jobMachineCategory(j)===c).reduce((a,j)=>a+workHoursInDashboardPeriod(j),0)})).filter(x=>x.value>0);
+  const spendRows = cats.map(c=>({name:c,value:base.filter(j=>jobMachineCategory(j)===c).reduce((a,j)=>a+spendInDashboardPeriod(j),0)})).filter(x=>x.value>0);
   renderPie($("#hoursPie"),$("#hoursLegend"),hourRows,v=>`${v.toFixed(1)} hrs`);
   renderPie($("#spendPie"),$("#spendLegend"),spendRows,v=>money(v));
 
-  const pinned = base.filter(j=>j.pinned && !["Completed","Cancelled"].includes(j.status));
-  $("#pinnedJobsBody").innerHTML = pinned.length ? pinned.map(j=>jobRow(j,false,false,true)).join("") : `<tr><td colspan="10">No pinned jobs for ${esc(profileContext())}.</td></tr>`;
+  const pinned = periodJobs.filter(j=>j.pinned && !["Completed","Cancelled"].includes(j.status));
+  $("#pinnedJobsBody").innerHTML = pinned.length ? pinned.map(j=>jobRow(j,false,false,true)).join("") : `<tr><td colspan="10">No pinned jobs for ${esc(profileContext())} in ${esc(dashboardPeriodLabel())}.</td></tr>`;
   renderMonthTable();
 }
 
 function renderMonthTable() {
-  let rows = selectedMonthJobs();
+  let rows = selectedDashboardJobs();
   const sf = $("#statusFilter").value, pf = $("#priorityFilter").value, q = $("#jobSearch").value.trim().toLowerCase();
   if (sf !== "all") rows = rows.filter(j=>j.status===sf);
   if (pf !== "all") rows = rows.filter(j=>j.priority===pf);
   if (q) rows = rows.filter(j=>[j.jobNo,j.title,j.machine,j.section,j.assigned].join(" ").toLowerCase().includes(q));
-  $("#jobsTableTitle").textContent = `${FULL_MONTHS[selectedMonth]} Jobs`;
+  $("#jobsTableTitle").textContent = dashboardPeriod === "all" ? "All Jobs" : dashboardPeriod === "year" ? `${selectedYear} Jobs` : `${FULL_MONTHS[selectedMonth]} Jobs`;
   $("#monthJobsBody").innerHTML = rows.length ? rows.map(j=>jobRow(j,true,true,true)).join("") : `<tr><td colspan="12">No jobs match these filters.</td></tr>`;
   bindPins();
   bindJobEditors();
@@ -2325,7 +2371,7 @@ function bindPins() {
   });
 }
 function bindMonthTabs() {
-  $$('[data-month]').forEach(b=>b.addEventListener('click',()=>{selectedMonth=Number(b.dataset.month);renderAll();}));
+  $$('[data-month]').forEach(b=>b.addEventListener('click',()=>{selectedMonth=Number(b.dataset.month);dashboardPeriod="month";renderAll();}));
 }
 function switchView(name) {
   $$('.view').forEach(v=>v.classList.remove('active'));
