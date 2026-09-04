@@ -8,11 +8,12 @@ function partTotal(p){return (Number(p.qty)||0)*(Number(p.unitPrice)||0)}
 function jobHours(j){return Array.isArray(j.timeEntries)?j.timeEntries.reduce((a,t)=>a+(Number(t.hours)||0),0):Number(j.hours)||0}
 function pill(s){return `<span class="display-pill ${String(s||"").toLowerCase().replaceAll(" ","-")}">${esc(s||"—")}</span>`}
 function isOpenJob(j){return !["Completed","Cancelled"].includes(String(j?.status||""))}
-function openJobRank(j){
-  if(!isOpenJob(j))return 1;
-  return 0;
-}
 function priorityRank(priority){return ({Critical:0,High:1,Medium:2,Low:3})[String(priority||"")]??4}
+function newestJobFirst(a,b){
+  const byRaised=String(b?.raised||"").localeCompare(String(a?.raised||""));
+  if(byRaised)return byRaised;
+  return Number(b.pinned)-Number(a.pinned)||priorityRank(a.priority)-priorityRank(b.priority)||String(b.jobNo||"").localeCompare(String(a.jobNo||""),undefined,{numeric:true,sensitivity:"base"});
+}
 
 async function getState(){
   const response=await fetch("/api/state",{credentials:"same-origin",headers:{accept:"application/json"}});
@@ -31,13 +32,7 @@ async function render(){
     const machineFor=j=>machines.find(m=>m.name===j.machine)||null;
     const timeMonth=j=>Array.isArray(j.timeEntries)?j.timeEntries.filter(t=>inMonth(t.date)).reduce((a,t)=>a+(Number(t.hours)||0),0):0;
     const partsMonth=j=>(j.parts||[]).filter(p=>inMonth(p.date)).reduce((a,p)=>a+partTotal(p),0);
-    const currentJobs=jobs.filter(j=>inMonth(j.raised)||inMonth(j.completed)||(j.timeEntries||[]).some(t=>inMonth(t.date))||(j.parts||[]).some(p=>inMonth(p.date))||(isOpenJob(j)&&j.raised<`${prefix}-32`)).sort((a,b)=>
-      openJobRank(a)-openJobRank(b)||
-      Number(b.pinned)-Number(a.pinned)||
-      priorityRank(a.priority)-priorityRank(b.priority)||
-      (a.target||"9999").localeCompare(b.target||"9999")||
-      String(a.jobNo||"").localeCompare(String(b.jobNo||""))
-    );
+    const currentJobs=jobs.filter(j=>inMonth(j.raised)||inMonth(j.completed)||(j.timeEntries||[]).some(t=>inMonth(t.date))||(j.parts||[]).some(p=>inMonth(p.date))||(isOpenJob(j)&&j.raised<`${prefix}-32`)).sort(newestJobFirst);
     const open=jobs.filter(isOpenJob).length;
     const raised=jobs.filter(j=>inMonth(j.raised)).length;
     const hours=jobs.reduce((a,j)=>a+timeMonth(j),0),spend=jobs.reduce((a,j)=>a+partsMonth(j),0);
